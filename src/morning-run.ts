@@ -314,7 +314,6 @@ export async function morningLoop(
   ports: MorningLoopPorts,
   { stop, invocation }: MorningLoopOptions = {},
 ): Promise<InvocationReport> {
-  notify(ports.progress, { kind: "invocation-started" });
   const startedAt = ports.clock.now();
   const today = localDay(startedAt);
   // One slot per iteration, in the order they started. A slot is left empty

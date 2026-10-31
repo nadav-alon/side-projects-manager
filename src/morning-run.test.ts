@@ -9882,7 +9882,6 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       assert.deepEqual(seenBeforeRun, [
-        "invocation-started",
         "iteration-selected",
         "container-started",
       ]);
@@ -9901,7 +9900,7 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(seenWhilePreparing, ["invocation-started", "iteration-selected"]);
+      assert.deepEqual(seenWhilePreparing, ["iteration-selected"]);
       assert.equal(ports.sandbox.prepared.length, 1);
     });
 
@@ -10050,21 +10049,6 @@ describe("morningLoop", () => {
       assert.equal(ports.sandbox.uxReviews[0]?.image, prepared);
     });
 
-    it("announces the invocation's start before anything else", async () => {
-      const ports = fakePorts();
-      readyToWork(ports);
-      const progress = new FakeProgress();
-      ports.progress = progress;
-
-      await morningLoop(ports);
-
-      assert.equal(progress.events[0]?.kind, "invocation-started");
-      assert.equal(
-        progress.events.filter((event) => event.kind === "invocation-started").length,
-        1,
-      );
-    });
-
     it("announces a failed iteration with the ticket and why, including a refused image build", async () => {
       const ports = fakePorts();
       readyToWork(ports);
@@ -10176,7 +10160,7 @@ describe("morningLoop", () => {
 
       assert.deepEqual(
         progress.events.map((event) => event.kind),
-        ["invocation-started", "iteration-selected", "stood-down"],
+        ["iteration-selected", "stood-down"],
       );
       const stoodDown = progress.events.find(
         (event) => event.kind === "stood-down",
@@ -10203,7 +10187,6 @@ describe("morningLoop", () => {
       assert.deepEqual(
         progress.events.map((event) => event.kind),
         [
-          "invocation-started",
           "iteration-selected",
           "container-started",
           "run-ended",
@@ -10229,7 +10212,7 @@ describe("morningLoop", () => {
 
       assert.deepEqual(
         progress.events.map((event) => event.kind),
-        ["invocation-started", "iteration-selected", "container-started", "run-ended", "iteration-failed"],
+        ["iteration-selected", "container-started", "run-ended", "iteration-failed"],
       );
       const ended = progress.events.find((event) => event.kind === "run-ended");
       assert.equal(ended?.tokensUsed, 0);
@@ -10248,7 +10231,7 @@ describe("morningLoop", () => {
 
       assert.deepEqual(
         progress.events.map((event) => event.kind),
-        ["invocation-started", "iteration-selected", "iteration-failed"],
+        ["iteration-selected", "iteration-failed"],
       );
     });
 
