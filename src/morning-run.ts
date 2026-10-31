@@ -2612,7 +2612,8 @@ async function mergeGate(
  * the summary names that drop. A merge that was already pending when the sweep was
  * built, or at its previous call, is read; one recorded since is left for the
  * next call, so the checks it was just waited on are not read straight away.
- * Its implementation ticket no longer open settles it without a read. Never
+ * Its implementation ticket no longer open settles it without a read, and
+ * without the draft check. Never
  * throws: a failure leaves the merge pending for the next call.
  */
 function pendingMergeSweep(
@@ -2632,17 +2633,17 @@ function pendingMergeSweep(
           await state.settleMerge(pending);
           continue;
         }
-        if (await ports.repoHost.isPullRequestDraft(pending.pullRequest)) {
-          settled.push({ pullRequest: pending.pullRequest, merge: { kind: "withdrawn" } });
-          await state.settleMerge(pending);
-          continue;
-        }
         const open = await ports.tracker.listOpenIssues(pending.repo);
         const implementation = open.issues.find((issue) => issue.ticket.number === pending.number)?.ticket;
         if (implementation === undefined) {
           if (!open.truncated) {
             await state.settleMerge(pending);
           }
+          continue;
+        }
+        if (await ports.repoHost.isPullRequestDraft(pending.pullRequest)) {
+          settled.push({ pullRequest: pending.pullRequest, merge: { kind: "withdrawn" } });
+          await state.settleMerge(pending);
           continue;
         }
         let verdict = await mergeWhenGreen(ports, pending.pullRequest, implementation, () =>

@@ -5424,9 +5424,11 @@ describe("morningLoop", () => {
           assert.deepEqual(ports.repoHost.merged, []);
           assert.deepEqual(ports.store.pendingMerges(), []);
           assert.deepEqual(readyForHumanLabels(ports), []);
-          assert.match(
-            ports.tracker.summaries.map((summary) => summary.body).join("\n"),
-            new RegExp(`## Merges settled\\n- ${PULL_REQUEST}: not merged, put back to draft`),
+          assert.ok(
+            ports.tracker.summaries
+              .map((summary) => summary.body)
+              .join("\n")
+              .includes(`## Merges settled\n- ${PULL_REQUEST}: not merged, put back to draft`),
           );
         });
 
