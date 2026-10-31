@@ -50,10 +50,10 @@ export function issueRef(repo: RepoSlug, number: IssueNumber): IssueRef {
   return `${repo}#${number}` as IssueRef
 }
 
-// A reference is `owner/repo#n`; the lookbehind keeps a bare `#n` from matching inside a word or a path.
 // The harness writes a pasted image into the prompt as `[Image #n]`; that `#n` numbers the image, not a ticket.
 const imagePlaceholderPattern = /\[Image #\d+\]/g
 
+// A reference is `owner/repo#n`; the lookbehind keeps a bare `#n` from matching inside a word or a path.
 const referencePattern = /(?<![\w/.-])(?:([\w.-]+\/[\w.-]+))?#(\d+)\b/g
 
 /** The tickets `text` names, each once, in the order they first appear. */

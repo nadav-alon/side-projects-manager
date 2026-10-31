@@ -19,7 +19,8 @@ describe('referencesIn', () => {
 
   it('ignores an [Image #n] placeholder but still reads a real #n beside it', () => {
     assert.deepEqual(referencesIn('look [Image #1]'), [])
-    assert.deepEqual(referencesIn('[Image #1] fix #7 [Image #2]').map(r => r.number), [7])
+    assert.deepEqual(referencesIn('[Image #1] fix #7 [Image #2]'), [{ repo: null, number: 7 }])
+    assert.deepEqual(referencesIn('[Image #1] see #1'), [{ repo: null, number: 1 }])
   })
 
   it('ignores #0', () => {
