@@ -1,4 +1,4 @@
-import type { FiveHourUsage } from './manager-home/reader'
+import type { FiveHourUsage } from './manager-home/reader.ts'
 
 /** The share of the allowance the window has used, as a whole percent; it may pass 100. */
 export function usedPercent({ tokensUsed, allowance }: FiveHourUsage): number {

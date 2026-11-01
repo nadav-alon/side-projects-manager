@@ -127,7 +127,7 @@ describe("the 5-hour window's usage", () => {
     const budget = { fiveHourAllowance: 1000, fiveHourReserveFraction: 0.25 }
     const usage = await reader({ ...stateFile, [`${HOME}/budget.json`]: JSON.stringify(budget) }).fiveHourUsage(now)
 
-    assert.deepEqual(usage, { tokensUsed: 120, allowance: 1000, reserveFraction: 0.25 })
+    assert.deepEqual(usage, { tokensUsed: 120, allowance: 1000, reserveFraction: 0.25, reserveReached: false })
   })
 
   it('falls back to the default budget when there is no budget document', async () => {
@@ -135,6 +135,7 @@ describe("the 5-hour window's usage", () => {
       tokensUsed: 120,
       allowance: DEFAULT_FIVE_HOUR_ALLOWANCE,
       reserveFraction: DEFAULT_FIVE_HOUR_RESERVE_FRACTION,
+      reserveReached: false,
     })
   })
 
@@ -214,5 +215,117 @@ describe('a home given with trailing slashes', () => {
   it('is read the same', async () => {
     const files = { [`${HOME}/trigger.log`]: 'one\n' }
     assert.deepEqual(await managerHomeReader(fakeFs(files), `${HOME}//`).recentTriggerLog(), ['one'])
+  })
+})
+
+describe("the 5-hour window's usage with the session logs", () => {
+  const now = new Date('2026-01-02T12:00:00.000Z')
+  const LOGS = '/home/dev/.claude/projects'
+  const line = (at: string, usage: Record<string, number>) =>
+    JSON.stringify({ type: 'assistant', timestamp: at, message: { usage } })
+  const state = {
+    projects: {
+      'o/a': { runs: [{ at: '2026-01-02T09:30:00.000Z', tokensUsed: 100 }, { at: '2026-01-02T07:00:00.000Z', tokensUsed: 5000 }] },
+    },
+  }
+  const logs = {
+    // The block opens at 09:00; the 03:00 block ended at 08:00.
+    [`${LOGS}/p1/s1.jsonl`]: [
+      line('2026-01-02T03:00:00.000Z', { input_tokens: 9999, output_tokens: 9999 }),
+      line('2026-01-02T09:00:00.000Z', { input_tokens: 10, output_tokens: 2, cache_creation_input_tokens: 4, cache_read_input_tokens: 100 }),
+      'not json',
+      JSON.stringify({ type: 'user', timestamp: '2026-01-02T09:30:00.000Z' }),
+    ].join('\n'),
+    [`${LOGS}/p2/s2.jsonl`]: line('2026-01-02T10:00:00.000Z', { input_tokens: 1, output_tokens: 1 }),
+    [`${LOGS}/p2/notes.txt`]: 'ignored',
+  }
+  const directories = { [LOGS]: ['p1', 'p2'], [`${LOGS}/p1`]: ['s1.jsonl'], [`${LOGS}/p2`]: ['s2.jsonl', 'notes.txt'] }
+  const home = (extra: Record<string, string> = {}) =>
+    managerHomeReader(fakeFs({ [`${HOME}/state.json`]: JSON.stringify(state), ...logs, ...extra }, directories), HOME, LOGS)
+
+  it("adds the developer's interactive use of the open block to the runs since it opened", async () => {
+    // Developer: 10 + 2*5 + 4*1.25 + 100*0.1 = 35, plus 1 + 5 = 6, rounded once = 41; own: 100 (the 07:00 run is before the block).
+    assert.equal((await home().fiveHourUsage(now))?.tokensUsed, 141)
+  })
+
+  it('counts only the own runs once the block has ended', async () => {
+    const later = new Date('2026-01-02T14:30:00.000Z')
+    assert.equal((await home().fiveHourUsage(later))?.tokensUsed, 0)
+  })
+
+  it('counts only the own runs when the session logs folder is missing, as the gate does', async () => {
+    const lonely = managerHomeReader(fakeFs({ [`${HOME}/state.json`]: JSON.stringify(state) }), HOME, LOGS)
+    assert.equal((await lonely.fiveHourUsage(now))?.tokensUsed, 0)
+  })
+
+  it('is nothing known when a session log cannot be read for any other reason', async () => {
+    const base = fakeFs({ [`${HOME}/state.json`]: JSON.stringify(state), ...logs }, directories)
+    const denied: HomeFs = {
+      list: base.list,
+      read: async path => {
+        if (path.endsWith('s1.jsonl')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
+        return base.read(path)
+      },
+    }
+    assert.equal(await managerHomeReader(denied, HOME, LOGS).fiveHourUsage(now), undefined)
+  })
+})
+
+describe("the 5-hour window's usage with an observed reset", () => {
+  const now = new Date('2026-01-02T12:00:00.000Z')
+  const LOGS = '/logs'
+  const line = (at: string) => JSON.stringify({ type: 'assistant', timestamp: at, message: { usage: { input_tokens: 10, output_tokens: 0 } } })
+  const state = { projects: { 'o/a': { runs: [{ at: '2026-01-02T08:00:00.000Z', tokensUsed: 1000 }] } } }
+  const withReset = (observedResetAt: string) =>
+    managerHomeReader(
+      fakeFs(
+        {
+          [`${HOME}/state.json`]: JSON.stringify(state),
+          [`${HOME}/budget.json`]: JSON.stringify({ observedResetAt }),
+          // One block from 07:00; a message at 09:00 and one at 11:00 fall in it.
+          [`${LOGS}/p/s.jsonl`]: [line('2026-01-02T07:00:00.000Z'), line('2026-01-02T09:00:00.000Z'), line('2026-01-02T11:00:00.000Z')].join('\n'),
+        },
+        { [LOGS]: ['p'], [`${LOGS}/p`]: ['s.jsonl'] },
+      ),
+      HOME,
+      LOGS,
+    )
+
+  it('takes a reset still to come as the end of the open block', async () => {
+    // The block opened at 08:00 (13:00 less 5 hours): 09:00 and 11:00 messages, and the 08:00 run.
+    const usage = await withReset('2026-01-02T13:00:00Z').fiveHourUsage(now)
+    assert.equal(usage?.tokensUsed, 1020)
+    assert.equal('observedResetAt' in (usage ?? {}), false)
+  })
+
+  it('drops the messages before a reset already past', async () => {
+    // Only the 09:00 message and later count; the block opens at 09:00, so the 08:00 run is before it.
+    const usage = await withReset('2026-01-02T08:30:00Z').fiveHourUsage(now)
+    assert.equal(usage?.tokensUsed, 20)
+  })
+
+  for (const [what, observed] of [
+    ['more than five hours ahead', '2026-01-02T17:00:01Z'],
+    ['without a zone', '2026-01-02T13:00:00'],
+    ['not an instant', 'soon'],
+  ] as const) {
+    it(`is nothing known when the reset is ${what}`, async () => {
+      assert.equal(await withReset(observed).fiveHourUsage(now), undefined)
+    })
+  }
+})
+
+describe("the 5-hour window's reserve", () => {
+  const now = new Date('2026-01-02T12:00:00.000Z')
+  const usedWith = (budget: object, tokensUsed: number) =>
+    reader({
+      [`${HOME}/state.json`]: JSON.stringify({ projects: { 'o/a': { runs: [{ at: '2026-01-02T11:00:00.000Z', tokensUsed }] } } }),
+      [`${HOME}/budget.json`]: JSON.stringify(budget),
+    }).fiveHourUsage(now)
+
+  it('is reached only once the tokens used exceed the allowance less the reserve rounded up', async () => {
+    const budget = { fiveHourAllowance: 1001, fiveHourReserveFraction: 0.5 } // spendable: 1001 - 501 = 500
+    assert.equal((await usedWith(budget, 500))?.reserveReached, false)
+    assert.equal((await usedWith(budget, 501))?.reserveReached, true)
   })
 })
