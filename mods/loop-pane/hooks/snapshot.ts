@@ -1,6 +1,6 @@
-import type { LoopSnapshot } from '../types'
-import { tokenCount, type ProcessId, type ReserveFraction, type TokenCount } from './manager-home/types'
-import { managerHomeReader, type HomeFs } from './manager-home/reader'
+import type { LoopSnapshot } from '../types/index.d.ts'
+import { tokenCount, type ProcessId, type ReserveFraction, type TokenCount } from './manager-home/types.ts'
+import { managerHomeReader, type HomeFs } from './manager-home/reader.ts'
 
 /** The manager home: the plugin sits at `<home>/mods/<name>`, so the home is two levels up. */
 export function managerHome(pluginRoot: string): string {
