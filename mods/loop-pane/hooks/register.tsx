@@ -4,6 +4,7 @@ import type { Register } from 'claude-code'
 import type { LoopSnapshot } from '../types'
 import { compactCount, elapsed, localTime, percentOf } from './format'
 import { managerHome, readSnapshot } from './snapshot'
+import { sessionLogsFolder } from './session-logs'
 
 const PANE = 'loop-pane'
 const REFRESH_MS = 2000
@@ -60,6 +61,7 @@ export const register: Register = on => {
         pid => $.process.run(['kill', '-0', String(pid)]).then(({ exitCode }) => exitCode === 0, () => true),
         home,
         new Date(await $.clock.now()),
+        await sessionLogsFolder(argv => $.process.run(argv)),
       )
       await update($, snapshot, () => next)
     }

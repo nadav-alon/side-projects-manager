@@ -9,8 +9,8 @@ const HOME = import.meta.dir.split('/').slice(0, -3).join('/')
 const now = Date.parse('2026-06-15T17:30:00Z')
 const iso = (ago: number) => new Date(now - ago).toISOString()
 
-/** Stands for the engine beneath the mod: the manager home's files are `files`, and the pane's process runs are recorded. */
-function engine(on: On, files: Record<string, string>, ran: Ran[] = [], reads: string[] = [], outcome: { exitCode: number; stderr: string } = { exitCode: 0, stderr: '' }, alive = true) {
+/** Stands for the engine beneath the mod: the manager home's files are `files`, and the pane's process runs are recorded; `configDir` is the Claude config directory the shell reports. */
+function engine(on: On, files: Record<string, string>, ran: Ran[] = [], reads: string[] = [], outcome: { exitCode: number; stderr: string } = { exitCode: 0, stderr: '' }, alive = true, configDir = '') {
   const clock = mock.clock(on, { now })
   on('fs.read', (_$, e) => {
     reads.push(e.path)
@@ -20,6 +20,7 @@ function engine(on: On, files: Record<string, string>, ran: Ran[] = [], reads: s
   })
   on('process.run', (_$, { argv, init }) => {
     if (argv[0] === 'kill') return { value: { exitCode: alive ? 0 : 1, stdout: '', stderr: '' } } as never
+    if (argv[0] === 'sh') return { value: { exitCode: 0, stdout: configDir, stderr: '' } } as never
     ran.push({ argv, cwd: init?.cwd })
     return { value: { exitCode: outcome.exitCode, stdout: '', stderr: outcome.stderr } } as never
   })
@@ -203,4 +204,17 @@ test('the buttons have space between them', async ($, on) => {
   const ui = await mount($)
   const row = (await ui.findAll({ type: 'Box' })).find(box => (box.props as { gap?: number }).gap === 1 && box.text.includes('Halt'))
   expect(row).toBeDefined()
+})
+
+test("the spend line counts the developer's own use from the session logs under the Claude config directory", async ($, on) => {
+  const logs = '/config/projects'
+  const line = JSON.stringify({ type: 'assistant', timestamp: iso(2000), message: { usage: { input_tokens: 3000, output_tokens: 0 } } })
+  engine(on, { ...home, '/config/projects/proj/s.jsonl': line }, [], [], undefined, true, '/config/')
+  on('fs.list', (_$, e) => {
+    const names = e.path === logs ? ['proj'] : e.path === `${logs}/proj` ? ['s.jsonl'] : undefined
+    if (names === undefined) throw new Error(`ENOENT: ${e.path}`)
+    return { value: names.map(name => ({ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false })) } as never
+  })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  expect(await texts(await mount($))).toContain("Loop's own runs: 4.2K / 5.0K spendable tokens (84%)")
 })
