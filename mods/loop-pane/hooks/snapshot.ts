@@ -18,8 +18,9 @@ export async function readSnapshot(
   alive: (pid: ProcessId) => Promise<boolean>,
   home: string,
   now: Date,
+  sessionLogs?: string,
 ): Promise<LoopSnapshot> {
-  const reader = managerHomeReader(fs, home)
+  const reader = managerHomeReader(fs, home, sessionLogs)
   const [invocation, usage] = await Promise.all([reader.inFlightInvocation(), reader.fiveHourUsage(now)])
   return {
     inFlight:
