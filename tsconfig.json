@@ -25,8 +25,8 @@
 
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "mods/manager-home/**/*.ts", "mods/ready-guard/hooks/**/*.ts", "mods/size-reminder/hooks/**/*.ts", "mods/avoided-terms/hooks/**/*.ts", "mods/review-threads/hooks/**/*.ts"],
-  // Each mod's register.ts is out: it imports the engine's gitignored types, which only the mod's own tsconfig has. Everything
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "mods/manager-home/**/*.ts", "mods/ready-guard/hooks/**/*.ts", "mods/size-reminder/hooks/**/*.ts", "mods/avoided-terms/hooks/**/*.ts", "mods/review-threads/hooks/**/*.ts", "mods/budget-band/hooks/**/*.ts", "mods/discovery-toast/hooks/**/*.ts", "mods/loop-pane/hooks/**/*.ts"],
+  // Each mod's register.ts is out: it imports the engine's gitignored types, which only the mod's own tsconfig has. Their register tests are out for the same reason. Everything
   // else in each mod is pure and in this build.
-  "exclude": ["mods/ready-guard/hooks/register.ts", "mods/size-reminder/hooks/register.ts", "mods/avoided-terms/hooks/register.ts", "mods/review-threads/hooks/register.tsx"]
+  "exclude": ["mods/ready-guard/hooks/register.ts", "mods/size-reminder/hooks/register.ts", "mods/avoided-terms/hooks/register.ts", "mods/review-threads/hooks/register.tsx", "mods/budget-band/hooks/register.tsx", "mods/budget-band/hooks/register.test.ts", "mods/discovery-toast/hooks/register.ts", "mods/discovery-toast/hooks/register.test.ts", "mods/loop-pane/hooks/register.tsx", "mods/loop-pane/hooks/register.test.ts"]
 }
