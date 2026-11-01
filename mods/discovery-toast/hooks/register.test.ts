@@ -7,7 +7,11 @@ type On = Parameters<TestBody>[1]
  * names), `tick()` fires one poll of the mod's timer and resolves once the poll has set the status, and the status entries and toasts the mod
  * makes are collected.
  */
-function engine(on: On, files: Record<string, string[]>, unreadable = { isSo: false }) {
+function engine(
+  on: On,
+  files: Record<string, string[]>,
+  { unreadable = { isSo: false }, contents = {} }: { unreadable?: { isSo: boolean }; contents?: Record<string, string> } = {},
+) {
   const seen = { statuses: [] as (string | undefined)[], toasts: [] as string[] }
   let release = () => {}
   let polled = () => {}
@@ -19,6 +23,11 @@ function engine(on: On, files: Record<string, string[]>, unreadable = { isSo: fa
     const inside = parts.at(-2) === 'discoveries' ? files[parts.at(-1)!] : parts.at(-1) === 'discoveries' ? Object.keys(files) : undefined
     if (inside === undefined || unreadable.isSo) throw new Error('missing')
     return { value: inside.map(name => ({ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false })) } as never
+  })
+  on('fs.read', (_$, e) => {
+    const text = contents[e.path.split('/').slice(-2).join('/')]
+    if (text === undefined) throw new Error('missing')
+    return { value: text } as never
   })
   on('clock.every', async () => {
     await ticked
@@ -48,8 +57,55 @@ test('discoveries already present are counted and not toasted', async ($, on) =>
   const { seen } = engine(on, { 'run-a': ['1.json', '2.json'] })
   await $.session.start({ cwd: '/session' } as never)
 
-  expect(seen.statuses.at(-1)).toBe('2 pending discoveries')
+  expect(seen.statuses.at(-1)).toBe('2 pending discoveries (newest: run-a/2.json)')
   expect(seen.toasts).toEqual([])
+})
+
+test('the status names the newest pending discovery by its kind and title', async ($, on) => {
+  const files: Record<string, string[]> = { 'run-a': ['1.json', '3.json'] }
+  const contents = {
+    'run-a/1.json': JSON.stringify({ kind: 'clarification', title: 'Old' }),
+    'run-a/2.json': JSON.stringify({ kind: 'correction', title: 'Wrong scope' }),
+    'run-a/3.json': 'garbled',
+  }
+  const { seen, tick } = engine(on, files, { contents })
+  await $.session.start({ cwd: '/session' } as never)
+  expect(seen.statuses.at(-1)).toBe('2 pending discoveries (newest: run-a/3.json)')
+
+  files['run-a']!.push('2.json')
+  await tick()
+  expect(seen.statuses.at(-1)).toBe('3 pending discoveries (newest: correction: Wrong scope)')
+
+  files['run-a'] = ['1.json']
+  await tick()
+  expect(seen.statuses.at(-1)).toBe('1 pending discovery (newest: clarification: Old)')
+})
+
+test('a long title is truncated to one line in the status', async ($, on) => {
+  const title = `${'long '.repeat(30)}\nsecond line`
+  const { seen } = engine(on, { 'run-a': ['1.json'] }, { contents: { 'run-a/1.json': JSON.stringify({ kind: 'suggestion', title }) } })
+  await $.session.start({ cwd: '/session' } as never)
+
+  const status = seen.statuses.at(-1)!
+  expect(status).toBe(`1 pending discovery (newest: suggestion: ${'long '.repeat(5)}long…)`)
+  expect(status).not.toContain('\n')
+})
+
+test('the newest discovery in a run is the highest numbered, not the last listed', async ($, on) => {
+  const { seen } = engine(on, { 'run-a': ['1.json', '10.json', '9.json'] })
+  await $.session.start({ cwd: '/session' } as never)
+
+  expect(seen.statuses.at(-1)).toBe('3 pending discoveries (newest: run-a/10.json)')
+})
+
+test('across run folders the newest is the one first seen last', async ($, on) => {
+  const files: Record<string, string[]> = { 'run-a': ['1.json', '10.json'] }
+  const { seen, tick } = engine(on, files)
+  await $.session.start({ cwd: '/session' } as never)
+
+  files['run-b'] = ['2.json']
+  await tick()
+  expect(seen.statuses.at(-1)).toBe('3 pending discoveries (newest: run-b/2.json)')
 })
 
 test('no discoveries leave the status clear', async ($, on) => {
@@ -67,10 +123,48 @@ test('a discovery that appears while the session is open toasts once, naming it'
   files['run-a']!.push('2.json')
   await tick()
   expect(seen.toasts).toEqual(['New discovery: run-a/2.json'])
-  expect(seen.statuses.at(-1)).toBe('2 pending discoveries')
+  expect(seen.statuses.at(-1)).toBe('2 pending discoveries (newest: run-a/2.json)')
 
   await tick()
   expect(seen.toasts).toEqual(['New discovery: run-a/2.json'])
+})
+
+test('a new discovery toasts its kind and title', async ($, on) => {
+  const files: Record<string, string[]> = { 'run-a': ['1.json'] }
+  const contents = { 'run-a/2.json': JSON.stringify({ kind: 'suggestion', title: 'Cache the lookup', body: 'x' }) }
+  const { seen, tick } = engine(on, files, { contents })
+  await $.session.start({ cwd: '/session' } as never)
+
+  files['run-a']!.push('2.json')
+  await tick()
+  expect(seen.toasts).toEqual(['suggestion: Cache the lookup'])
+})
+
+test('a long title is truncated to one line in the toast', async ($, on) => {
+  const title = `${'long '.repeat(30)}\nsecond line`
+  const files: Record<string, string[]> = { 'run-a': [] }
+  const contents = { 'run-a/1.json': JSON.stringify({ kind: 'suggestion', title }) }
+  const { seen, tick } = engine(on, files, { contents })
+  await $.session.start({ cwd: '/session' } as never)
+
+  files['run-a'] = ['1.json']
+  await tick()
+  expect(seen.toasts).toEqual([`suggestion: ${'long '.repeat(5)}long…`])
+})
+
+test('a new discovery that cannot be read as one toasts its path', async ($, on) => {
+  const files: Record<string, string[]> = { 'run-a': [] }
+  const contents = { 'run-a/1.json': 'not json', 'run-a/2.json': JSON.stringify({ kind: 'suggestion' }), 'run-a/3.json': JSON.stringify({ kind: 'remark', title: 'Not a kind' }) }
+  const { seen, tick } = engine(on, files, { contents })
+  await $.session.start({ cwd: '/session' } as never)
+
+  files['run-a'] = ['1.json', '2.json', '3.json']
+  await tick()
+  expect(seen.toasts).toEqual([
+    'New discovery: run-a/1.json',
+    'New discovery: run-a/2.json',
+    'New discovery: run-a/3.json',
+  ])
 })
 
 test('the status clears when the pending discoveries are read away', async ($, on) => {
@@ -94,18 +188,18 @@ test('a discovery that goes and comes back is not toasted twice', async ($, on) 
   files['run-a'] = ['1.json', '2.json']
   await tick()
   expect(seen.toasts).toEqual([])
-  expect(seen.statuses.at(-1)).toBe('2 pending discoveries')
+  expect(seen.statuses.at(-1)).toBe('2 pending discoveries (newest: run-a/2.json)')
 })
 
 test('a folder unreadable at start has an empty baseline, so what it later holds toasts', async ($, on) => {
   const files: Record<string, string[]> = { 'run-a': ['1.json'] }
   const unreadable = { isSo: true }
-  const { seen, tick } = engine(on, files, unreadable)
+  const { seen, tick } = engine(on, files, { unreadable })
   await $.session.start({ cwd: '/session' } as never)
   expect(seen.statuses).toEqual([])
 
   unreadable.isSo = false
   await tick()
   expect(seen.toasts).toEqual(['New discovery: run-a/1.json'])
-  expect(seen.statuses.at(-1)).toBe('1 pending discovery')
+  expect(seen.statuses.at(-1)).toBe('1 pending discovery (newest: run-a/1.json)')
 })
