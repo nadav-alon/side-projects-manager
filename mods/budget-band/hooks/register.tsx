@@ -2,6 +2,7 @@ import type { Register } from 'claude-code'
 
 import { bandLabel, isInReserve } from './band'
 import { managerHomeReader } from './manager-home/reader'
+import { sessionLogsFolder } from './session-logs'
 
 /** The manager home is the checkout this mod sits in: `<home>/mods/budget-band`. */
 const homeOf = (pluginRoot: string) => pluginRoot.replace(/\/mods\/budget-band\/*$/, '')
@@ -10,7 +11,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const fs = { read: (path: string) => $.fs.read(path), list: (path: string) => $.fs.list(path) }
-    const reader = managerHomeReader(fs, homeOf($.plugin.root))
+    const reader = managerHomeReader(fs, homeOf($.plugin.root), await sessionLogsFolder(argv => $.process.run(argv)))
     const usage = await reader.fiveHourUsage(new Date(await $.clock.now()))
     // Whatever draws beneath stays: this band stacks on top of it.
     const below = await next(e)
