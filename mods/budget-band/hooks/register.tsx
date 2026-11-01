@@ -8,10 +8,13 @@ import { sessionLogsFolder } from './session-logs'
 const homeOf = (pluginRoot: string) => pluginRoot.replace(/\/mods\/budget-band\/*$/, '')
 
 export const register: Register = on => {
+  // The config directory cannot change during a session, so the shell is asked once.
+  let logs: ReturnType<typeof sessionLogsFolder> | undefined
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const fs = { read: (path: string) => $.fs.read(path), list: (path: string) => $.fs.list(path) }
-    const reader = managerHomeReader(fs, homeOf($.plugin.root), await sessionLogsFolder(argv => $.process.run(argv)))
+    const reader = managerHomeReader(fs, homeOf($.plugin.root), await (logs ??= sessionLogsFolder(argv => $.process.run(argv))))
     const usage = await reader.fiveHourUsage(new Date(await $.clock.now()))
     // Whatever draws beneath stays: this band stacks on top of it.
     const below = await next(e)
