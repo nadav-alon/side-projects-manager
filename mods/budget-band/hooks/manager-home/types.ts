@@ -4,6 +4,8 @@
 declare const processIdBrand: unique symbol
 declare const tokenCountBrand: unique symbol
 declare const reserveFractionBrand: unique symbol
+declare const repoSlugBrand: unique symbol
+declare const issueNumberBrand: unique symbol
 
 /** The OS process carrying out one invocation: a whole number above 0. */
 export type ProcessId = number & { readonly [processIdBrand]: true }
@@ -13,6 +15,17 @@ export type TokenCount = number & { readonly [tokenCountBrand]: true }
 
 /** The share of a window held back for the developer: at least 0 and less than 1. */
 export type ReserveFraction = number & { readonly [reserveFractionBrand]: true }
+
+/** A GitHub repository, as `owner/repo`. */
+export type RepoSlug = string & { readonly [repoSlugBrand]: true }
+
+/** An issue's number: a whole number above 0. */
+export type IssueNumber = number & { readonly [issueNumberBrand]: true }
+
+/** The kinds of ticket the loop runs, as the manager's journal names them. */
+export const TICKET_KINDS = ['implementation', 'review', 'apply-review', 'rebase', 'spec-review', 'ux-review'] as const
+
+export type TicketKind = (typeof TICKET_KINDS)[number]
 
 export function isProcessId(value: number): value is ProcessId {
   return Number.isSafeInteger(value) && value > 0
@@ -36,4 +49,18 @@ export function tokenCount(value: number): TokenCount {
 export function reserveFraction(value: number): ReserveFraction {
   if (!isReserveFraction(value)) throw new TypeError(`Not a reserve fraction: ${value}`)
   return value
+}
+
+/** Whether `value` is shaped like `owner/repo`: two non-empty parts around one slash. */
+export function isRepoSlug(value: string): value is RepoSlug {
+  const parts = value.split('/')
+  return parts.length === 2 && parts.every(part => /^[A-Za-z0-9._-]+$/.test(part))
+}
+
+export function isIssueNumber(value: number): value is IssueNumber {
+  return Number.isSafeInteger(value) && value > 0
+}
+
+export function isTicketKind(value: string): value is TicketKind {
+  return (TICKET_KINDS as readonly string[]).includes(value)
 }

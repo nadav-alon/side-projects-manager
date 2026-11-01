@@ -6,7 +6,7 @@ type On = Parameters<TestBody>[1]
 type Ran = { argv: readonly string[]; cwd?: string }
 
 const HOME = import.meta.dir.split('/').slice(0, -3).join('/')
-const now = Date.now()
+const now = Date.parse('2026-06-15T17:30:00Z')
 const iso = (ago: number) => new Date(now - ago).toISOString()
 
 /** Stands for the engine beneath the mod: the manager home's files are `files`, and the pane's process runs are recorded. */
@@ -54,17 +54,30 @@ const texts = async (ui: Awaited<ReturnType<typeof mount>>) => (await ui.findAll
 test('the pane shows the in-flight invocation, its iterations, its spend and its freed entries', async ($, on) => {
   engine(on, home)
   await $.command.run({ command: 'loop-pane', args: '' })
-  const lines = await texts(await mount($))
-  expect(lines).toContain('o/a#7 implementation')
+  const ui = await mount($)
+  const lines = await texts(ui)
+  const row = (await ui.findAll({ type: 'Box' })).find(box => (box.props as { gap?: number }).gap === 1 && box.text.includes('o/a#7'))
+  expect(row?.text.trim()).toBe('Run:o/a#7[implementation]')
   expect(lines).toContain('o/d#9')
-  expect(lines).toContain("5-hour spend of the loop's own runs: 1200 of 5000 spendable tokens")
+  expect(lines).toContain("Loop's own runs: 1.2K / 5.0K spendable tokens (24%)")
+})
+
+test('the spend line uses compact units and a share, small shares included', async ($, on) => {
+  const files = {
+    ...home,
+    [`${HOME}/state.json`]: JSON.stringify({ projects: { 'o/a': { runs: [{ at: iso(1000), tokensUsed: 2_100_323 }] } } }),
+    [`${HOME}/budget.json`]: JSON.stringify({ fiveHourAllowance: 7_000_000_000 }),
+  }
+  engine(on, files)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  expect(await texts(await mount($))).toContain("Loop's own runs: 2.1M / 7.0B spendable tokens (0.03%)")
 })
 
 test('the spend line counts against the allowance less the reserve', async ($, on) => {
   const files = { ...home, [`${HOME}/budget.json`]: JSON.stringify({ fiveHourAllowance: 5000, fiveHourReserveFraction: 0.2 }) }
   engine(on, files)
   await $.command.run({ command: 'loop-pane', args: '' })
-  expect(await texts(await mount($))).toContain("5-hour spend of the loop's own runs: 1200 of 4000 spendable tokens")
+  expect(await texts(await mount($))).toContain("Loop's own runs: 1.2K / 4.0K spendable tokens (30%)")
 })
 
 test('the pane says an invocation whose process is gone has died, and lists none of its runs', async ($, on) => {
@@ -72,20 +85,20 @@ test('the pane says an invocation whose process is gone has died, and lists none
   await $.command.run({ command: 'loop-pane', args: '' })
   const lines = await texts(await mount($))
   expect(lines).toContain('Process 4242 has died without closing its record; nothing below is running.')
-  expect(lines).not.toContain('o/a#7 implementation')
+  expect(lines).not.toContain('o/a#7')
 })
 
 test('the pane says none is running when the journal has no open invocation', async ($, on) => {
   engine(on, { [`${HOME}/journal.json`]: JSON.stringify({ records: [] }) })
   await $.command.run({ command: 'loop-pane', args: '' })
-  expect(await texts(await mount($))).toEqual(['No invocation is running.'])
+  expect(await texts(await mount($))).toEqual(['Status', 'No invocation is running.', 'Controls'])
 })
 
 test('a missing manager home draws an empty pane, not an error', async ($, on) => {
   engine(on, {})
   const out = await $.command.run({ command: 'loop-pane', args: '' })
   expect(out.text).toBe('Loop pane opened.')
-  expect(await texts(await mount($))).toEqual(['No invocation is running.'])
+  expect(await texts(await mount($))).toEqual(['Status', 'No invocation is running.', 'Controls'])
 })
 
 test('the pane redraws when the journal changes', async ($, on) => {
@@ -93,7 +106,7 @@ test('the pane redraws when the journal changes', async ($, on) => {
   const clock = engine(on, files)
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
-  expect(await texts(ui)).toContain('o/a#7 implementation')
+  expect(await texts(ui)).toContain('o/a#7')
   files[`${HOME}/journal.json`] = JSON.stringify({ records: [] })
   await clock.advance(2500)
   expect(await texts(ui)).toContain('No invocation is running.')
@@ -160,4 +173,34 @@ test('stop runs the stop command once the person agrees', async ($, on) => {
   const ui = await mount($)
   await ui.press({ key: 'stop' })
   expect(ran).toEqual([{ argv: ['npm', 'run', '--silent', 'stop'], cwd: HOME }])
+})
+
+test('the pane shows when the invocation opened in local time, and for how long', async ($, on) => {
+  engine(on, home)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  expect(await texts(await mount($))).toContainEqual(expect.stringMatching(/^Running since \d\d:\d\d \(1m\)$/))
+})
+
+test('a record left open by a dead process is not called running', async ($, on) => {
+  engine(on, home, [], [], undefined, false)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const lines = await texts(await mount($))
+  expect(lines).toContainEqual(expect.stringMatching(/^Opened at \d\d:\d\d \(1m ago\), process died$/))
+  expect(lines.some(line => line.startsWith('Running since'))).toBe(false)
+})
+
+test('the pane has labelled sections for status, current runs, spend and controls', async ($, on) => {
+  engine(on, home)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const lines = await texts(await mount($))
+  const headings = ['Status', 'Current runs', '5-hour spend', 'Controls']
+  expect(lines.filter(line => headings.includes(line))).toEqual(headings)
+})
+
+test('the buttons have space between them', async ($, on) => {
+  engine(on, home)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  const row = (await ui.findAll({ type: 'Box' })).find(box => (box.props as { gap?: number }).gap === 1 && box.text.includes('Halt'))
+  expect(row).toBeDefined()
 })
