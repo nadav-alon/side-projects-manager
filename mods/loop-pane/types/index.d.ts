@@ -1,5 +1,5 @@
-import type { JournaledTicket, RunInProgress } from '../hooks/manager-home/reader'
-import type { ProcessId, TokenCount } from '../hooks/manager-home/types'
+import type { JournaledTicket, RunInProgress } from '../hooks/manager-home/reader.ts'
+import type { ProcessId, TokenCount } from '../hooks/manager-home/types.ts'
 
 /** What the pane draws: the invocation in flight, and the 5-hour window's spend. Each is `null` when nothing is known. */
 export type LoopSnapshot = {
