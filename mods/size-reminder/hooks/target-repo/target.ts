@@ -1,6 +1,7 @@
 // The repo a `gh` call without `--repo` targets, as a mod works it out: the simple command's own
 // `GH_REPO=` prefix, then `GH_REPO` in the shell's environment, then the repo of the session's working
-// directory — unless an earlier `cd` in the same shell command has moved the shell, or an earlier
+// directory — unless an earlier `cd` in the same shell command, or in an earlier Bash call of the session
+// (remembered in a `ShellTrail`), has moved the shell, or an earlier
 // `export`/`unset` of `GH_REPO` has changed its environment, when the session's directory or the hook's
 // environment is no longer what `gh` sees and the target is unknown (null). A `GH_REPO=` prefix that is
 // empty or names no valid repo also makes the target unknown, since `gh` itself would fail on it. An
@@ -59,19 +60,30 @@ export function changesEnvironment(words: readonly string[]): boolean {
 export interface CommandContext<Repo extends string> {
   /** The command's own `GH_REPO=` prefix: null when it has none, 'unknown' when it has one that names no repo. */
   prefixRepo: Repo | 'unknown' | null
-  /** Whether a `cd` (or `pushd`, `popd`) ran earlier in the same shell command. */
+  /** Whether a `cd` (or `pushd`, `popd`) ran earlier in the same shell command, or in an earlier Bash call of the session. */
   moved: boolean
   /** Whether an earlier command in the same shell command changed `GH_REPO` in the environment. */
   environmentChanged: boolean
 }
 
-/** Each simple command's `visit`, given its context; the results `visit` returns (not null), in order. */
+/**
+ * What a session's Bash calls have done to the shell so far. The persisted shell keeps a `cd` into the
+ * next call, so once `moved` is set the session's directory is no longer where `gh` runs. It records the
+ * `cd`s that were seen, not ones that ran: a denied call, a failed `cd` or one in a subshell still count,
+ * and nothing resets it. That errs toward "unknown".
+ */
+export interface ShellTrail {
+  moved: boolean
+}
+
+/** Each simple command's `visit`, given its context; the results `visit` returns (not null), in order. `trail` carries the shell's moves from one call to the next, and is updated in place, once, after the last command. */
 export function walkCommands<Repo extends string, T>(
   commands: readonly (readonly string[])[],
   parse: (value: string) => Repo | null,
   visit: (words: readonly string[], context: CommandContext<Repo>) => T | null,
+  trail: ShellTrail = { moved: false },
 ): T[] {
-  let moved = false
+  let moved = trail.moved
   let environmentChanged = false
   const results: T[] = []
   for (const words of commands) {
@@ -80,6 +92,7 @@ export function walkCommands<Repo extends string, T>(
     moved ||= movesShell(words)
     environmentChanged ||= changesEnvironment(words)
   }
+  trail.moved = moved
   return results
 }
 
