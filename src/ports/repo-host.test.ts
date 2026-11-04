@@ -189,6 +189,12 @@ describe("resolveNeedsRebase", () => {
     assert.equal(needsRebase, false);
   });
 
+  it("says a pull request that is behind its base needs a rebase", async () => {
+    const needsRebase = await resolveNeedsRebase(PULL_REQUEST, reading("behind"), NO_WAIT);
+
+    assert.equal(needsRebase, true);
+  });
+
   it("retries an unknown read until it settles, rather than answering on the first try", async () => {
     const needsRebase = await resolveNeedsRebase(
       PULL_REQUEST,

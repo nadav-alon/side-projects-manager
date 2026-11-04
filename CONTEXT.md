@@ -579,17 +579,17 @@ A sub-issue of an implementation ticket asking for that ticket's pull request, d
 put back on top of its base branch. Opened by a workflow in the project repo when the developer
 comments `/rebase` — or, for a turbo project, when the conflict sweep does — born ready-for-agent, and
 selected before apply-review tickets; the same workflow labels the pull request `needs-rebase`, so
-it reads as not mergeable without the developer having to open the ticket to see why. Finished — the
-repo host reporting the pull request no longer conflicting — it closes and takes `needs-rebase` back
-off the pull request, leaving its draft state alone; removing the label is the whole signal, since a
-rebased pull request may still be an unreviewed draft. The run owes tests green along the way;
-closing itself turns only on what the repo host reports. A pull request the repo host already
-reports not conflicting when the iteration starts has nothing to rebase: no run starts, and the
-ticket closes and the label comes off all the same, whether or not the pull request ever carried it.
-One whose own pull request is already merged or closed closes the ticket the same way, without
-mergeability ever being asked, but leaves `needs-rebase` alone: that path only closes the ticket,
-never touching the label. One whose mergeability the repo host never settles is handed back, with no
-run, and the label left on.
+it reads as not mergeable without the developer having to open the ticket to see why. Finished —
+the repo host reporting the pull request neither conflicting nor behind its base — it closes and
+takes `needs-rebase` back off the pull request, leaving its draft state alone; removing the label
+is the whole signal, since a rebased pull request may still be an unreviewed draft. The run owes
+tests green along the way; closing itself turns only on what the repo host reports. A pull request
+the repo host already reports neither conflicting nor behind its base when the iteration starts has
+nothing to rebase: no run starts, and the ticket closes and the label comes off all the same,
+whether or not the pull request ever carried it. One whose own pull request is already merged or
+closed closes the ticket the same way, without mergeability ever being asked, but leaves
+`needs-rebase` alone: that path only closes the ticket, never touching the label. One whose mergeability the repo host never settles is handed back, with
+no run, and the label left on.
 _Avoid_: rebase task, merge ticket, conflict ticket, sync ticket, update-branch ticket
 
 **Conflict sweep**:

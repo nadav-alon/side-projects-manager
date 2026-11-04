@@ -187,6 +187,20 @@ describe("conflictSweep", () => {
     assert.deepEqual(outcome.refusals, []);
   });
 
+  it("leaves needs-rebase on a pull request merely behind its base", async () => {
+    const host = new FakeRepoHost();
+    host.setOpenPullRequests(PILOT, [
+      { url: PULL_REQUEST, labels: [NEEDS_REBASE], closes: issueNumber(1) },
+    ]);
+    host.labelNeedsRebase(PULL_REQUEST);
+    host.mergeStatus = () => "behind";
+
+    const outcome = await conflictSweep(host, PILOT, true, NO_OPEN_ISSUES);
+
+    assert.equal(host.hasNeedsRebaseLabel(PULL_REQUEST), true);
+    assert.deepEqual(outcome.changes, []);
+  });
+
   it("removes needs-rebase from a clean pull request even while a rebase ticket for it is open", async () => {
     const host = new FakeRepoHost();
     host.setOpenPullRequests(PILOT, [
