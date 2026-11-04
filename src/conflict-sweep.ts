@@ -215,8 +215,13 @@ export async function conflictSweep(
     const labelled = pullRequest.labels.includes(NEEDS_REBASE);
 
     // Only conflicts are the sweep's: a pull request merely behind its base
-    // is left to the developer's `/rebase`.
-    if (status === "clean" || status === "behind") {
+    // is left to the developer's `/rebase`, label and all — the label is
+    // that rebase ticket's, and comes off when the ticket finishes.
+    if (status === "behind") {
+      continue;
+    }
+
+    if (status === "clean") {
       if (labelled) {
         await attempt("unlabel", pullRequest.url, () =>
           repoHost.removeNeedsRebaseLabel(pullRequest.url),
