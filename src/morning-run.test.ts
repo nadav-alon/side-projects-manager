@@ -5790,7 +5790,7 @@ describe("morningLoop", () => {
     /** A run that leaves the pull request `after`, as the repo host then reads it, and finishes. */
     function rebasing(
       ports: FakePorts,
-      after: "clean" | "conflicting",
+      after: "clean" | "conflicting" | "behind",
       tokensUsed = tokenCount(0),
     ): void {
       ports.sandbox.rebaseResult = () => {
@@ -5955,6 +5955,20 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), true);
       assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("hands back a finished run whose pull request is still behind, saying behind rather than conflicting", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.repoHost.labelNeedsRebase(PULL_REQUEST);
+      rebasing(ports, "behind");
+
+      await morningLoop(ports);
+
+      const [handback] = ports.tracker.handbacks;
+      assert.match(handback?.comment ?? "", /still behind its base branch/);
+      assert.doesNotMatch(handback?.comment ?? "", /still conflicts/);
+      assert.deepEqual(ports.tracker.closedRebaseTickets, []);
     });
 
     it("hands back a run that gave up, naming a moved head, without closing it", async () => {

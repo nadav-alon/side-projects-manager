@@ -3020,12 +3020,17 @@ async function runRebase(
     return withDiscoveries(checkFailed, routed);
   }
   if (needsRebase) {
+    // Which of the two it is only words the hand-back, so a failed read
+    // falls back to the older, conflict-only wording.
+    const behindOnly = (await ports.repoHost.readMergeStatus(pullRequest).catch(() => "conflicting")) === "behind";
     return withDiscoveries(
       await handRebaseBack(
         ports,
         ticket,
         run,
-        `the agent finished, but ${pullRequest} still conflicts with its base branch`,
+        behindOnly
+          ? `the agent finished, but ${pullRequest} is still behind its base branch`
+          : `the agent finished, but ${pullRequest} still conflicts with its base branch`,
       ),
       routed,
     );
