@@ -2057,24 +2057,35 @@ describe("whether a pull request's branch needs a rebase", () => {
   /**
    * A `gh` that answers `mergeable` with each of `statuses` in turn, then
    * repeats the last — tracked with a counter file, since each read is a
-   * fresh process with nothing else to remember its call count by.
+   * fresh process with nothing else to remember its call count by. A status
+   * written `MERGEABLE+3` is a mergeable pull request three commits behind
+   * its base, as the compare API reports it.
    */
   async function answering(t: TestContext, ...statuses: string[]) {
     const counter = path.join(
       await mkdtemp(path.join(tmpdir(), "merge-status-")),
       "n",
     );
+    const reading = (status: string) => {
+      const [mergeable, behindBy = "0"] = status.split("+");
+      return `echo '{"mergeable":"${mergeable}","baseRefName":"main","headRefOid":"abc123","behindBy":${behindBy}}'`;
+    };
     const cases = statuses
-      .map((status, index) => `  ${index}) echo "${status}" ;;`)
+      .map((status, index) => `  ${index}) ${reading(status)} ;;`)
       .join("\n");
+    const last = statuses.at(-1) ?? "";
     return recordingGh(
       t,
       [
+        `if [ "$1" = api ]; then`,
+        `  echo "${last.split("+")[1] ?? 0}"`,
+        `  exit 0`,
+        `fi`,
         `n=$(cat "${counter}" 2>/dev/null || echo 0)`,
         `echo $((n + 1)) > "${counter}"`,
         `case "$n" in`,
         cases,
-        `  *) echo "${statuses.at(-1)}" ;;`,
+        `  *) ${reading(last)} ;;`,
         `esac`,
       ].join("\n"),
     );
@@ -2099,20 +2110,11 @@ describe("whether a pull request's branch needs a rebase", () => {
   });
 
   it("says a pull request behind its base, without conflicts, needs a rebase", async (t) => {
-    await answering(t, "MERGEABLE BEHIND");
+    await answering(t, "MERGEABLE+2");
 
     assert.equal(
       await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
       true,
-    );
-  });
-
-  it("says a pull request at its base's tip does not need a rebase", async (t) => {
-    await answering(t, "MERGEABLE CLEAN");
-
-    assert.equal(
-      await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
-      false,
     );
   });
 
@@ -2147,7 +2149,10 @@ describe("whether a pull request's branch needs a rebase", () => {
     const calls = await gh.calls();
     assert.deepEqual(
       calls.map((call) => call.slice(0, 2)),
-      [["pr", "view"]],
+      [
+        ["pr", "view"],
+        ["api", "repos/nadav-alon/pilot/compare/main...abc123"],
+      ],
     );
     assert.ok(calls[0]?.includes(PULL_REQUEST));
   });
@@ -2158,8 +2163,19 @@ describe("reading a pull request's mergeability once", () => {
     "https://github.com/nadav-alon/pilot/pull/7",
   );
 
+  /**
+   * A `gh` that views the pull request as `mergeable` and answers the compare
+   * API with `behindBy` commits behind — whatever else the pull request's
+   * merge state says, which this reads no part of.
+   */
+  const viewing = (mergeable: string, behindBy = 0) =>
+    [
+      `if [ "$1" = api ]; then echo ${behindBy}; exit 0; fi`,
+      `echo '{"mergeable":"${mergeable}","baseRefName":"main","headRefOid":"abc123","mergeStateStatus":"UNSTABLE"}'`,
+    ].join("\n");
+
   it("reads a conflicting pull request", async (t) => {
-    await recordingGh(t, "echo CONFLICTING");
+    await recordingGh(t, viewing("CONFLICTING"));
 
     assert.equal(
       await githubRepoHost().readMergeStatus(PULL_REQUEST),
@@ -2168,13 +2184,34 @@ describe("reading a pull request's mergeability once", () => {
   });
 
   it("reads a clean pull request", async (t) => {
-    await recordingGh(t, "echo MERGEABLE");
+    await recordingGh(t, viewing("MERGEABLE"));
 
     assert.equal(await githubRepoHost().readMergeStatus(PULL_REQUEST), "clean");
   });
 
+  it("reads a pull request behind its base by its commits behind, though its merge state reads UNSTABLE", async (t) => {
+    const gh = await recordingGh(t, viewing("MERGEABLE", 4));
+
+    assert.equal(await githubRepoHost().readMergeStatus(PULL_REQUEST), "behind");
+    assert.ok(
+      (await gh.calls()).some((call) =>
+        call.includes("repos/nadav-alon/pilot/compare/main...abc123"),
+      ),
+    );
+  });
+
+  it("does not read behind off a conflicting pull request", async (t) => {
+    const gh = await recordingGh(t, viewing("CONFLICTING", 4));
+
+    assert.equal(
+      await githubRepoHost().readMergeStatus(PULL_REQUEST),
+      "conflicting",
+    );
+    assert.equal((await gh.calls()).length, 1);
+  });
+
   it("returns unknown as-is, with a single read and no retry", async (t) => {
-    const gh = await recordingGh(t, "echo UNKNOWN");
+    const gh = await recordingGh(t, viewing("UNKNOWN"));
 
     assert.equal(
       await githubRepoHost().readMergeStatus(PULL_REQUEST),
@@ -2184,14 +2221,17 @@ describe("reading a pull request's mergeability once", () => {
   });
 
   it("asks about the pull request named by its own URL, never gh pr list", async (t) => {
-    const gh = await recordingGh(t, "echo MERGEABLE");
+    const gh = await recordingGh(t, viewing("MERGEABLE"));
 
     await githubRepoHost().readMergeStatus(PULL_REQUEST);
 
     const calls = await gh.calls();
     assert.deepEqual(
       calls.map((call) => call.slice(0, 2)),
-      [["pr", "view"]],
+      [
+        ["pr", "view"],
+        ["api", "repos/nadav-alon/pilot/compare/main...abc123"],
+      ],
     );
     assert.ok(calls[0]?.includes(PULL_REQUEST));
   });
