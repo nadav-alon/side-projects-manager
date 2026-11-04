@@ -27,6 +27,7 @@
   },
   "include": ["src/**/*.ts", "scripts/**/*.ts", "mods/manager-home/**/*.ts", "mods/ready-guard/hooks/**/*.ts", "mods/size-reminder/hooks/**/*.ts", "mods/avoided-terms/hooks/**/*.ts", "mods/review-threads/hooks/**/*.ts", "mods/budget-band/hooks/**/*.ts", "mods/discovery-toast/hooks/**/*.ts", "mods/loop-pane/hooks/**/*.ts"],
   // Each mod's register file is out: it imports the engine's gitignored types, which only the mod's own tsconfig has. Their register tests are out for the same reason.
+  // loop-pane's format test imports the engine's gitignored 'claude-code/testing' as well, so it is out with them.
   // Everything else in each mod's hooks is pure and in this build.
-  "exclude": ["mods/*/hooks/register.ts", "mods/*/hooks/register.test.ts"]
+  "exclude": ["mods/*/hooks/register.ts", "mods/*/hooks/register.test.ts", "mods/loop-pane/hooks/format.test.ts"]
 }
