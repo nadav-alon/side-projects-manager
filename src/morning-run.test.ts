@@ -5856,6 +5856,21 @@ describe("morningLoop", () => {
       assert.equal(ports.sandbox.applyReviews.length, 0);
     });
 
+    it("runs the rebase agent on a pull request that is behind its base without conflicting", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.repoHost.mergeStatus = () => "behind";
+      ports.repoHost.labelNeedsRebase(PULL_REQUEST);
+      rebasing(ports, "clean");
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.sandbox.rebases.length, 1);
+      assert.deepEqual(ports.tracker.closedRebaseTickets[0]?.ticket, ticket);
+      assert.equal(report.iterations[0]?.kind, "rebased");
+      assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), false);
+    });
+
     it("closes a ticket whose pull request needs no rebase without running anything, saying so", async () => {
       const ports = fakePorts();
       const ticket = queued(ports);

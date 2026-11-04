@@ -580,11 +580,11 @@ put back on top of its base branch. Opened by a workflow in the project repo whe
 comments `/rebase` — or, for a turbo project, when the conflict sweep does — born ready-for-agent, and
 selected before apply-review tickets; the same workflow labels the pull request `needs-rebase`, so
 it reads as not mergeable without the developer having to open the ticket to see why. Finished — the
-repo host reporting the pull request no longer conflicting — it closes and takes `needs-rebase` back
+repo host reporting the pull request neither conflicting nor behind its base — it closes and takes `needs-rebase` back
 off the pull request, leaving its draft state alone; removing the label is the whole signal, since a
 rebased pull request may still be an unreviewed draft. The run owes tests green along the way;
 closing itself turns only on what the repo host reports. A pull request the repo host already
-reports not conflicting when the iteration starts has nothing to rebase: no run starts, and the
+reports neither conflicting nor behind its base when the iteration starts has nothing to rebase: no run starts, and the
 ticket closes and the label comes off all the same, whether or not the pull request ever carried it.
 One whose own pull request is already merged or closed closes the ticket the same way, without
 mergeability ever being asked, but leaves `needs-rebase` alone: that path only closes the ticket,

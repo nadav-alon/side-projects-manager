@@ -801,10 +801,8 @@ export function githubRepoHost(
  * honest `UNKNOWN` while that pull request's own computation is still
  * running, so this reads one pull request at a time rather than the list.
  *
- * Reads `mergeable` only, not `mergeStateStatus`: this answers #298's
- * question, conflicts, not #293's broader one of whether a branch merely
- * behind its base also counts. A pull request that is `MERGEABLE` but
- * `BEHIND` answers `false` here.
+ * Reads `mergeable` for conflicts and `mergeStateStatus` for a branch merely
+ * `BEHIND` its base: `"behind"` only when it does not conflict.
  */
 async function mergeStatusOf(pullRequest: PullRequestUrl): Promise<MergeStatus> {
   const { stdout } = await run("gh", [
@@ -812,15 +810,16 @@ async function mergeStatusOf(pullRequest: PullRequestUrl): Promise<MergeStatus> 
     "view",
     pullRequest,
     "--json",
-    "mergeable",
+    "mergeable,mergeStateStatus",
     "--jq",
-    ".mergeable",
+    '.mergeable + " " + .mergeStateStatus',
   ]);
-  switch (stdout.trim()) {
+  const [mergeable, mergeState] = stdout.trim().split(" ");
+  switch (mergeable) {
     case "CONFLICTING":
       return "conflicting";
     case "MERGEABLE":
-      return "clean";
+      return mergeState === "BEHIND" ? "behind" : "clean";
     default:
       return "unknown";
   }

@@ -2098,6 +2098,24 @@ describe("whether a pull request's branch needs a rebase", () => {
     );
   });
 
+  it("says a pull request behind its base, without conflicts, needs a rebase", async (t) => {
+    await answering(t, "MERGEABLE BEHIND");
+
+    assert.equal(
+      await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      true,
+    );
+  });
+
+  it("says a pull request at its base's tip does not need a rebase", async (t) => {
+    await answering(t, "MERGEABLE CLEAN");
+
+    assert.equal(
+      await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      false,
+    );
+  });
+
   it("retries a pull request that answers unknown before it settles", async (t) => {
     await answering(t, "UNKNOWN", "UNKNOWN", "CONFLICTING");
 
