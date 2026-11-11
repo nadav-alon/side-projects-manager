@@ -29,6 +29,6 @@ for (const command of untouched) {
     engine(on)
     const ran = await $.tool.call({ tool: 'Bash', command })
     expect(ran.deny).toBeUndefined()
-    expect(ran.text).toBe('ok')
+    expect(ran.result.stdout).toBe('ok')
   })
 }
