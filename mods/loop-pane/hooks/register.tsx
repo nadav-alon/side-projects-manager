@@ -46,6 +46,10 @@ function Section({ Box, Text, title, children }: Parts & { title: string; childr
 
 export const register: Register = on => {
   let tick: { cancel(): void } | undefined
+  const stopPolling = () => {
+    tick?.cancel()
+    tick = undefined
+  }
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'loop-pane', description: "Show the manager's morning loop in a pane" })
@@ -69,17 +73,14 @@ export const register: Register = on => {
     }
     await refresh()
     await $.ui.open({ id: PANE, title: 'Morning loop' })
-    tick?.cancel()
+    stopPolling()
     tick = $.clock.every(REFRESH_MS, () => refresh())
     return { text: 'Loop pane opened.' }
   })
 
   on('ui.close', async ($, e, next) => {
     const closed = await next(e)
-    if (e.id === PANE) {
-      tick?.cancel()
-      tick = undefined
-    }
+    if (e.id === PANE) stopPolling()
     return closed
   })
 
@@ -161,6 +162,16 @@ export const register: Register = on => {
                 {button.label}
               </Button>
             ))}
+            <Button
+              key="close"
+              onPress={async () => {
+                // In the test kit a plugin's own ui.close call does not reach its ui.close hook, so polling stops here too.
+                stopPolling()
+                await $.ui.close({ id: PANE })
+              }}
+            >
+              Close
+            </Button>
           </Box>
         </Section>
       </Box>

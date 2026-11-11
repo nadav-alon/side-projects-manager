@@ -29,6 +29,7 @@ function engine(
     return { value: { exitCode: outcome.exitCode, stdout: '', stderr: outcome.stderr } } as never
   })
   on('ui.open', () => ({ value: {} }) as never)
+  on('ui.close', () => ({ value: {} }) as never)
   on('ui.render', ($, e) => {
     const { Box } = $.ui.resolve(e)
     return h(Box, {}) as never
@@ -124,7 +125,7 @@ test('the pane stops polling the manager home once it is closed', async ($, on) 
   await clock.advance(2500)
   const whileOpen = reads.length
   expect(whileOpen).toBeGreaterThan(0)
-  await $.ui.close({ id: 'loop-pane' })
+  await (await mount($)).press({ key: 'close' })
   const atClose = reads.length
   await clock.advance(10_000)
   expect(reads.length).toBe(atClose)
