@@ -14,7 +14,7 @@ import {
   transcriptPath,
   type Ticket,
 } from "./ports/index.ts";
-import { endsWithTranscript, FakeIssueTracker, FakeRepoHost } from "./testing/index.ts";
+import { endsWithTranscript, escapedPattern, FakeIssueTracker, FakeRepoHost } from "./testing/index.ts";
 
 const REPO = repoSlug("nadav-alon/pilot");
 const CHECKOUT = checkout(`${FakeRepoHost.MANAGED_LOCATION}/${REPO}`);
@@ -890,14 +890,29 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "spec-review-finished",
-        output: '{"gaveUp":false}',
+        output: "",
         transcript: TRANSCRIPT,
       });
 
       const comment = tracker.handbacks[0]?.comment ?? "";
       assert.match(comment, /could not be read as a report/);
-      assert.doesNotMatch(comment, /gaveUp/);
-      assert.match(comment, new RegExp(TRANSCRIPT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+      assert.match(comment, new RegExp(escapedPattern(TRANSCRIPT)));
+    });
+
+    it("does not quote an empty output as the rest of a blocked review's findings", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, specReviewTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "discovery-blocked",
+        discoveries: [{ kind: "correction", title: "Wrong ticket", body: "This is stale." }],
+        crossTarget: { ...implementationTicket(), repo: REPO },
+        output: "",
+      });
+
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.doesNotMatch(comment, /The rest of what the review found/);
+      assert.match(comment, /its output was empty/);
     });
 
     it("names the transcript's host path when it left one", async () => {

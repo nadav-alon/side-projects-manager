@@ -62,5 +62,6 @@ export {
   SPENDABLE_THIS_WEEK,
   YESTERDAY,
   endsWithTranscript,
+  escapedPattern,
   verdicts,
 } from "./fixtures.ts";

@@ -554,9 +554,9 @@ function findingsComment(
   kind: "spec review" | "ux review",
   ending: { output: string; transcript?: TranscriptPath },
 ): string {
-  if (isUnreadable(ending.output)) {
+  if (ending.output.trim() === "") {
     return [
-      `The morning loop ran this ${kind} ticket, but its output could not be read as a report: it was ${ending.output.trim() === "" ? "empty" : "a bare status object, not findings"}.`,
+      `The morning loop ran this ${kind} ticket, but its output could not be read as a report: it was empty.`,
       ending.transcript === undefined
         ? "This run left no transcript to find the findings in."
         : `Whatever it found is in the transcript, \`${ending.transcript}\`.`,
@@ -569,23 +569,6 @@ function findingsComment(
     notRetried(),
     ...transcriptNote(ending.transcript),
   ].join("\n\n");
-}
-
-/**
- * Whether a review run's `output` holds no report to quote: blank, or the
- * structured answer itself (`{"gaveUp":false}`) rather than the review.
- */
-function isUnreadable(output: string): boolean {
-  const text = output.trim();
-  if (text === "") {
-    return true;
-  }
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -617,7 +600,9 @@ function discoveryBlockedComment(
       : [`Also filed against the ${targetNoun(ticket)}, ${ticketReference(ending.crossTarget)}.`]),
     ...(ending.output === undefined
       ? []
-      : [
+      : ending.output.trim() === ""
+        ? ["The review left no further findings: its output was empty."]
+        : [
           `The rest of what the review found:\n\n${quote(ending.output)}`,
           ...truncationNote(ending.output, ending.transcript),
         ]),

@@ -328,12 +328,14 @@ export interface AgentRun {
    */
   nits?: Nits;
   /**
-   * The findings a spec review agent put in its structured answer's `report`
-   * — see `structuredAnswerFrom`. Absent when it gave none. With
-   * `--json-schema` the envelope's `result` is the answer itself, not the
-   * review the agent wrote before it, so this is where the review travels.
+   * Present when the agent gave a structured answer, in which case the
+   * envelope's `result` is that answer itself, not the review the agent
+   * wrote before it. `report` is the findings it put in the answer's
+   * `report` — see `structuredAnswerFrom` — absent when it gave none;
+   * `notes` is what `withDiagnostics` adds beyond the result and stderr: the
+   * tools it was refused and the manager rules that refused them.
    */
-  report?: string;
+  answered?: { report?: string; notes: string };
   /**
    * The head an apply-review or rebase agent says the pull request's branch
    * has on the repo host now, off the envelope's `structured_output` — see
@@ -1696,16 +1698,27 @@ function runOutcomeOf(
   );
 }
 
-/** `endingOf`, as a review ends it: no branch or commits to carry. */
+/**
+ * `endingOf`, as a review ends it: no branch or commits to carry. A spec
+ * review (`findingsInReport`) that answered in the structured form has its
+ * findings in the answer's `report`, so its output is that and the notes on
+ * what it was refused — empty when it gave neither, never the answer itself.
+ */
 function reviewOutcomeOf(
   agent: FinishedAgentRun,
   model: ModelName | undefined,
+  findingsInReport: boolean,
 ): ReviewOutcome {
   const ending = endingOf(agent, model);
   return withTranscriptAndDiscoveryFields(
     {
-      ...(ending.kind === "finished" && agent.report !== undefined
-        ? { ...ending, output: agent.report }
+      ...(ending.kind === "finished" && findingsInReport && agent.answered !== undefined
+        ? {
+            ...ending,
+            output: [agent.answered.report ?? "", agent.answered.notes]
+              .filter((part) => part !== "")
+              .join("\n"),
+          }
         : ending),
       tokensUsed: agent.tokensUsed,
     },
@@ -1757,7 +1770,7 @@ async function reviewOnClone(
       onStarted,
     );
 
-    return reviewOutcomeOf(agent, model);
+    return reviewOutcomeOf(agent, model, kind === "spec-review");
   });
 }
 
@@ -3524,7 +3537,12 @@ function readAgentRun(stdout: string, stderr = "", rules: readonly string[] = []
     ...(answer?.gist !== undefined && { gist: answer.gist }),
     ...(answer?.nits !== undefined && { nits: answer.nits }),
     ...(answer?.branchMoved !== undefined && { branchMoved: answer.branchMoved }),
-    ...(answer?.report !== undefined && { report: answer.report }),
+    ...(answer !== undefined && {
+      answered: {
+        ...(answer.report !== undefined && { report: answer.report }),
+        notes: withDiagnostics("", "", deniedTools(envelope), managerRulesRefusing(envelope, rules)),
+      },
+    }),
   };
 }
 
