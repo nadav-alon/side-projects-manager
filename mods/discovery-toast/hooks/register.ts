@@ -1,12 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
+import { resolveManagerHome } from './manager-home/home'
 import { managerHomeReader, type HomeFs } from './manager-home/reader'
-
-/** The manager home, as `src/adapters/manager-home.ts` resolves it: `SIDE_PROJECTS_MANAGER_HOME` when set, else the checkout, which the plugin sits two levels below (`<checkout>/mods/<name>`). The hooks run without `process`, so the shell is asked. */
-async function managerHome($: Pick<EngineInterface, 'plugin' | 'process'>): Promise<string> {
-  const { stdout } = await $.process.run(['sh', '-c', 'printf "%s" "$SIDE_PROJECTS_MANAGER_HOME"'])
-  return stdout || $.plugin.root.replace(/\/+$/, '').split('/').slice(0, -2).join('/')
-}
 
 /** How often the discoveries folder is read, in milliseconds. */
 const POLL_MS = 5000
@@ -113,7 +108,7 @@ function inFilingOrder(pending: string[]): string[] {
 
 /** The manager home the mod sits in, the file reading it goes through and its reader. */
 async function readerFor($: Pick<EngineInterface, 'plugin' | 'process'> & { fs: HomeFs }) {
-  const home = await managerHome($)
+  const home = await resolveManagerHome(argv => $.process.run(argv), $.plugin.root)
   const read: Read = path => $.fs.read(path)
   return { home, read, reader: managerHomeReader({ read, list: path => $.fs.list(path) }, home) }
 }

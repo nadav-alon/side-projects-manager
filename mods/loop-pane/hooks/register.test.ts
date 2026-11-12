@@ -308,3 +308,17 @@ test('the pane reads the manager home from SIDE_PROJECTS_MANAGER_HOME when it is
   await $.command.run({ command: 'loop-pane', args: '' })
   expect(await texts(await mount($))).toContain('o/d#9')
 })
+
+test('halt and resume run the manager command from SIDE_PROJECTS_MANAGER_HOME when it is set', async ($, on) => {
+  const ran: Ran[] = []
+  const elsewhere = '/elsewhere/home'
+  engine(on, { [`${elsewhere}/journal.json`]: JSON.stringify(running) }, { ran, managerHome: elsewhere })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'halt' })
+  await ui.press({ key: 'resume' })
+  expect(ran).toEqual([
+    { argv: ['npm', 'run', '--silent', 'halt'], cwd: elsewhere },
+    { argv: ['npm', 'run', '--silent', 'resume'], cwd: elsewhere },
+  ])
+})

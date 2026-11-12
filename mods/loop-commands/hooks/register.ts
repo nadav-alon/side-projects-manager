@@ -1,11 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
+import { resolveManagerHome } from './manager-home/home'
 import { parseTicketReference } from './ticket-reference'
-
-/** The manager home the commands run from, as `src/adapters/manager-home.ts` resolves it: `SIDE_PROJECTS_MANAGER_HOME` when set, else the checkout, which the plugin sits two levels below (`<checkout>/mods/<name>`). The hooks run without `process`, so the shell is asked. */
-async function managerHome($: EngineInterface): Promise<string> {
-  const { stdout } = await $.process.run(['sh', '-c', 'printf "%s" "$SIDE_PROJECTS_MANAGER_HOME"'])
-  return stdout || $.plugin.root.replace(/\/+$/, '').split('/').slice(0, -2).join('/')
-}
 
 const YES = 'Yes'
 const NO = 'No'
@@ -45,6 +40,9 @@ const COMMANDS: Record<string, LoopCommand> = {
 }
 
 export const register: Register = on => {
+  // The manager home cannot change during a session, so the shell is asked once.
+  let homeOf: ReturnType<typeof resolveManagerHome> | undefined
+  const managerHome = ($: EngineInterface) => (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
   on('session.start', async ($, e, next) => {
     for (const [name, { description }] of Object.entries(COMMANDS)) await $.command.register({ name, description })
     return next(e)

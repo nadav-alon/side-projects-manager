@@ -14,8 +14,9 @@ const NOW = Date.parse('2026-10-30T12:00:00Z')
 function engine(on: On, files: Record<string, string>, drawn = false, { managerHome = '', configDir = '', reads = [] as string[] } = {}): void {
   mock.clock(on, { now: NOW })
   on('process.run', (_$, { argv }) => {
-    const stdout = argv[0] !== 'sh' ? '' : argv[2]?.includes('SIDE_PROJECTS_MANAGER_HOME') ? managerHome : configDir
-    return { value: { exitCode: 0, stdout, stderr: '' } } as never
+    if (argv[0] !== 'sh') return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+    if (argv[2]?.includes('SIDE_PROJECTS_MANAGER_HOME')) return { value: { exitCode: 0, stdout: managerHome, stderr: '' } } as never
+    return { value: { exitCode: 0, stdout: configDir, stderr: '' } } as never
   })
   on('fs.read', (_$, e) => {
     reads.push(e.path)

@@ -1,13 +1,8 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { Register } from 'claude-code'
 
 import { failureKey, repeatingFailures, type FailureKey } from './failures'
+import { resolveManagerHome } from './manager-home/home'
 import { managerHomeReader } from './manager-home/reader'
-
-/** The manager home, as `src/adapters/manager-home.ts` resolves it: `SIDE_PROJECTS_MANAGER_HOME` when set, else the checkout, which the plugin sits two levels below (`<checkout>/mods/<name>`). The hooks run without `process`, so the shell is asked. */
-async function managerHome($: EngineInterface): Promise<string> {
-  const { stdout } = await $.process.run(['sh', '-c', 'printf "%s" "$SIDE_PROJECTS_MANAGER_HOME"'])
-  return stdout || $.plugin.root.replace(/\/+$/, '').split('/').slice(0, -2).join('/')
-}
 
 /** How often the trigger log is read, in milliseconds. */
 const POLL_MS = 5000
@@ -17,7 +12,7 @@ const LOG_LINES = 500
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    const reader = managerHomeReader({ read: path => $.fs.read(path), list: path => $.fs.list(path) }, await managerHome($))
+    const reader = managerHomeReader({ read: path => $.fs.read(path), list: path => $.fs.list(path) }, await resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
 
     // The failures currently toasted for. One whose streak the log shows ended leaves the set, so it toasts
     // again if it starts again; one the window merely stops showing stays.

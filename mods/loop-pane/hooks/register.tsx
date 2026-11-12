@@ -4,14 +4,9 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { LoopSnapshot } from '../types'
 import { isProcessId, type ProcessId } from './manager-home/types.ts'
 import { compactCount, elapsed, localTime, percentOf } from './format'
+import { resolveManagerHome } from './manager-home/home'
 import { readSnapshot } from './snapshot'
 import { sessionLogsFolder } from './session-logs'
-
-/** The manager home, as `src/adapters/manager-home.ts` resolves it: `SIDE_PROJECTS_MANAGER_HOME` when set, else the checkout, which the plugin sits two levels below (`<checkout>/mods/<name>`). The hooks run without `process`, so the shell is asked. */
-async function managerHome($: EngineInterface): Promise<string> {
-  const { stdout } = await $.process.run(['sh', '-c', 'printf "%s" "$SIDE_PROJECTS_MANAGER_HOME"'])
-  return stdout || $.plugin.root.replace(/\/+$/, '').split('/').slice(0, -2).join('/')
-}
 
 const PANE = 'loop-pane'
 const REFRESH_MS = 2000
@@ -72,6 +67,9 @@ function Section({ Box, Text, title, children }: Parts & { title: string; childr
 }
 
 export const register: Register = on => {
+  // The manager home cannot change during a session, so the shell is asked once.
+  let homeOf: ReturnType<typeof resolveManagerHome> | undefined
+  const managerHome = ($: EngineInterface) => (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
   let tick: { cancel(): void } | undefined
   const stopPolling = () => {
     tick?.cancel()
