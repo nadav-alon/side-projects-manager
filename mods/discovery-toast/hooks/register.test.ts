@@ -226,3 +226,18 @@ test('/discoveries says in one line when none are pending', async ($, on) => {
   const out = await $.command.run({ command: 'discoveries' })
   expect(out.text).toBe('No pending discoveries.')
 })
+
+test('/discoveries lists a file that cannot be read or parsed by its path, with a note', async ($, on) => {
+  const contents = { 'run-a/2.json': JSON.stringify({ kind: 'suggestion', title: 'Fine', body: 'ok' }), 'run-a/1.json': 'not json' }
+  engine(on, { 'run-a': ['1.json', '2.json', '3.json'] }, { contents })
+  await $.session.start({ cwd: '/session' } as never)
+
+  const out = await $.command.run({ command: 'discoveries' })
+  expect(out.text).toBe(
+    [
+      'run-a/1.json — could not be read or parsed as a discovery',
+      'run-a — suggestion: Fine\nok',
+      'run-a/3.json — could not be read or parsed as a discovery',
+    ].join('\n\n'),
+  )
+})

@@ -107,7 +107,7 @@ export const register: Register = on => {
     const entries: string[] = []
     for (const discovery of pending ?? []) {
       const document = await readInFull(read, home, discovery)
-      entries.push(document === undefined ? discovery : listing(discovery, document))
+      entries.push(document === undefined ? `${discovery} — could not be read or parsed as a discovery` : listing(discovery, document))
     }
     return { text: entries.length === 0 ? 'No pending discoveries.' : entries.join('\n\n') }
   })
