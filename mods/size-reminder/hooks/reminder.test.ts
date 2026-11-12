@@ -9,6 +9,29 @@ const OTHER = foldedRepoSlug('acme/pilot')
 const remind = (command: string, cwdRepo = THIS_REPO, envRepo: FoldedRepoSlug | null = null) =>
   sizingReminder(command, async () => cwdRepo, async () => envRepo)
 
+describe('sizingReminder, across calls', () => {
+  const sizing = 'gh issue create -t x'
+
+  it('does not remind in a later call once an earlier call ran cd, since the repo is then unknown', async () => {
+    const trail = { moved: false }
+    await sizingReminder('cd ../pilot', async () => THIS_REPO, async () => null, trail)
+    assert.equal(await sizingReminder(sizing, async () => THIS_REPO, async () => null, trail), null)
+  })
+
+  it('still reminds in a later call that names this repo, or whose environment does', async () => {
+    const trail = { moved: false }
+    await sizingReminder('cd ../pilot', async () => OTHER, async () => null, trail)
+    assert.equal(await sizingReminder('gh issue create -R nadav-alon/side-projects-manager -t x', async () => OTHER, async () => null, trail), REMINDER)
+    assert.equal(await sizingReminder(sizing, async () => OTHER, async () => THIS_REPO, trail), REMINDER)
+  })
+
+  it('reminds in the session\'s repo while no call has run cd', async () => {
+    const trail = { moved: false }
+    await sizingReminder('ls', async () => THIS_REPO, async () => null, trail)
+    assert.equal(await sizingReminder(sizing, async () => THIS_REPO, async () => null, trail), REMINDER)
+  })
+})
+
 describe('sizingReminder, in this repo', () => {
   for (const command of [
     'gh issue create --title "x" --body "y"',
