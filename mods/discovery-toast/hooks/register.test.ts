@@ -10,7 +10,11 @@ type On = Parameters<TestBody>[1]
 function engine(
   on: On,
   files: Record<string, string[]>,
-  { unreadable = { isSo: false }, contents = {} }: { unreadable?: { isSo: boolean }; contents?: Record<string, string> } = {},
+  {
+    unreadable = { isSo: false },
+    contents = {},
+    isHome = true,
+  }: { unreadable?: { isSo: boolean }; contents?: Record<string, string>; isHome?: boolean } = {},
 ) {
   const seen = { statuses: [] as (string | undefined)[], toasts: [] as string[] }
   let release = () => {}
@@ -25,6 +29,7 @@ function engine(
     return { value: inside.map(name => ({ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false })) } as never
   })
   on('fs.read', (_$, e) => {
+    if (e.path.endsWith('/journal.json') && isHome) return { value: '{}' } as never
     const text = contents[e.path.split('/').slice(-2).join('/')]
     if (text === undefined) throw new Error('missing')
     return { value: text } as never
@@ -215,7 +220,7 @@ test('/discoveries lists each pending discovery with its run, kind, title and bo
 
   const out = await $.command.run({ command: 'discoveries' })
   expect(out.text).toBe(
-    'run-a — suggestion: Cache the lookup\nReads repeat.\n\nrun-b — correction: Wrong scope\nThe ticket names two seams.',
+    'run-a/1.json — suggestion: Cache the lookup\nReads repeat.\n\nrun-b/1.json — correction: Wrong scope\nThe ticket names two seams.',
   )
 })
 
@@ -236,16 +241,53 @@ test('/discoveries lists a file that cannot be read or parsed by its path, with 
   expect(out.text).toBe(
     [
       'run-a/1.json — could not be read or parsed as a discovery',
-      'run-a — suggestion: Fine\nok',
+      'run-a/2.json — suggestion: Fine\nok',
       'run-a/3.json — could not be read or parsed as a discovery',
     ].join('\n\n'),
   )
 })
 
+test('/discoveries lists valid JSON that is not a discovery by its path, and one with no body without a body', async ($, on) => {
+  const contents = {
+    'run-a/1.json': JSON.stringify({ kind: 'idea', title: 'Unknown kind', body: 'x' }),
+    'run-a/2.json': JSON.stringify({ kind: 'suggestion', body: 'No title' }),
+    'run-a/3.json': JSON.stringify({ kind: 'correction', title: 'No body' }),
+  }
+  engine(on, { 'run-a': ['1.json', '2.json', '3.json'] }, { contents })
+  await $.session.start({ cwd: '/session' } as never)
+
+  const out = await $.command.run({ command: 'discoveries' })
+  expect(out.text).toBe(
+    [
+      'run-a/1.json — could not be read or parsed as a discovery',
+      'run-a/2.json — could not be read or parsed as a discovery',
+      'run-a/3.json — correction: No body',
+    ].join('\n\n'),
+  )
+})
+
+test('/discoveries orders a run\'s files by number, so 2.json comes before 10.json', async ($, on) => {
+  const doc = (title: string) => JSON.stringify({ kind: 'suggestion', title, body: '.' })
+  const contents = { 'run-a/2.json': doc('Second'), 'run-a/10.json': doc('Tenth') }
+  engine(on, { 'run-a': ['10.json', '2.json'] }, { contents })
+  await $.session.start({ cwd: '/session' } as never)
+
+  const out = await $.command.run({ command: 'discoveries' })
+  expect(out.text).toBe('run-a/2.json — suggestion: Second\n.\n\nrun-a/10.json — suggestion: Tenth\n.')
+})
+
 test('/discoveries says there is no manager home to read outside one', async ($, on) => {
-  engine(on, { 'run-a': ['1.json'] }, { unreadable: { isSo: true } })
+  engine(on, {}, { unreadable: { isSo: true }, isHome: false })
   await $.session.start({ cwd: '/session' } as never)
 
   const out = await $.command.run({ command: 'discoveries' })
   expect(out.text).toBe('There is no manager home to read discoveries from.')
+})
+
+test('/discoveries says none are pending in a manager home with no discoveries folder', async ($, on) => {
+  engine(on, {}, { unreadable: { isSo: true } })
+  await $.session.start({ cwd: '/session' } as never)
+
+  const out = await $.command.run({ command: 'discoveries' })
+  expect(out.text).toBe('No pending discoveries.')
 })
