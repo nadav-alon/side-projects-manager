@@ -2,7 +2,8 @@
 # an agent to rebase a pull request, draft or ready, linked as a sub-issue of
 # the ticket the pull request closes (CONTEXT.md: Pull request ticket, Rebase
 # ticket). Also labels that pull request `needs-rebase`, so it reads as not
-# mergeable without touching its draft state.
+# mergeable without touching its draft state. On a Dependabot pull request it
+# instead replies `@dependabot rebase`, opening no ticket and adding no label.
 name: Rebase
 
 on:
@@ -16,7 +17,7 @@ permissions:
 
 jobs:
   rebase:
-    name: Open a rebase ticket for the pull request
+    name: Rebase the pull request
     # Narrowed to the repo owner and a comment mentioning the command here, at
     # the job level, so an unrelated comment costs nothing beyond this one
     # check. The exact trimmed-body check can't live here too — Actions

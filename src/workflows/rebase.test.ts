@@ -160,4 +160,73 @@ describe("rebase.sh", () => {
       `body=Opened https://github.com/${REPO}/issues/100 to rebase.`,
     );
   });
+
+  it("asks Dependabot to rebase its own pull request and opens no ticket", async (t: TestContext) => {
+    const gh = await recordingGh(
+      t,
+      fakeGh({
+        prCommand: "view",
+        prResponse: JSON.stringify({
+          number: 7,
+          state: "OPEN",
+          body: "Bumps left-pad from 1.0.0 to 1.1.0.",
+          url: `https://github.com/${REPO}/pull/7`,
+          author: { login: "app/dependabot", is_bot: true },
+        }),
+        newIssueUrl: `https://github.com/${REPO}/issues/100`,
+      }),
+    );
+
+    await runRebaseScript({
+      GH_TOKEN: "test-token",
+      REPO,
+      ISSUE_NUMBER: "7",
+      ISSUE_BODY: "",
+      IS_PULL_REQUEST: "true",
+      COMMENT_ID: "777",
+      COMMENT_BODY: "/rebase",
+    });
+
+    const calls = await gh.calls();
+    assert.equal(
+      calls.some((call) => call.includes("issue") && call.includes("create")),
+      false,
+    );
+    assert.equal(
+      calls.some((call) => call.includes("--add-label")),
+      false,
+    );
+    const replied = callWith(calls, "api", `repos/${REPO}/issues/7/comments`);
+    assert.equal(valueOf(replied, "-f"), "body=@dependabot rebase");
+  });
+
+  it("still opens a ticket for a pull request authored by someone else", async (t: TestContext) => {
+    const gh = await recordingGh(
+      t,
+      fakeGh({
+        prCommand: "view",
+        prResponse: JSON.stringify({
+          number: 7,
+          state: "OPEN",
+          body: "Closes #42",
+          url: `https://github.com/${REPO}/pull/7`,
+          author: { login: "dependabot", is_bot: false },
+        }),
+        newIssueUrl: `https://github.com/${REPO}/issues/100`,
+      }),
+    );
+
+    await runRebaseScript({
+      GH_TOKEN: "test-token",
+      REPO,
+      ISSUE_NUMBER: "7",
+      ISSUE_BODY: "",
+      IS_PULL_REQUEST: "true",
+      COMMENT_ID: "777",
+      COMMENT_BODY: "/rebase",
+    });
+
+    const calls = await gh.calls();
+    assert.equal(valueOf(callWith(calls, "issue", "create"), "--title"), "Rebase #7");
+  });
 });
