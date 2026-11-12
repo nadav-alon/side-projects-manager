@@ -241,3 +241,11 @@ test('/discoveries lists a file that cannot be read or parsed by its path, with 
     ].join('\n\n'),
   )
 })
+
+test('/discoveries says there is no manager home to read outside one', async ($, on) => {
+  engine(on, { 'run-a': ['1.json'] }, { unreadable: { isSo: true } })
+  await $.session.start({ cwd: '/session' } as never)
+
+  const out = await $.command.run({ command: 'discoveries' })
+  expect(out.text).toBe('There is no manager home to read discoveries from.')
+})

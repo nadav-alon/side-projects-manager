@@ -104,8 +104,9 @@ export const register: Register = on => {
     const home = managerHome($.plugin.root)
     const read = (path: string) => $.fs.read(path)
     const pending = await managerHomeReader({ read, list: path => $.fs.list(path) }, home).discoveries()
+    if (pending === undefined) return { text: 'There is no manager home to read discoveries from.' }
     const entries: string[] = []
-    for (const discovery of pending ?? []) {
+    for (const discovery of pending) {
       const document = await readInFull(read, home, discovery)
       entries.push(document === undefined ? `${discovery} — could not be read or parsed as a discovery` : listing(discovery, document))
     }
