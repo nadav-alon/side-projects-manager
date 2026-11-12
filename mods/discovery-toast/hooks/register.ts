@@ -1,10 +1,11 @@
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 import { managerHomeReader, type HomeFs } from './manager-home/reader'
 
-/** The manager home: the plugin sits at `<home>/mods/<name>`, so the home is two levels up. */
-function managerHome(pluginRoot: string): string {
-  return pluginRoot.replace(/\/+$/, '').split('/').slice(0, -2).join('/')
+/** The manager home, as `src/adapters/manager-home.ts` resolves it: `SIDE_PROJECTS_MANAGER_HOME` when set, else the checkout, which the plugin sits two levels below (`<checkout>/mods/<name>`). The hooks run without `process`, so the shell is asked. */
+async function managerHome($: Pick<EngineInterface, 'plugin' | 'process'>): Promise<string> {
+  const { stdout } = await $.process.run(['sh', '-c', 'printf "%s" "$SIDE_PROJECTS_MANAGER_HOME"'])
+  return stdout || $.plugin.root.replace(/\/+$/, '').split('/').slice(0, -2).join('/')
 }
 
 /** How often the discoveries folder is read, in milliseconds. */
@@ -111,8 +112,8 @@ function inFilingOrder(pending: string[]): string[] {
 }
 
 /** The manager home the mod sits in, the file reading it goes through and its reader. */
-function readerFor($: { plugin: { root: string }; fs: HomeFs }) {
-  const home = managerHome($.plugin.root)
+async function readerFor($: Pick<EngineInterface, 'plugin' | 'process'> & { fs: HomeFs }) {
+  const home = await managerHome($)
   const read: Read = path => $.fs.read(path)
   return { home, read, reader: managerHomeReader({ read, list: path => $.fs.list(path) }, home) }
 }
@@ -132,7 +133,7 @@ async function isManagerHome(read: Read, home: string): Promise<boolean> {
 
 export const register: Register = on => {
   on('command.run', { command: 'discoveries' }, async $ => {
-    const { home, read, reader } = readerFor($)
+    const { home, read, reader } = await readerFor($)
     const pending = await reader.discoveries()
     // No discoveries folder in a real home is none pending; outside a home there is no home to read.
     if (pending === undefined && !(await isManagerHome(read, home))) {
@@ -148,7 +149,7 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'discoveries', description: 'List the pending discoveries in full' })
-    const { home, read, reader } = readerFor($)
+    const { home, read, reader } = await readerFor($)
 
     // Every discovery the session has seen, in the order first seen: the ones present at start are
     // never toasted, and one that goes and comes back is not toasted twice.
