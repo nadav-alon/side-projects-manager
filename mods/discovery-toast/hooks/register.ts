@@ -131,11 +131,6 @@ async function isManagerHome(read: Read, home: string): Promise<boolean> {
 }
 
 export const register: Register = on => {
-  on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'discoveries', description: 'List the pending discoveries in full' })
-    return next(e)
-  })
-
   on('command.run', { command: 'discoveries' }, async $ => {
     const { home, read, reader } = readerFor($)
     const pending = await reader.discoveries()
@@ -152,6 +147,7 @@ export const register: Register = on => {
   })
 
   on('session.start', async ($, e, next) => {
+    await $.command.register({ name: 'discoveries', description: 'List the pending discoveries in full' })
     const { home, read, reader } = readerFor($)
 
     // Every discovery the session has seen, in the order first seen: the ones present at start are
