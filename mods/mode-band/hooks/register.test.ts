@@ -20,7 +20,7 @@ function engine(on: On): string[] {
   })
   on('ui.toast', (_$, e) => {
     toasts.push(e.text)
-    return {} as never
+    return { value: undefined } as never
   })
   return toasts
 }
