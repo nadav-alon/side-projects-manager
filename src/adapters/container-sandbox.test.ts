@@ -6316,6 +6316,27 @@ fi`;
     });
 
     /**
+     * With `--json-schema` the envelope's `result` is the answer itself, so
+     * a spec review's findings travel in the answer's `report` instead.
+     */
+    it("hands a spec review's report back as its output, not the envelope's result", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(structuredStdout('{"gaveUp":false}', { report: "Four drifts found." })),
+        (sandbox, directory) =>
+          sandbox.specReview({
+            image: TEST_IMAGE,
+            ticket: SPEC_REVIEW_TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+          }),
+        "ro",
+      );
+
+      assert.equal(variant(result, "finished")?.output, "Four drifts found.");
+    });
+
+    /**
      * Stderr and the denied-tools note are appended after the agent's own
      * text, so a gist that reads correctly off the raw result must not be lost
      * once those are appended to the output a caller sees.

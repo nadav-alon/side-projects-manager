@@ -328,6 +328,13 @@ export interface AgentRun {
    */
   nits?: Nits;
   /**
+   * The findings a spec review agent put in its structured answer's `report`
+   * — see `structuredAnswerFrom`. Absent when it gave none. With
+   * `--json-schema` the envelope's `result` is the answer itself, not the
+   * review the agent wrote before it, so this is where the review travels.
+   */
+  report?: string;
+  /**
    * The head an apply-review or rebase agent says the pull request's branch
    * has on the repo host now, off the envelope's `structured_output` — see
    * `structuredAnswerFrom`. Absent unless the agent reported its push
@@ -1694,8 +1701,14 @@ function reviewOutcomeOf(
   agent: FinishedAgentRun,
   model: ModelName | undefined,
 ): ReviewOutcome {
+  const ending = endingOf(agent, model);
   return withTranscriptAndDiscoveryFields(
-    { ...endingOf(agent, model), tokensUsed: agent.tokensUsed },
+    {
+      ...(ending.kind === "finished" && agent.report !== undefined
+        ? { ...ending, output: agent.report }
+        : ending),
+      tokensUsed: agent.tokensUsed,
+    },
     agent,
   );
 }
@@ -1910,6 +1923,8 @@ function specReviewPromptFor(
     "one way this run opens or comments on anything else.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
     "finish and report without asking for confirmation.",
+    "Put the whole of your findings in the `report` field of your structured answer: it is what",
+    "this ticket is told, and nothing you wrote before the answer reaches it.",
     "A discovery you file below is about that supertask, not about this ticket.",
     discoveryInstructionsFor(discovered),
     answerInstructionsFor("reporting your review"),
@@ -3390,6 +3405,11 @@ export const RUN_ANSWER_SCHEMA = {
       type: "string",
       description: "Why the run stopped short. Required when gaveUp is true.",
     },
+    report: {
+      type: "string",
+      description:
+        "Only for a spec review: the whole of your findings, in prose, as the ticket should read them. Omit for any other run.",
+    },
     branchMoved: {
       type: "string",
       description:
@@ -3404,6 +3424,7 @@ interface StructuredAnswer {
   gist?: TicketGist;
   nits?: Nits;
   branchMoved?: BranchMoved;
+  report?: string;
   /** Why the agent says it gave up, absent when it did not. */
   gaveUpReason?: string;
 }
@@ -3419,12 +3440,16 @@ function structuredAnswerFrom(envelope: object): StructuredAnswer | undefined {
   if (typeof structured !== "object" || structured === null) {
     return undefined;
   }
-  const { gist, nits, gaveUp, reason, branchMoved } = structured as Record<string, unknown>;
+  const { gist, nits, gaveUp, reason, branchMoved, report } = structured as Record<
+    string,
+    unknown
+  >;
   const moved = typeof branchMoved === "string" ? branchMovedFrom(branchMoved) : undefined;
   return {
     ...(typeof gist === "string" && isTicketGist(gist) && { gist }),
     ...(typeof nits === "string" && isNits(nits) && { nits }),
     ...(moved !== undefined && { branchMoved: moved }),
+    ...(typeof report === "string" && report.trim() !== "" && { report: report.trim() }),
     ...(gaveUp === true && {
       gaveUpReason:
         typeof reason === "string" && reason.trim() !== ""
@@ -3499,6 +3524,7 @@ function readAgentRun(stdout: string, stderr = "", rules: readonly string[] = []
     ...(answer?.gist !== undefined && { gist: answer.gist }),
     ...(answer?.nits !== undefined && { nits: answer.nits }),
     ...(answer?.branchMoved !== undefined && { branchMoved: answer.branchMoved }),
+    ...(answer?.report !== undefined && { report: answer.report }),
   };
 }
 
