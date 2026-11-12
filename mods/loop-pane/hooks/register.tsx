@@ -1,11 +1,17 @@
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 import type { LoopSnapshot } from '../types'
 import { isProcessId, type ProcessId } from './manager-home/types.ts'
 import { compactCount, elapsed, localTime, percentOf } from './format'
-import { managerHome, readSnapshot } from './snapshot'
+import { readSnapshot } from './snapshot'
 import { sessionLogsFolder } from './session-logs'
+
+/** The manager home, as `src/adapters/manager-home.ts` resolves it: `SIDE_PROJECTS_MANAGER_HOME` when set, else the checkout, which the plugin sits two levels below (`<checkout>/mods/<name>`). The hooks run without `process`, so the shell is asked. */
+async function managerHome($: EngineInterface): Promise<string> {
+  const { stdout } = await $.process.run(['sh', '-c', 'printf "%s" "$SIDE_PROJECTS_MANAGER_HOME"'])
+  return stdout || $.plugin.root.replace(/\/+$/, '').split('/').slice(0, -2).join('/')
+}
 
 const PANE = 'loop-pane'
 const REFRESH_MS = 2000
@@ -78,7 +84,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'loop-pane' }, async $ => {
-    const home = managerHome($.plugin.root)
+    const home = await managerHome($)
     // The config directory cannot change during a session, so the shell is asked once.
     const logs = sessionLogsFolder(argv => $.process.run(argv))
     const refresh = async () => {
@@ -109,7 +115,7 @@ export const register: Register = on => {
     const { inFlight, usage } = await read($, snapshot)
     const said = await read($, notice)
     const now = await $.clock.now()
-    const home = managerHome($.plugin.root)
+    const home = await managerHome($)
 
     const parts = { Box, Text }
     const alive = processAlive(argv => $.process.run(argv))
