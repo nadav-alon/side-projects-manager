@@ -10,10 +10,15 @@ type On = Parameters<TestBody>[1]
 
 const NOW = Date.parse('2026-10-30T12:00:00Z')
 
-/** Stands for the engine beneath the mod: a manager home holding `files`, and a band already drawn when `drawn`. */
-function engine(on: On, files: Record<string, string>, drawn = false): void {
+/** Stands for the engine beneath the mod: a manager home holding `files`, and a band already drawn when `drawn`; the shell reports `managerHome` as `SIDE_PROJECTS_MANAGER_HOME` (empty when unset) and `configDir` as the Claude config directory. */
+function engine(on: On, files: Record<string, string>, drawn = false, { managerHome = '', configDir = '', reads = [] as string[] } = {}): void {
   mock.clock(on, { now: NOW })
+  on('process.run', (_$, { argv }) => {
+    const stdout = argv[0] !== 'sh' ? '' : argv[2]?.includes('SIDE_PROJECTS_MANAGER_HOME') ? managerHome : configDir
+    return { value: { exitCode: 0, stdout, stderr: '' } } as never
+  })
   on('fs.read', (_$, e) => {
+    reads.push(e.path)
     const text = Object.entries(files).find(([name]) => e.path.endsWith(`/${name}`))?.[1]
     if (text === undefined) return { deny: `ENOENT: ${e.path}` } as never
     return { value: text } as never
@@ -79,8 +84,7 @@ test('a band drawn beneath it still draws', async ($, on) => {
 test("the band counts the developer's own use from the session logs under the Claude config directory", async ($, on) => {
   const logs = '/config/projects'
   const line = JSON.stringify({ type: 'assistant', timestamp: '2026-10-30T10:00:00.000Z', message: { usage: { input_tokens: 2_000_000, output_tokens: 0 } } })
-  engine(on, { 'state.json': state(3_000_000), 'budget.json': '{"fiveHourAllowance":10000000}', 'proj/s.jsonl': line })
-  on('process.run', (_$, { argv }) => ({ value: { exitCode: 0, stdout: argv[0] === 'sh' ? '/config/' : '', stderr: '' } }) as never)
+  engine(on, { 'state.json': state(3_000_000), 'budget.json': '{"fiveHourAllowance":10000000}', 'proj/s.jsonl': line }, false, { configDir: '/config/' })
   on('fs.list', (_$, e) => {
     const names = e.path === logs ? ['proj'] : e.path === `${logs}/proj` ? ['s.jsonl'] : undefined
     if (names === undefined) throw new Error(`ENOENT: ${e.path}`)
@@ -89,4 +93,13 @@ test("the band counts the developer's own use from the session logs under the Cl
 
   const ui = await $.ui.mount({ plugin: 'budget-band', surface: 'terminal', ...ABOVE_PROMPT })
   expect((await ui.find({ type: 'Text' }))?.text.trim()).toBe('5h window: 50% used')
+})
+
+test('the band reads the manager home from SIDE_PROJECTS_MANAGER_HOME when it is set', async ($, on) => {
+  const reads: string[] = []
+  engine(on, { 'state.json': state(3_000_000), 'budget.json': '{"fiveHourAllowance":10000000}' }, false, { managerHome: '/elsewhere/home', reads })
+
+  const ui = await $.ui.mount({ plugin: 'budget-band', surface: 'terminal', ...ABOVE_PROMPT })
+  expect((await ui.find({ type: 'Text', text: /5h window/ }))?.text.trim()).toBe('5h window: 30% used')
+  expect(reads).toContain('/elsewhere/home/state.json')
 })
