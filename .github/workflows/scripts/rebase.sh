@@ -34,6 +34,11 @@ flatten_err() {
 # both grep and jq's regex engine read alike, so one copy serves both.
 CLOSING_KEYWORD='(^|[^[:alnum:]_])(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]*:?[[:space:]]*#'
 
+# Dependabot's login as `gh pr view --json author` spells it
+# (`app/dependabot`) and as the REST API does (`dependabot[bot]`).
+# Matched together with `is_bot`, so a user named `dependabot` is not it.
+DEPENDABOT_LOGIN='^(app/)?dependabot(\[bot\])?$'
+
 # The first Closes/Fixes/Resolves #N in $1.
 closing_number() {
   grep -ioE "${CLOSING_KEYWORD}[0-9]+" <<<"$1" \
@@ -58,7 +63,7 @@ if [[ "$IS_PULL_REQUEST" == "true" ]]; then
   pull_request_state="$(jq -r .state <<<"$pull_request_json")"
   if [[ "$pull_request_state" != "OPEN" ]]; then
     FAIL_REASON="that pull request is not open (state: $pull_request_state), so there is nothing to rebase."
-  elif [[ "$(jq -r '.author.login // ""' <<<"$pull_request_json")" =~ ^(app/)?dependabot(\[bot\])?$ ]]; then
+  elif [[ "$(jq -r 'select(.author.is_bot == true) | .author.login // ""' <<<"$pull_request_json")" =~ $DEPENDABOT_LOGIN ]]; then
     # Dependabot stops updating a pull request once anyone else has
     # pushed to its branch, so it is asked to rebase its own.
     reply "@dependabot rebase"
