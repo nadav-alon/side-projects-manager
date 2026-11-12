@@ -51,6 +51,8 @@ CRON_PATH="$(cron_path)"
 # never reach a firing unless the line loads that file itself. Crontab-level
 # variable lines are not enough on their own: anything else that rewrites the
 # crontab can drop them, and the run then fails on a missing token.
+# The loop pane's Start now button (mods/loop-pane/hooks/register.tsx) sources
+# the same path; keep the two the same.
 ENV_FILE="$HOME/.side-projects-manager.env"
 if [ ! -f "$ENV_FILE" ]; then
   echo "install-triggers: $ENV_FILE is missing; run scripts/setup-wizard.sh first." >&2

@@ -24,8 +24,17 @@ const BUTTONS = [
   { key: 'stop', label: 'Stop', script: 'stop', confirm: 'Stop the morning loop?' },
 ] as const
 
-/** Starts an invocation as the schedule's cron line does — env file sourced, output appended to the manager home's `trigger.log` — detached so closing the pane does not stop it. The manager home is `$1`. */
-const START_SCRIPT = 'set -a; . "$HOME/.side-projects-manager.env"; set +a; cd "$1" && setsid nohup node src/bin/morning-run.ts >> "$1/trigger.log" 2>&1 < /dev/null &'
+/**
+ * Starts an invocation as the schedule's cron line does — env file sourced, the checkout fast-forwarded, output appended to `trigger.log` — detached so closing the pane does not stop it. The manager home is `$1`.
+ * What can fail (the env file, the directory, `node` missing) is checked in the foreground so the press sees a non-zero exit; the pull and the run go in the background.
+ * The env file is the one `scripts/install-triggers.sh` writes as `ENV_FILE`: keep the two paths the same.
+ */
+const START_SCRIPT = [
+  'set -a; . "$HOME/.side-projects-manager.env" || exit; set +a',
+  'cd "$1" || exit',
+  'command -v node >/dev/null || { echo "node is not on PATH" >&2; exit 1; }',
+  '(setsid nohup bash -c \'git pull --ff-only -q; node src/bin/morning-run.ts\' >> "${SIDE_PROJECTS_MANAGER_HOME:-$1}/trigger.log" 2>&1 < /dev/null &)',
+].join('\n')
 
 /** What a pane element holds: elements, or the `false` a skipped condition leaves behind. */
 type Child = JSX.Element | false | null

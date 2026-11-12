@@ -181,16 +181,25 @@ test('stop runs the stop command once the person agrees', async ($, on) => {
   expect(ran).toEqual([{ argv: ['npm', 'run', '--silent', 'stop'], cwd: HOME }])
 })
 
-/** The command that starts an invocation the way the schedule's cron line does, detached. */
-const START_SCRIPT = 'set -a; . "$HOME/.side-projects-manager.env"; set +a; cd "$1" && setsid nohup node src/bin/morning-run.ts >> "$1/trigger.log" 2>&1 < /dev/null &'
-
-test('start now starts a detached invocation from the manager home', async ($, on) => {
+test('start now runs the start script from the manager home, passing the home to it', async ($, on) => {
   const ran: Ran[] = []
   engine(on, {}, { ran })
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
   await ui.press({ key: 'start' })
-  expect(ran).toEqual([{ argv: ['bash', '-c', START_SCRIPT, 'start', HOME], cwd: HOME }])
+  expect(ran.length).toBe(1)
+  const [shell, flag, script, name, home] = ran[0].argv
+  expect([shell, flag, name, home, ran[0].cwd]).toEqual(['bash', '-c', 'start', HOME, HOME])
+  expect(script).toContain('git pull --ff-only')
+  expect(script).toContain('morning-run.ts')
+})
+
+test('start now says why when the start script exits non-zero', async ($, on) => {
+  engine(on, {}, { outcome: { exitCode: 1, stderr: 'node is not on PATH' } })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(await texts(ui)).toContain('Start now failed (exit 1): node is not on PATH')
 })
 
 test('start now starts nothing and says so while an invocation holds the lease', async ($, on) => {
