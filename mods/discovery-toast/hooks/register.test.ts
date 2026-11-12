@@ -203,3 +203,18 @@ test('a folder unreadable at start has an empty baseline, so what it later holds
   expect(seen.toasts).toEqual(['New discovery: run-a/1.json'])
   expect(seen.statuses.at(-1)).toBe('1 pending discovery (newest: run-a/1.json)')
 })
+
+test('/discoveries lists each pending discovery with its run, kind, title and body', async ($, on) => {
+  const files: Record<string, string[]> = { 'run-a': ['1.json'], 'run-b': ['1.json'] }
+  const contents = {
+    'run-a/1.json': JSON.stringify({ kind: 'suggestion', title: 'Cache the lookup', body: 'Reads repeat.' }),
+    'run-b/1.json': JSON.stringify({ kind: 'correction', title: 'Wrong scope', body: 'The ticket names two seams.' }),
+  }
+  engine(on, files, { contents })
+  await $.session.start({ cwd: '/session' } as never)
+
+  const out = await $.command.run({ command: 'discoveries' })
+  expect(out.text).toBe(
+    'run-a — suggestion: Cache the lookup\nReads repeat.\n\nrun-b — correction: Wrong scope\nThe ticket names two seams.',
+  )
+})

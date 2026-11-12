@@ -73,7 +73,45 @@ function newestOf(seen: Iterable<string>, pending: string[]): string | undefined
   return newest
 }
 
+/** A discovery in full, as `/discoveries` lists it: its run, kind, title and body. */
+function listing(discovery: string, document: { kind: string; title: string; body: string }): string {
+  return `${position(discovery).run} — ${document.kind}: ${document.title}\n${document.body}`
+}
+
+/** A discovery's file read as `{ kind, title, body }`; `undefined` when it cannot be read as one. */
+async function readInFull(read: (path: string) => Promise<string>, home: string, discovery: string) {
+  try {
+    const document: unknown = JSON.parse(await read(`${home}/discoveries/${discovery}`))
+    if (typeof document === 'object' && document !== null) {
+      const { kind, title, body } = document as Record<string, unknown>
+      if (typeof kind === 'string' && KINDS.includes(kind) && typeof title === 'string' && typeof body === 'string') {
+        return { kind, title, body }
+      }
+    }
+  } catch {
+    // Unreadable or unparseable: the caller names the discovery by its path.
+  }
+  return undefined
+}
+
 export const register: Register = on => {
+  on('session.start', async ($, e, next) => {
+    await $.command.register({ name: 'discoveries', description: 'List the pending discoveries in full' })
+    return next(e)
+  })
+
+  on('command.run', { command: 'discoveries' }, async $ => {
+    const home = managerHome($.plugin.root)
+    const read = (path: string) => $.fs.read(path)
+    const pending = await managerHomeReader({ read, list: path => $.fs.list(path) }, home).discoveries()
+    const entries: string[] = []
+    for (const discovery of pending ?? []) {
+      const document = await readInFull(read, home, discovery)
+      entries.push(document === undefined ? discovery : listing(discovery, document))
+    }
+    return { text: entries.join('\n\n') }
+  })
+
   on('session.start', async ($, e, next) => {
     const home = managerHome($.plugin.root)
     const read = (path: string) => $.fs.read(path)
