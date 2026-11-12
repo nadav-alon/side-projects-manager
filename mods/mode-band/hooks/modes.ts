@@ -1,5 +1,5 @@
-import type { Mode, ModeBand, Ticket } from '../types'
-import { isIssueNumber, isRepoSlug } from './ticket'
+import type { Mode, ModeBand, Ticket } from '../types/index.d.ts'
+import { isIssueNumber, isRepoSlug } from './ticket.ts'
 
 /** The mode each mode skill puts a session in. */
 const modeOfSkill: Record<string, Mode> = {

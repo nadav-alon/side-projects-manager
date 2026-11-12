@@ -49,7 +49,7 @@ describe('parseBlockers', () => {
 })
 
 describe('describeTicket', () => {
-  const ref = issueRef(REPO, referencesIn('#5')[0].number)
+  const ref = issueRef(REPO, referencesIn('#5')[0]!.number)
 
   it('says none and (no body) for an empty ticket', () => {
     const text = describeTicket(ref, { title: 'T', body: ' ', labels: [], blockers: [] })
