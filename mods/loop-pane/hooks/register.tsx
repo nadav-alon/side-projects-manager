@@ -24,6 +24,9 @@ const BUTTONS = [
   { key: 'stop', label: 'Stop', script: 'stop', confirm: 'Stop the morning loop?' },
 ] as const
 
+/** Starts an invocation as the schedule's cron line does — env file sourced, output appended to the manager home's `trigger.log` — detached so closing the pane does not stop it. The manager home is `$1`. */
+const START_SCRIPT = 'set -a; . "$HOME/.side-projects-manager.env"; set +a; cd "$1" && setsid nohup node src/bin/morning-run.ts >> "$1/trigger.log" 2>&1 < /dev/null &'
+
 /** What a pane element holds: elements, or the `false` a skipped condition leaves behind. */
 type Child = JSX.Element | false | null
 type Children = Child | readonly Child[]
@@ -162,6 +165,30 @@ export const register: Register = on => {
                 {button.label}
               </Button>
             ))}
+            <Button
+              key="start"
+              onPress={async () => {
+                await update($, notice, () => null)
+                try {
+                  // The loop's own guard: a lease file naming a live process.
+                  const holder = Number(await $.fs.read(`${home}/invocation.lease`).catch(() => ''))
+                  const held = Number.isInteger(holder) && holder > 0 &&
+                    (await $.process.run(['kill', '-0', String(holder)]).then(({ exitCode }) => exitCode === 0, () => true))
+                  if (held) {
+                    await update($, notice, () => 'An invocation is already running.')
+                    return
+                  }
+                  const { exitCode, stdout, stderr } = await $.process.run(['bash', '-c', START_SCRIPT, 'start', home], { cwd: home })
+                  if (exitCode !== 0) {
+                    await update($, notice, () => `Start now failed (exit ${exitCode}): ${(stderr || stdout).trim()}`)
+                  }
+                } catch (error) {
+                  await update($, notice, () => `Start now failed: ${error instanceof Error ? error.message : String(error)}`)
+                }
+              }}
+            >
+              Start now
+            </Button>
             <Button
               key="close"
               onPress={async () => {

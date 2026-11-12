@@ -181,6 +181,37 @@ test('stop runs the stop command once the person agrees', async ($, on) => {
   expect(ran).toEqual([{ argv: ['npm', 'run', '--silent', 'stop'], cwd: HOME }])
 })
 
+/** The command that starts an invocation the way the schedule's cron line does, detached. */
+const START_SCRIPT = 'set -a; . "$HOME/.side-projects-manager.env"; set +a; cd "$1" && setsid nohup node src/bin/morning-run.ts >> "$1/trigger.log" 2>&1 < /dev/null &'
+
+test('start now starts a detached invocation from the manager home', async ($, on) => {
+  const ran: Ran[] = []
+  engine(on, {}, { ran })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(ran).toEqual([{ argv: ['bash', '-c', START_SCRIPT, 'start', HOME], cwd: HOME }])
+})
+
+test('start now starts nothing and says so while an invocation holds the lease', async ($, on) => {
+  const ran: Ran[] = []
+  engine(on, { [`${HOME}/invocation.lease`]: '4242' }, { ran })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(ran).toEqual([])
+  expect(await texts(ui)).toContain('An invocation is already running.')
+})
+
+test('start now starts an invocation when the lease holder is dead', async ($, on) => {
+  const ran: Ran[] = []
+  engine(on, { [`${HOME}/invocation.lease`]: '4242' }, { ran, alive: false })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(ran.length).toBe(1)
+})
+
 test('the pane shows when the invocation opened in local time, and for how long', async ($, on) => {
   engine(on, home)
   await $.command.run({ command: 'loop-pane', args: '' })
