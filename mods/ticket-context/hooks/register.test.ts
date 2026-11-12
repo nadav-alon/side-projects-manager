@@ -73,7 +73,7 @@ test('a reference that cannot be fetched leaves the prompt as typed, with a one-
   engine(on, { ...ACME_42, 'gh issue view 9 --repo acme/pilot --json title,body,labels': { exitCode: 1, stderr: 'no such issue\nsecond line' } })
   on('ui.toast', (_$, e) => {
     toasts.push(e.text)
-    return {} as never
+    return { value: undefined } as never
   })
   const entered = await $.prompt.submit({ text: 'acme/pilot#9 and acme/pilot#42' })
   expect(entered.text).toBe('acme/pilot#9 and acme/pilot#42')
@@ -89,7 +89,7 @@ test('a failing repo lookup gives one note and one toast for all the bare #n', a
   const seen = engine(on, { 'gh repo view --json nameWithOwner --jq .nameWithOwner': { exitCode: 1, stderr: 'not a git repository' } })
   on('ui.toast', (_$, e) => {
     toasts.push(e.text)
-    return {} as never
+    return { value: undefined } as never
   })
   const entered = await $.prompt.submit({ text: 'step #1, then #2 and #3' })
   expect(entered.text).toBe('step #1, then #2 and #3')
