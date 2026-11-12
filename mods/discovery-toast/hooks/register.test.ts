@@ -65,14 +65,14 @@ test('the status names the newest pending discovery by its kind and title', asyn
   const files: Record<string, string[]> = { 'run-a': ['1.json', '3.json'] }
   const contents = {
     'run-a/1.json': JSON.stringify({ kind: 'clarification', title: 'Old' }),
-    'run-a/2.json': JSON.stringify({ kind: 'correction', title: 'Wrong scope' }),
+    'run-a/4.json': JSON.stringify({ kind: 'correction', title: 'Wrong scope' }),
     'run-a/3.json': 'garbled',
   }
   const { seen, tick } = engine(on, files, { contents })
   await $.session.start({ cwd: '/session' } as never)
   expect(seen.statuses.at(-1)).toBe('2 pending discoveries (newest: run-a/3.json)')
 
-  files['run-a']!.push('2.json')
+  files['run-a']!.push('4.json')
   await tick()
   expect(seen.statuses.at(-1)).toBe('3 pending discoveries (newest: correction: Wrong scope)')
 
