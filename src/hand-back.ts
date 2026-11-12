@@ -554,12 +554,38 @@ function findingsComment(
   kind: "spec review" | "ux review",
   ending: { output: string; transcript?: TranscriptPath },
 ): string {
+  if (isUnreadable(ending.output)) {
+    return [
+      `The morning loop ran this ${kind} ticket, but its output could not be read as a report: it was ${ending.output.trim() === "" ? "empty" : "a bare status object, not findings"}.`,
+      ending.transcript === undefined
+        ? "This run left no transcript to find the findings in."
+        : `Whatever it found is in the transcript, \`${ending.transcript}\`.`,
+      notRetried(),
+    ].join("\n\n");
+  }
   return [
     `The morning loop ran this ${kind} ticket. What it found:\n\n${quote(ending.output)}`,
     ...truncationNote(ending.output, ending.transcript),
     notRetried(),
     ...transcriptNote(ending.transcript),
   ].join("\n\n");
+}
+
+/**
+ * Whether a review run's `output` holds no report to quote: blank, or the
+ * structured answer itself (`{"gaveUp":false}`) rather than the review.
+ */
+function isUnreadable(output: string): boolean {
+  const text = output.trim();
+  if (text === "") {
+    return true;
+  }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
 }
 
 /**

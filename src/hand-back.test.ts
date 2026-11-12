@@ -884,6 +884,22 @@ describe("handBack", () => {
       assert.match(comment, /will not be retried/);
     });
 
+    it("says its output could not be read, naming the transcript, instead of posting a bare status", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, specReviewTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "spec-review-finished",
+        output: '{"gaveUp":false}',
+        transcript: TRANSCRIPT,
+      });
+
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /could not be read as a report/);
+      assert.doesNotMatch(comment, /gaveUp/);
+      assert.match(comment, new RegExp(TRANSCRIPT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    });
+
     it("names the transcript's host path when it left one", async () => {
       const { tracker, repoHost } = ports();
       const ticket = eligible(tracker, specReviewTicket());
