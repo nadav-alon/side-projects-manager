@@ -160,4 +160,39 @@ describe("rebase.sh", () => {
       `body=Opened https://github.com/${REPO}/issues/100 to rebase.`,
     );
   });
+
+  it("asks Dependabot to rebase its own pull request and opens no ticket", async (t: TestContext) => {
+    const gh = await recordingGh(
+      t,
+      fakeGh({
+        prCommand: "view",
+        prResponse: JSON.stringify({
+          number: 7,
+          state: "OPEN",
+          body: "Bumps left-pad from 1.0.0 to 1.1.0.",
+          url: `https://github.com/${REPO}/pull/7`,
+          author: { login: "dependabot[bot]" },
+        }),
+        newIssueUrl: `https://github.com/${REPO}/issues/100`,
+      }),
+    );
+
+    await runRebaseScript({
+      GH_TOKEN: "test-token",
+      REPO,
+      ISSUE_NUMBER: "7",
+      ISSUE_BODY: "",
+      IS_PULL_REQUEST: "true",
+      COMMENT_ID: "777",
+      COMMENT_BODY: "/rebase",
+    });
+
+    const calls = await gh.calls();
+    assert.equal(
+      calls.some((call) => call.includes("create")),
+      false,
+    );
+    const replied = callWith(calls, "api", `repos/${REPO}/issues/7/comments`);
+    assert.equal(valueOf(replied, "-f"), "body=@dependabot rebase");
+  });
 });

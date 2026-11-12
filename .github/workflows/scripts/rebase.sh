@@ -54,10 +54,15 @@ FAIL_REASON=""
 
 if [[ "$IS_PULL_REQUEST" == "true" ]]; then
   # On a pull request: that pull request, open.
-  pull_request_json="$(gh pr view "$ISSUE_NUMBER" --repo "$REPO" --json number,state,body,url)"
+  pull_request_json="$(gh pr view "$ISSUE_NUMBER" --repo "$REPO" --json number,state,body,url,author)"
   pull_request_state="$(jq -r .state <<<"$pull_request_json")"
   if [[ "$pull_request_state" != "OPEN" ]]; then
     FAIL_REASON="that pull request is not open (state: $pull_request_state), so there is nothing to rebase."
+  elif [[ "$(jq -r '.author.login // ""' <<<"$pull_request_json")" =~ ^(app/)?dependabot(\[bot\])?$ ]]; then
+    # Dependabot stops updating a pull request once anyone else has
+    # pushed to its branch, so it is asked to rebase its own.
+    reply "@dependabot rebase"
+    exit 0
   else
     candidate_ticket_number="$(closing_number "$(jq -r .body <<<"$pull_request_json")")"
     if [[ -z "$candidate_ticket_number" ]]; then
