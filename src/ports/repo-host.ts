@@ -211,10 +211,12 @@ function verdictOf(body: string): "applied" | "declined" | undefined {
 /**
  * What a pull request's mergeability currently reads as. GitHub computes it
  * lazily: a pull request just opened, or just pushed to, answers `"unknown"`
- * until it has finished, and only `"conflicting"` or `"clean"` is a settled
- * answer.
+ * until it has finished, and only `"conflicting"`, `"behind"` or `"clean"` is a
+ * settled answer. `"behind"` is a pull request that does not conflict but sits
+ * behind its base branch's tip, so its checks have not run against the
+ * current base; `"clean"` is one at the tip.
  */
-export type MergeStatus = "conflicting" | "clean" | "unknown";
+export type MergeStatus = "conflicting" | "behind" | "clean" | "unknown";
 
 /**
  * What a pull request's own checks read as, read once at whatever instant the
@@ -458,7 +460,7 @@ export async function resolveNeedsRebase(
     }
     last = await read();
     if (last !== "unknown") {
-      return last === "conflicting";
+      return last === "conflicting" || last === "behind";
     }
   }
   throw new MergeabilityUnknown(pullRequest, last);
@@ -732,7 +734,8 @@ export interface RepoHost {
     label: PullRequestLabel,
   ): Promise<void>;
   /**
-   * Whether `pullRequest`'s branch needs a rebase onto its base branch.
+   * Whether `pullRequest`'s branch needs a rebase onto its base branch:
+   * because it conflicts with it, or because it is merely behind its tip.
    *
    * What a rebase ticket's run reads back rather than takes on its own say-so:
    * see {@link resolveNeedsRebase} for how an unsettled `"unknown"` is handled.

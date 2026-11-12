@@ -5790,7 +5790,7 @@ describe("morningLoop", () => {
     /** A run that leaves the pull request `after`, as the repo host then reads it, and finishes. */
     function rebasing(
       ports: FakePorts,
-      after: "clean" | "conflicting",
+      after: "clean" | "conflicting" | "behind",
       tokensUsed = tokenCount(0),
     ): void {
       ports.sandbox.rebaseResult = () => {
@@ -5854,6 +5854,21 @@ describe("morningLoop", () => {
       assert.equal(ports.sandbox.runs.length, 0);
       assert.equal(ports.sandbox.reviews.length, 0);
       assert.equal(ports.sandbox.applyReviews.length, 0);
+    });
+
+    it("runs the rebase agent on a pull request that is behind its base without conflicting", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.repoHost.mergeStatus = () => "behind";
+      ports.repoHost.labelNeedsRebase(PULL_REQUEST);
+      rebasing(ports, "clean");
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.sandbox.rebases.length, 1);
+      assert.deepEqual(ports.tracker.closedRebaseTickets[0]?.ticket, ticket);
+      assert.equal(report.iterations[0]?.kind, "rebased");
+      assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), false);
     });
 
     it("closes a ticket whose pull request needs no rebase without running anything, saying so", async () => {
@@ -5940,6 +5955,20 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), true);
       assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("hands back a finished run whose pull request is still behind, saying behind rather than conflicting", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.repoHost.labelNeedsRebase(PULL_REQUEST);
+      rebasing(ports, "behind");
+
+      await morningLoop(ports);
+
+      const [handback] = ports.tracker.handbacks;
+      assert.match(handback?.comment ?? "", /still behind its base branch/);
+      assert.doesNotMatch(handback?.comment ?? "", /still conflicts/);
+      assert.deepEqual(ports.tracker.closedRebaseTickets, []);
     });
 
     it("hands back a run that gave up, naming a moved head, without closing it", async () => {

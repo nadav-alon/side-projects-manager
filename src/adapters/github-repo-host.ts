@@ -801,10 +801,11 @@ export function githubRepoHost(
  * honest `UNKNOWN` while that pull request's own computation is still
  * running, so this reads one pull request at a time rather than the list.
  *
- * Reads `mergeable` only, not `mergeStateStatus`: this answers #298's
- * question, conflicts, not #293's broader one of whether a branch merely
- * behind its base also counts. A pull request that is `MERGEABLE` but
- * `BEHIND` answers `false` here.
+ * Reads `mergeable` for conflicts. For one that does not conflict, `"behind"`
+ * is the compare API's `behind_by` above zero — not `mergeStateStatus`, which
+ * is a single prioritised status that reads `BEHIND` only when branch
+ * protection demands up-to-date branches, and `DRAFT`, `BLOCKED` or `UNSTABLE`
+ * outrank it.
  */
 async function mergeStatusOf(pullRequest: PullRequestUrl): Promise<MergeStatus> {
   const { stdout } = await run("gh", [
@@ -812,15 +813,25 @@ async function mergeStatusOf(pullRequest: PullRequestUrl): Promise<MergeStatus> 
     "view",
     pullRequest,
     "--json",
-    "mergeable",
-    "--jq",
-    ".mergeable",
+    "mergeable,baseRefName,headRefOid",
   ]);
-  switch (stdout.trim()) {
+  const at = `gh pr view ${pullRequest}`;
+  const view = objectAt(jsonIn(stdout, at), at);
+  switch (expectField(view.mergeable, "string", "mergeable", at)) {
     case "CONFLICTING":
       return "conflicting";
-    case "MERGEABLE":
-      return "clean";
+    case "MERGEABLE": {
+      const base = expectField(view.baseRefName, "string", "baseRefName", at);
+      const head = expectField(view.headRefOid, "string", "headRefOid", at);
+      const { owner, repo } = pullRequestParts(pullRequest);
+      const { stdout: behindBy } = await run("gh", [
+        "api",
+        `repos/${owner}/${repo}/compare/${base}...${head}`,
+        "--jq",
+        ".behind_by",
+      ]);
+      return Number(behindBy.trim()) > 0 ? "behind" : "clean";
+    }
     default:
       return "unknown";
   }
