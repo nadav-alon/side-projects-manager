@@ -1,9 +1,10 @@
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 import { parseTicketReference } from './ticket-reference'
 
-/** The manager home: the plugin sits at `<home>/mods/<name>`, so the commands run from two levels up. */
-function managerHome(pluginRoot: string): string {
-  return pluginRoot.replace(/\/+$/, '').split('/').slice(0, -2).join('/')
+/** The manager home the commands run from, as `src/adapters/manager-home.ts` resolves it: `SIDE_PROJECTS_MANAGER_HOME` when set, else the checkout, which the plugin sits two levels below (`<checkout>/mods/<name>`). The hooks run without `process`, so the shell is asked. */
+async function managerHome($: EngineInterface): Promise<string> {
+  const { stdout } = await $.process.run(['sh', '-c', 'printf "%s" "$SIDE_PROJECTS_MANAGER_HOME"'])
+  return stdout || $.plugin.root.replace(/\/+$/, '').split('/').slice(0, -2).join('/')
 }
 
 const YES = 'Yes'
@@ -59,7 +60,7 @@ export const register: Register = on => {
       }
       let result
       try {
-        result = await $.process.run(['npm', 'run', '--silent', command.script, ...scriptArgs], { cwd: managerHome($.plugin.root) })
+        result = await $.process.run(['npm', 'run', '--silent', command.script, ...scriptArgs], { cwd: await managerHome($) })
       } catch (error) {
         return { text: `/${name} failed: ${error instanceof Error ? error.message : String(error)}` }
       }
