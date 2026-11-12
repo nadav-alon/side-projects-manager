@@ -9,8 +9,12 @@ const HOME = import.meta.dir.split('/').slice(0, -3).join('/')
 const now = Date.parse('2026-06-15T17:30:00Z')
 const iso = (ago: number) => new Date(now - ago).toISOString()
 
-/** Stands for the engine beneath the mod: the manager home's files are `files`, and the pane's process runs are recorded. */
-function engine(on: On, files: Record<string, string>, ran: Ran[] = [], reads: string[] = [], outcome: { exitCode: number; stderr: string } = { exitCode: 0, stderr: '' }, alive = true) {
+/** Stands for the engine beneath the mod: the manager home's files are `files`, and the pane's process runs are recorded; `configDir` is the Claude config directory the shell reports. */
+function engine(
+  on: On,
+  files: Record<string, string>,
+  { ran = [], reads = [], outcome = { exitCode: 0, stderr: '' }, alive = true, configDir = '' }: { ran?: Ran[]; reads?: string[]; outcome?: { exitCode: number; stderr: string }; alive?: boolean; configDir?: string } = {},
+) {
   const clock = mock.clock(on, { now })
   on('fs.read', (_$, e) => {
     reads.push(e.path)
@@ -20,6 +24,7 @@ function engine(on: On, files: Record<string, string>, ran: Ran[] = [], reads: s
   })
   on('process.run', (_$, { argv, init }) => {
     if (argv[0] === 'kill') return { value: { exitCode: alive ? 0 : 1, stdout: '', stderr: '' } } as never
+    if (argv[0] === 'sh') return { value: { exitCode: 0, stdout: configDir, stderr: '' } } as never
     ran.push({ argv, cwd: init?.cwd })
     return { value: { exitCode: outcome.exitCode, stdout: '', stderr: outcome.stderr } } as never
   })
@@ -60,7 +65,7 @@ test('the pane shows the in-flight invocation, its iterations, its spend and its
   const row = (await ui.findAll({ type: 'Box' })).find(box => (box.props as { gap?: number }).gap === 1 && box.text.includes('o/a#7'))
   expect(row?.text.trim()).toBe('Run:o/a#7[implementation]')
   expect(lines).toContain('o/d#9')
-  expect(lines).toContain("Loop's own runs: 1.2K / 5.0K spendable tokens (24%)")
+  expect(lines).toContain("5h window: 1.2K / 5.0K spendable tokens (24%)")
 })
 
 test('the spend line uses compact units and a share, small shares included', async ($, on) => {
@@ -71,18 +76,18 @@ test('the spend line uses compact units and a share, small shares included', asy
   }
   engine(on, files)
   await $.command.run({ command: 'loop-pane', args: '' })
-  expect(await texts(await mount($))).toContain("Loop's own runs: 2.1M / 7.0B spendable tokens (0.03%)")
+  expect(await texts(await mount($))).toContain("5h window: 2.1M / 7.0B spendable tokens (0.03%)")
 })
 
 test('the spend line counts against the allowance less the reserve', async ($, on) => {
   const files = { ...home, [`${HOME}/budget.json`]: JSON.stringify({ fiveHourAllowance: 5000, fiveHourReserveFraction: 0.2 }) }
   engine(on, files)
   await $.command.run({ command: 'loop-pane', args: '' })
-  expect(await texts(await mount($))).toContain("Loop's own runs: 1.2K / 4.0K spendable tokens (30%)")
+  expect(await texts(await mount($))).toContain("5h window: 1.2K / 4.0K spendable tokens (30%)")
 })
 
 test('the pane says an invocation whose process is gone has died, and lists none of its runs', async ($, on) => {
-  engine(on, home, [], [], undefined, false)
+  engine(on, home, { alive: false })
   await $.command.run({ command: 'loop-pane', args: '' })
   const lines = await texts(await mount($))
   expect(lines).toContain('Process 4242 has died without closing its record; nothing below is running.')
@@ -115,7 +120,7 @@ test('the pane redraws when the journal changes', async ($, on) => {
 
 test('the pane stops polling the manager home once it is closed', async ($, on) => {
   const reads: string[] = []
-  const clock = engine(on, home, [], reads)
+  const clock = engine(on, home, { reads })
   await $.command.run({ command: 'loop-pane', args: '' })
   await clock.advance(2500)
   const whileOpen = reads.length
@@ -128,7 +133,7 @@ test('the pane stops polling the manager home once it is closed', async ($, on) 
 
 test('halt and resume run the manager command from the manager home', async ($, on) => {
   const ran: Ran[] = []
-  engine(on, home, ran)
+  engine(on, home, { ran })
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
   await ui.press({ key: 'halt' })
@@ -140,7 +145,7 @@ test('halt and resume run the manager command from the manager home', async ($, 
 })
 
 test('a button whose command fails says so in the pane', async ($, on) => {
-  engine(on, home, [], [], { exitCode: 1, stderr: 'npm: not found' })
+  engine(on, home, { outcome: { exitCode: 1, stderr: 'npm: not found' } })
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
   await ui.press({ key: 'halt' })
@@ -158,7 +163,7 @@ function person(on: On, asked: string[], choice: string): void {
 test('stop asks first and runs only when the person agrees', async ($, on) => {
   const ran: Ran[] = [], asked: string[] = []
   person(on, asked, 'No')
-  engine(on, home, ran)
+  engine(on, home, { ran })
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
   await ui.press({ key: 'stop' })
@@ -169,7 +174,7 @@ test('stop asks first and runs only when the person agrees', async ($, on) => {
 test('stop runs the stop command once the person agrees', async ($, on) => {
   const ran: Ran[] = []
   person(on, [], 'Yes')
-  engine(on, home, ran)
+  engine(on, home, { ran })
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
   await ui.press({ key: 'stop' })
@@ -183,7 +188,7 @@ test('the pane shows when the invocation opened in local time, and for how long'
 })
 
 test('a record left open by a dead process is not called running', async ($, on) => {
-  engine(on, home, [], [], undefined, false)
+  engine(on, home, { alive: false })
   await $.command.run({ command: 'loop-pane', args: '' })
   const lines = await texts(await mount($))
   expect(lines).toContainEqual(expect.stringMatching(/^Opened at \d\d:\d\d \(1m ago\), process died$/))
@@ -204,4 +209,17 @@ test('the buttons have space between them', async ($, on) => {
   const ui = await mount($)
   const row = (await ui.findAll({ type: 'Box' })).find(box => (box.props as { gap?: number }).gap === 1 && box.text.includes('Halt'))
   expect(row).toBeDefined()
+})
+
+test("the spend line counts the developer's own use from the session logs under the Claude config directory", async ($, on) => {
+  const logs = '/config/projects'
+  const line = JSON.stringify({ type: 'assistant', timestamp: iso(2000), message: { usage: { input_tokens: 3000, output_tokens: 0 } } })
+  engine(on, { ...home, '/config/projects/proj/s.jsonl': line }, { configDir: '/config/' })
+  on('fs.list', (_$, e) => {
+    const names = e.path === logs ? ['proj'] : e.path === `${logs}/proj` ? ['s.jsonl'] : undefined
+    if (names === undefined) throw new Error(`ENOENT: ${e.path}`)
+    return { value: names.map(name => ({ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false })) } as never
+  })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  expect(await texts(await mount($))).toContain("5h window: 4.2K / 5.0K spendable tokens (84%)")
 })

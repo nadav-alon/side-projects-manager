@@ -75,3 +75,18 @@ test('a band drawn beneath it still draws', async ($, on) => {
   expect((await ui.find({ type: 'Text', text: /5h window/ }))?.text.trim()).toBe('5h window: 30% used')
   expect((await ui.find({ type: 'Text', text: /grill/ }))?.text.trim()).toBe('grill: acme/pilot#42')
 })
+
+test("the band counts the developer's own use from the session logs under the Claude config directory", async ($, on) => {
+  const logs = '/config/projects'
+  const line = JSON.stringify({ type: 'assistant', timestamp: '2026-10-30T10:00:00.000Z', message: { usage: { input_tokens: 2_000_000, output_tokens: 0 } } })
+  engine(on, { 'state.json': state(3_000_000), 'budget.json': '{"fiveHourAllowance":10000000}', 'proj/s.jsonl': line })
+  on('process.run', (_$, { argv }) => ({ value: { exitCode: 0, stdout: argv[0] === 'sh' ? '/config/' : '', stderr: '' } }) as never)
+  on('fs.list', (_$, e) => {
+    const names = e.path === logs ? ['proj'] : e.path === `${logs}/proj` ? ['s.jsonl'] : undefined
+    if (names === undefined) throw new Error(`ENOENT: ${e.path}`)
+    return { value: names.map(name => ({ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false })) } as never
+  })
+
+  const ui = await $.ui.mount({ plugin: 'budget-band', surface: 'terminal', ...ABOVE_PROMPT })
+  expect((await ui.find({ type: 'Text' }))?.text.trim()).toBe('5h window: 50% used')
+})

@@ -4,6 +4,7 @@ import type { Register } from 'claude-code'
 import type { LoopSnapshot } from '../types'
 import { compactCount, elapsed, localTime, percentOf } from './format'
 import { managerHome, readSnapshot } from './snapshot'
+import { sessionLogsFolder } from './session-logs'
 
 const PANE = 'loop-pane'
 const REFRESH_MS = 2000
@@ -57,6 +58,8 @@ export const register: Register = on => {
 
   on('command.run', { command: 'loop-pane' }, async $ => {
     const home = managerHome($.plugin.root)
+    // The config directory cannot change during a session, so the shell is asked once.
+    const logs = sessionLogsFolder(argv => $.process.run(argv))
     const refresh = async () => {
       const next = await readSnapshot(
         { read: path => $.fs.read(path), list: path => $.fs.list(path) },
@@ -64,6 +67,7 @@ export const register: Register = on => {
         pid => $.process.run(['kill', '-0', String(pid)]).then(({ exitCode }) => exitCode === 0, () => true),
         home,
         new Date(await $.clock.now()),
+        await logs,
       )
       await update($, snapshot, () => next)
     }
@@ -129,7 +133,7 @@ export const register: Register = on => {
         {usage !== null && (
           <Section {...parts} title="5-hour spend">
             <Text>
-              Loop's own runs: {compactCount(usage.tokensUsed)} / {compactCount(usage.spendable)} spendable tokens ({percentOf(usage.tokensUsed, usage.spendable)})
+              5h window: {compactCount(usage.tokensUsed)} / {compactCount(usage.spendable)} spendable tokens ({percentOf(usage.tokensUsed, usage.spendable)})
             </Text>
           </Section>
         )}
