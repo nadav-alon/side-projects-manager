@@ -109,7 +109,7 @@ export const register: Register = on => {
       const document = await readInFull(read, home, discovery)
       entries.push(document === undefined ? discovery : listing(discovery, document))
     }
-    return { text: entries.join('\n\n') }
+    return { text: entries.length === 0 ? 'No pending discoveries.' : entries.join('\n\n') }
   })
 
   on('session.start', async ($, e, next) => {

@@ -218,3 +218,11 @@ test('/discoveries lists each pending discovery with its run, kind, title and bo
     'run-a — suggestion: Cache the lookup\nReads repeat.\n\nrun-b — correction: Wrong scope\nThe ticket names two seams.',
   )
 })
+
+test('/discoveries says in one line when none are pending', async ($, on) => {
+  engine(on, {})
+  await $.session.start({ cwd: '/session' } as never)
+
+  const out = await $.command.run({ command: 'discoveries' })
+  expect(out.text).toBe('No pending discoveries.')
+})
