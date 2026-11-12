@@ -63,22 +63,24 @@ async function markerLines(marker: string): Promise<string[]> {
 }
 
 /**
- * The lines in `marker` once at least `count` have appeared, or whatever is
- * there when `timeoutMs` runs out. The signalled process appends from its own
- * handler, so the stop command can exit before the line lands.
+ * The lines in `marker` once `expected.length` have appeared and a short
+ * settle has passed, or whatever is there when the deadline runs out. The
+ * signalled process appends from its own handler, so the stop command can
+ * exit before the line lands; the settle lets a stray extra line land too,
+ * so an "exactly these" assertion cannot pass on an early read.
  */
 async function markerLinesAfter(
   marker: string,
-  count: number,
-  timeoutMs = 5000,
+  expected: readonly string[],
 ): Promise<string[]> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = Date.now() + 5000;
   let lines = await markerLines(marker);
-  while (lines.length < count && Date.now() < deadline) {
+  while (lines.length < expected.length && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 20));
     lines = await markerLines(marker);
   }
-  return lines;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  return markerLines(marker);
 }
 
 describe("the stop command", () => {
@@ -117,7 +119,7 @@ describe("the stop command", () => {
 
     assert.equal(stderr, "");
     assert.match(stdout, /Stopping/);
-    assert.deepEqual(await markerLinesAfter(marker, 1), ["SIGINT"]);
+    assert.deepEqual(await markerLinesAfter(marker, ["SIGINT"]), ["SIGINT"]);
     assert.equal(
       isProcessAlive(pid),
       true,
@@ -154,7 +156,7 @@ describe("the stop command", () => {
     assert.equal(stderr, "");
     assert.match(stdout, /Stopping/);
     assert.deepEqual(
-      await markerLinesAfter(marker, 1),
+      await markerLinesAfter(marker, ["SIGINT"]),
       ["SIGINT"],
       "only the record whose process is alive is signalled",
     );
@@ -179,6 +181,6 @@ describe("the stop command", () => {
     assert.equal(stderr, "");
     assert.match(stdout, /Stopping now/);
     assert.equal(exitCode, 130, "abandoned exactly as a second Ctrl+C would");
-    assert.deepEqual(await markerLinesAfter(marker, 2), ["SIGINT", "SIGINT"]);
+    assert.deepEqual(await markerLinesAfter(marker, ["SIGINT", "SIGINT"]), ["SIGINT", "SIGINT"]);
   });
 });
