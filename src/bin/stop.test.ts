@@ -62,6 +62,25 @@ async function markerLines(marker: string): Promise<string[]> {
   return text.split("\n").filter((line) => line !== "");
 }
 
+/**
+ * The lines in `marker` once at least `count` have appeared, or whatever is
+ * there when `timeoutMs` runs out. The signalled process appends from its own
+ * handler, so the stop command can exit before the line lands.
+ */
+async function markerLinesAfter(
+  marker: string,
+  count: number,
+  timeoutMs = 5000,
+): Promise<string[]> {
+  const deadline = Date.now() + timeoutMs;
+  let lines = await markerLines(marker);
+  while (lines.length < count && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    lines = await markerLines(marker);
+  }
+  return lines;
+}
+
 describe("the stop command", () => {
   it("halts the loop, and says so, when nothing was in progress", async () => {
     const home = await tempHome("stop-bin");
@@ -98,7 +117,7 @@ describe("the stop command", () => {
 
     assert.equal(stderr, "");
     assert.match(stdout, /Stopping/);
-    assert.deepEqual(await markerLines(marker), ["SIGINT"]);
+    assert.deepEqual(await markerLinesAfter(marker, 1), ["SIGINT"]);
     assert.equal(
       isProcessAlive(pid),
       true,
@@ -135,7 +154,7 @@ describe("the stop command", () => {
     assert.equal(stderr, "");
     assert.match(stdout, /Stopping/);
     assert.deepEqual(
-      await markerLines(marker),
+      await markerLinesAfter(marker, 1),
       ["SIGINT"],
       "only the record whose process is alive is signalled",
     );
@@ -160,6 +179,6 @@ describe("the stop command", () => {
     assert.equal(stderr, "");
     assert.match(stdout, /Stopping now/);
     assert.equal(exitCode, 130, "abandoned exactly as a second Ctrl+C would");
-    assert.deepEqual(await markerLines(marker), ["SIGINT", "SIGINT"]);
+    assert.deepEqual(await markerLinesAfter(marker, 2), ["SIGINT", "SIGINT"]);
   });
 });
