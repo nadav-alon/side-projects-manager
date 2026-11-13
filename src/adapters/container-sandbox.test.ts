@@ -2485,6 +2485,21 @@ describe("transcript", () => {
     assert.ok("branchMoved" in RUN_ANSWER_SCHEMA.properties);
   });
 
+  it("asks an apply-review run to leave the branch green, and allows one re-run of a failed job when no defect is found", async () => {
+    const { directory } = await hostedProject();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.match(asked, /run the repo's typecheck and its tests and leave the branch green/);
+    assert.match(asked, /re-running the failed job once instead of changing code/);
+    assert.match(asked, /if it\s+is still red, say so in your report/);
+  });
+
   it("reports the transcript an apply-review run's container wrote", async () => {
     const { directory } = await hostedProject();
     let written = "";
