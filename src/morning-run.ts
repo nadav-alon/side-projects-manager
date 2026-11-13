@@ -162,6 +162,7 @@ import {
 } from "./iteration-outcome.ts";
 import {
   composeInvocationReport,
+  discoveryReportOf,
   type InvocationReport,
   type InvocationStandDown,
   type SummaryFacts,
@@ -528,7 +529,7 @@ export async function morningLoop(
           salvages,
         )
           .then(
-            (iteration) => {
+            async (iteration) => {
               outcomeSlots[slot] = {
                 repo,
                 ticket,
@@ -550,6 +551,7 @@ export async function morningLoop(
               // rather than silence.
               state.iterationEnded(ticket, iteration);
               noteFailure(ports, ticket, iteration);
+              await recordFiledDiscoveries(ports, ticket, iteration);
 
               // A cut-off run — a limit refusal or a provider failure,
               // direct or carried by a discovery-blocked iteration whose run
@@ -687,6 +689,42 @@ async function handBackAheadOfGate(
   invocation.iterationEnded(ticket, iteration);
   noteFailure(ports, ticket, iteration);
   return { repo, ticket, ...iteration };
+}
+
+/**
+ * Keeps in the manager home every discovery `iteration` filed, against the
+ * ticket it was filed on — the implementation or supertask a cross-target
+ * run's discoveries landed on, else `ticket` itself — so the developer who
+ * missed its toast still finds it. A discovery the tracker refused was never
+ * filed and is not kept. Never throws: a failed write is reported on the
+ * console, since the discovery is already on its ticket.
+ */
+async function recordFiledDiscoveries(
+  ports: Pick<MorningLoopPorts, "store" | "clock">,
+  ticket: Ticket,
+  iteration: Iteration,
+): Promise<void> {
+  const report = discoveryReportOf(iteration);
+  if (report === undefined || report.routing.filed.length === 0) {
+    return;
+  }
+  const { repo, number } = report.crossTarget ?? ticket;
+  const filedAt = ports.clock.now();
+  try {
+    await ports.store.recordDiscoveries(
+      report.routing.filed.map(({ discovery }) => ({
+        repo,
+        number,
+        kind: discovery.kind,
+        title: discovery.title,
+        filedAt,
+      })),
+    );
+  } catch (error: unknown) {
+    console.warn(
+      `Could not record the discoveries filed on ${repo}#${number}: ${errorMessage(error)}`,
+    );
+  }
 }
 
 /** Announces `iteration` if it failed, naming why, the instant it ends. */

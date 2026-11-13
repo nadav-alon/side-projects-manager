@@ -30,6 +30,7 @@ import type {
   ProjectState,
   PullRequestUrl,
   ReadOnlyMount,
+  RecordedDiscovery,
   RegisteredProject,
   RepoSlug,
   RunCost,
@@ -51,6 +52,7 @@ import type {
 import {
   PULL_REQUEST_KIND_KEYS,
   DEFAULT_BUDGET,
+  DISCOVERY_KINDS,
   GRANT_LABELS,
   INVOCATION_OUTCOMES,
   JOURNAL_LIMIT,
@@ -65,6 +67,7 @@ import {
   findInvocationRecord,
   isBranch,
   isDay,
+  isDiscoveryKind,
   isExitCode,
   isGrantLabel,
   isInvocationOutcome,
@@ -96,6 +99,7 @@ const BUDGET_FILE = "budget.json";
 const STATE_FILE = "state.json";
 const MODELS_FILE = "models.json";
 const JOURNAL_FILE = "journal.json";
+const RECORDED_DISCOVERIES_FILE = "recorded-discoveries.json";
 
 /**
  * The registry, budget, model defaults, state and journal documents as JSON
@@ -126,6 +130,10 @@ export function documentStore(home: string = MANAGER_HOME): Store {
   const stateFile = path.join(home, STATE_FILE);
   const modelsFile = path.join(home, MODELS_FILE);
   const journalFile = path.join(home, JOURNAL_FILE);
+  const recordedDiscoveriesFile = path.join(home, RECORDED_DISCOVERIES_FILE);
+  // Every read-modify-write of the recorded discoveries is chained onto this,
+  // so overlapping calls never read the same document and overwrite each other.
+  let recordingDiscoveries: Promise<unknown> = Promise.resolve();
 
   return {
     async loadRegistry(): Promise<RegisteredProject[]> {
@@ -261,6 +269,30 @@ export function documentStore(home: string = MANAGER_HOME): Store {
       await rename(pending, file);
       await trimKeptSummaries(home);
       return keptSummaryPath(file);
+    },
+
+    async loadRecordedDiscoveries(): Promise<RecordedDiscovery[]> {
+      return parseRecordedDiscoveries(
+        await readDocument(recordedDiscoveriesFile),
+        recordedDiscoveriesFile,
+      );
+    },
+
+    recordDiscoveries(discoveries: readonly RecordedDiscovery[]): Promise<void> {
+      const write = async (): Promise<void> => {
+        const kept = parseRecordedDiscoveries(
+          await readDocument(recordedDiscoveriesFile),
+          recordedDiscoveriesFile,
+        );
+        await writeDocument(
+          home,
+          recordedDiscoveriesFile,
+          formatRecordedDiscoveries([...kept, ...discoveries]),
+        );
+      };
+      const written = recordingDiscoveries.then(write, write);
+      recordingDiscoveries = written.catch(() => undefined);
+      return written;
     },
   };
 }
@@ -1507,4 +1539,43 @@ function formatJournal(journal: Journal): string {
   }));
 
   return `${JSON.stringify({ records }, undefined, 2)}\n`;
+}
+
+/** `{ "discoveries": [{ "repo": "owner/repo", "number": 7, "kind": "correction", "title": "…", "filedAt": "…" }] }` */
+function parseRecordedDiscoveries(document: unknown, file: string): RecordedDiscovery[] {
+  if (document === undefined) {
+    return [];
+  }
+  const discoveries = fieldOf(document, "discoveries", file);
+  if (!Array.isArray(discoveries)) {
+    throw new Error(`${file}: "discoveries" must be a list.`);
+  }
+  return discoveries.map((discovery, index) => {
+    const at = `${file}: discovery ${index + 1}`;
+    const kind = fieldOf(discovery, "kind", at);
+    if (!isDiscoveryKind(kind)) {
+      throw new Error(`${at}: "kind" must be one of ${DISCOVERY_KINDS.join(", ")}: ${JSON.stringify(kind)}`);
+    }
+    const title = fieldOf(discovery, "title", at);
+    if (typeof title !== "string") {
+      throw new Error(`${at}: "title" must be a string: ${JSON.stringify(title)}`);
+    }
+    return {
+      ...ticketReference(discovery, at),
+      kind,
+      title,
+      filedAt: parseInstant(fieldOf(discovery, "filedAt", at), `${at}: "filedAt"`),
+    };
+  });
+}
+
+function formatRecordedDiscoveries(discoveries: readonly RecordedDiscovery[]): string {
+  const formatted = discoveries.map(({ repo, number, kind, title, filedAt }) => ({
+    repo,
+    number,
+    kind,
+    title,
+    filedAt: filedAt.toISOString(),
+  }));
+  return `${JSON.stringify({ discoveries: formatted }, undefined, 2)}\n`;
 }

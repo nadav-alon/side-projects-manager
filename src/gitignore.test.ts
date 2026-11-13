@@ -27,3 +27,7 @@ test("the budget document is not committed", () => {
 test("the registry stays committed", () => {
   assert.equal(isIgnored("registry.json"), false);
 });
+
+test("the recorded discoveries are not committed", () => {
+  assert.equal(isIgnored("recorded-discoveries.json"), true);
+});

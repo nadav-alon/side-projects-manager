@@ -2239,6 +2239,44 @@ describe("morningLoop", () => {
         );
       });
 
+      it("records each filed discovery in the manager home with its ticket, kind, title and when it was filed", async () => {
+        const ports = fakePorts();
+        const ticket = ran(ports, {
+          discoveries: [
+            correction(),
+            { kind: "clarification", title: "What 'the thing' means", body: "Read as the button." },
+          ],
+        });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(await ports.store.loadRecordedDiscoveries(), [
+          {
+            repo: PILOT,
+            number: ticket.number,
+            kind: "correction",
+            title: "The ticket names the wrong file",
+            filedAt: FROZEN_NOW,
+          },
+          {
+            repo: PILOT,
+            number: ticket.number,
+            kind: "clarification",
+            title: "What 'the thing' means",
+            filedAt: FROZEN_NOW,
+          },
+        ]);
+      });
+
+      it("records nothing for a run that filed no discovery", async () => {
+        const ports = fakePorts();
+        ran(ports, {});
+
+        await morningLoop(ports);
+
+        assert.deepEqual(await ports.store.loadRecordedDiscoveries(), []);
+      });
+
       it("blocks the ticket on an existing open issue directly, keeping it ready-for-agent rather than opening a pull request or handing it back", async () => {
         const ports = fakePorts();
         const blocker = ports.tracker.addIneligibleTicket(PILOT, {
@@ -3908,6 +3946,26 @@ describe("morningLoop", () => {
         assert.equal(
           iteration?.kind === "reviewed" ? iteration.discoveryReport?.crossTarget?.number : undefined,
           implementation.number,
+        );
+      });
+
+      it("records a cross-target run's discoveries against the implementation ticket they landed on", async () => {
+        const ports = fakePorts();
+        const { implementation } = queuedWithImplementation(ports, "review");
+        postedAFinding(ports);
+        ports.sandbox.reviewResult = () => ({
+          kind: "finished",
+          output: "",
+          tokensUsed: tokenCount(1_000),
+          discoveries: [{ kind: "clarification", title: "What #7 means", body: "Read as the button." }],
+        });
+
+        await morningLoop(ports);
+
+        const recorded = await ports.store.loadRecordedDiscoveries();
+        assert.deepEqual(
+          recorded.map(({ repo, number }) => ({ repo, number })),
+          [{ repo: implementation.repo, number: implementation.number }],
         );
       });
     });

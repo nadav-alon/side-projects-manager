@@ -8,4 +8,5 @@ dist/
 /transcripts/
 /state.json
 /journal.json
+/recorded-discoveries.json
 /budget.json
