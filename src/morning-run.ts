@@ -2741,7 +2741,7 @@ async function queueChecksRetry(
  * implementation ticket. `undefined` where it closes none — a reference an
  * apply-review run demoted, or a ticket no longer open.
  */
-async function closedTicketOf(
+async function implementationTicketClosedBy(
   ports: MorningLoopPorts,
   pullRequest: PullRequestUrl,
 ): Promise<Ticket | undefined> {
@@ -2801,9 +2801,9 @@ function heldChecks(held: ReadyHold | undefined): ChecksStatus | undefined {
  * pending until `PENDING_READY_LIMIT` and then is left for the developer, and
  * failing checks leave it a draft, unmarked, with the one automatic retry a
  * red apply-review finish gets (`queueChecksRetry`), under the ticket its
- * body closes. A pull request closed, merged or
- * already marked ready by hand settles quietly. Never throws: a failure
- * leaves it pending for the next call.
+ * body closes. A pull request closed, merged or already marked ready by
+ * hand settles quietly. Never throws: a failure leaves it pending for the
+ * next call.
  */
 function pendingReadySweep(
   ports: MorningLoopPorts,
@@ -2834,7 +2834,7 @@ function pendingReadySweep(
           settled.push({ pullRequest, outcome: "ready-for-review" });
         } else if (checks === "red") {
           held = "checks failing";
-          retry = await queueChecksRetry(ports, pullRequest, () => closedTicketOf(ports, pullRequest));
+          retry = await queueChecksRetry(ports, pullRequest, () => implementationTicketClosedBy(ports, pullRequest));
         } else if (ports.clock.now().getTime() - deferredAt.getTime() >= PENDING_READY_LIMIT) {
           held = "checks still running after a day";
         } else {

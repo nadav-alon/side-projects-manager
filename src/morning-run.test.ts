@@ -5069,8 +5069,62 @@ describe("morningLoop", () => {
           await morningLoop(ports);
 
           assert.deepEqual(ports.tracker.applyReviewTickets, []);
+          assert.deepEqual(ports.repoHost.reviewThreads, []);
+          assert.deepEqual(ports.repoHost.labelled, []);
           assert.deepEqual(ports.store.pendingReadies(), []);
           assert.match(ports.tracker.summaries[0]?.body ?? "", /left draft: checks failing/);
+        });
+
+        it("reads a pull request already carrying the retried label as spent, whatever its body closes", async () => {
+          const ports = fakePorts();
+          queuedPendingReady(ports);
+          ports.repoHost.checksStatus = () => "red";
+          ports.repoHost.labelled.push({ pullRequest: PULL_REQUEST, label: APPLY_REVIEW_RETRIED });
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.tracker.applyReviewTickets, []);
+          assert.match(
+            ports.tracker.summaries[0]?.body ?? "",
+            /left for you: checks still failing after one fix attempt/,
+          );
+        });
+
+        it("settles a pending merge beside it, queueing the retry whose finish fires the gate", async () => {
+          const ports = fakePorts();
+          redUnderImplementation(ports);
+          const implementation = ports.tracker.addIneligibleTicket(PILOT, {
+            number: IMPLEMENTATION + 1,
+            title: "Another",
+          });
+          ports.store.markMergePending(implementation, PULL_REQUEST, FROZEN_NOW);
+
+          await morningLoop(ports);
+
+          assert.equal(ports.tracker.applyReviewTickets.length, 1);
+          assert.deepEqual(ports.store.pendingMerges(), []);
+          assert.deepEqual(readyForHumanLabels(ports), []);
+          assert.match(
+            ports.tracker.summaries[0]?.body ?? "",
+            /checks failing \(test\); queued apply-review #\d+ to fix them/,
+          );
+        });
+
+        it("leaves a pending merge's pull request for the human once its one retry is spent", async () => {
+          const ports = fakePorts();
+          redUnderImplementation(ports);
+          ports.repoHost.labelled.push({ pullRequest: PULL_REQUEST, label: APPLY_REVIEW_RETRIED });
+          const implementation = ports.tracker.addIneligibleTicket(PILOT, {
+            number: IMPLEMENTATION + 1,
+            title: "Another",
+          });
+          ports.store.markMergePending(implementation, PULL_REQUEST, FROZEN_NOW);
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.tracker.applyReviewTickets, []);
+          assert.deepEqual(ports.store.pendingMerges(), []);
+          assert.equal(readyForHumanLabels(ports).length, 1);
         });
       });
 
