@@ -5917,7 +5917,7 @@ fi`;
           mount,
         );
 
-        // A spec review's findings travel in the answer's `report`, which this run gave none of.
+        // A spec or ux review's findings travel in the answer's `report`, which this run gave none of.
         assert.equal(variant(result, "finished")?.output, name === "review" ? "Done." : "");
         assertReportedTool(reported, "Read");
       });
@@ -6362,6 +6362,23 @@ fi`;
           sandbox.specReview({
             image: TEST_IMAGE,
             ticket: SPEC_REVIEW_TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+          }),
+        "ro",
+      );
+
+      assert.equal(variant(result, "finished")?.output, "");
+    });
+
+    it("hands a ux review that gave no report back with an empty output, whatever stderr adds", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(structuredStdout('{"gaveUp":false}'), "Do you trust this folder?"),
+        (sandbox, directory) =>
+          sandbox.uxReview({
+            image: TEST_IMAGE,
+            ticket: UX_REVIEW_TICKET,
             checkout: directory,
             spendCeiling: CEILING,
           }),

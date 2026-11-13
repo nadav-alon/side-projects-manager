@@ -1700,9 +1700,9 @@ function runOutcomeOf(
 
 /**
  * `endingOf`, as a review ends it: no branch or commits to carry. A spec
- * or ux review (`findingsInReport`) that answered in the structured form has its
- * findings in the answer's `report`, so its output is that and the notes on
- * what it was refused — empty when it gave neither, never the answer itself.
+ * or ux review (`findingsInReport`) that answered in the structured form has
+ * its findings in the answer's `report`, so its output is that and the notes
+ * on what it was refused — empty when it gave neither, never the answer itself.
  */
 function reviewOutcomeOf(
   agent: FinishedAgentRun,
@@ -1770,7 +1770,7 @@ async function reviewOnClone(
       onStarted,
     );
 
-    return reviewOutcomeOf(agent, model, kind !== "review");
+    return reviewOutcomeOf(agent, model, kind === "spec-review" || kind === "ux-review");
   });
 }
 
@@ -1936,20 +1936,26 @@ function specReviewPromptFor(
     "one way this run opens or comments on anything else.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
     "finish and report without asking for confirmation.",
-    "Put the whole of your findings in the `report` field of your structured answer: it is what",
-    "this ticket is told, and nothing you wrote before the answer reaches it.",
+    ...REPORT_IN_ANSWER_INSTRUCTIONS,
     "A discovery you file below is about that supertask, not about this ticket.",
     discoveryInstructionsFor(discovered),
     answerInstructionsFor("reporting your review"),
   ].join(" ");
 }
 
+/** The spec and ux review prompts' instruction to put findings in the answer's `report`. */
+const REPORT_IN_ANSWER_INSTRUCTIONS = [
+  "Put the whole of your findings in the `report` field of your structured answer: it is what",
+  "this ticket is told, and nothing you wrote before the answer reaches it.",
+];
+
 /**
  * What the ux-reviewing agent is asked to do: invoke the `ux-review` skill on
  * the ticket, named by its address since the clone's origin is a local path
  * and nothing GitHub-shaped can be inferred from it. The skill says how; its
- * findings, in the structured answer's `report`, are the run's own output, which the caller hands back as the
- * ticket's comment, as for a spec review (see `Sandbox.uxReview`).
+ * findings, in the structured answer's `report`, are the run's own output,
+ * which the caller hands back as the ticket's comment, as for a spec review
+ * (see `Sandbox.uxReview`).
  *
  * The clone is writable because the app it builds and serves lives in it, but
  * the run is a review: nothing is committed or pushed, and nothing written
@@ -1968,8 +1974,7 @@ function uxReviewPromptFor(
     "anything, and whatever you write into this clone is thrown away with it. Report what you find.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
     "finish and report without asking for confirmation.",
-    "Put the whole of your findings in the `report` field of your structured answer: it is what",
-    "this ticket is told, and nothing you wrote before the answer reaches it.",
+    ...REPORT_IN_ANSWER_INSTRUCTIONS,
     "",
     discoveryInstructionsFor(discovered),
     "",
@@ -3423,7 +3428,7 @@ export const RUN_ANSWER_SCHEMA = {
     report: {
       type: "string",
       description:
-        "Only for a spec review: the whole of your findings, in prose, as the ticket should read them. Omit for any other run.",
+        "Only for a spec or ux review: the whole of your findings, in prose, as the ticket should read them. Omit for any other run.",
     },
     branchMoved: {
       type: "string",
