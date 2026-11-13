@@ -697,7 +697,14 @@ export interface NotReadied {
  * its checks were still running when the wait ended, and a later sweep reads
  * them again (ADR 0016), or they were failing, which is left unmarked.
  */
-export type ReadyHold = { kind: "checks-running" } | { kind: "checks-failing" };
+export type ReadyHold =
+  | { kind: "checks-running" }
+  /**
+   * `retry` is set only on an apply-review's own finish: what became of the
+   * red checks. No merge gate runs either way — a queued retry's own finish
+   * fires it once the checks are green.
+   */
+  | { kind: "checks-failing"; retry?: ChecksRetry };
 
 /**
  * An apply-review ticket's own iteration that left no thread on its pull
@@ -747,12 +754,6 @@ export interface AppliedReview {
    * left a draft: the ticket closed all the same, and no merge gate ran.
    */
   readyHeld?: ReadyHold;
-  /**
-   * Set when `readyHeld` is `checks-failing`: what became of the red checks.
-   * No merge gate runs either way — the retry's own finish fires it once the
-   * checks are green.
-   */
-  checksRetry?: ChecksRetry;
   /**
    * What the merge gate did, per `CONTEXT.md`'s "Turboable" and ADR 0009.
    * Present only on a turbo project, once the ticket has closed

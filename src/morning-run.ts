@@ -2612,10 +2612,10 @@ async function finishApplyReview(
       notClosed: { kind: "ready-failed", error: errorMessage(error) },
     };
   }
-  let checksRetry: ChecksRetry | undefined;
   if (readyHeld?.kind === "checks-failing") {
     try {
-      checksRetry = await retryRedChecks(ports, ticket);
+      const checksRetry = await retryRedChecks(ports, ticket);
+      readyHeld = { ...readyHeld, retry: checksRetry };
       if (checksRetry.kind === "exhausted") {
         await ports.tracker.handBack(ticket, CHECKS_STILL_FAILING_COMMENT(pullRequest));
         // The gate, given the red checks already read, labels the pull request
@@ -2624,7 +2624,7 @@ async function finishApplyReview(
           mergeGateContext === undefined
             ? undefined
             : await mergeGate(ports, ticket, mergeGateContext, "red");
-        return { ...applied, readyHeld, checksRetry, ...(merge !== undefined && { merge }) };
+        return { ...applied, readyHeld, ...(merge !== undefined && { merge }) };
       }
     } catch (error: unknown) {
       return {
@@ -2654,13 +2654,12 @@ async function finishApplyReview(
     ...labelled,
     ...(stillBlocked !== undefined && { demoted: stillBlocked }),
     ...(readyHeld !== undefined && { readyHeld }),
-    ...(checksRetry !== undefined && { checksRetry }),
   };
   // A pull request left a draft is never merged: the gate is given the checks
   // the ready-mark already read, so running ones are recorded pending beside
   // the ready-mark. A queued retry takes the gate's place: its own finish
   // fires it, once the checks are green.
-  if (mergeGateContext === undefined || checksRetry !== undefined) {
+  if (mergeGateContext === undefined || (readyHeld?.kind === "checks-failing" && readyHeld.retry !== undefined)) {
     return closed;
   }
   const merge = await mergeGate(ports, ticket, mergeGateContext, heldChecks(readyHeld));

@@ -2014,7 +2014,7 @@ function heldPhrase(held: ReadyHold): string {
     case "checks-running":
       return "left draft: checks still running; a later run marks it ready for review once green";
     case "checks-failing":
-      return "left draft: checks failing";
+      return held.retry === undefined ? "left draft: checks failing" : checksRetryPhrase(held.retry);
   }
 }
 
@@ -2149,9 +2149,7 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
   switch (notClosed?.kind) {
     case undefined: {
       const ready = `${applied}: ${answered(iteration)}, ${
-        iteration.checksRetry === undefined
-          ? cleanPhrase(merge, iteration.readyHeld)
-          : checksRetryPhrase(iteration.checksRetry)
+        cleanPhrase(merge, iteration.readyHeld)
       }.`;
       const labelled = notLabelled === undefined
         ? ready
@@ -2190,11 +2188,12 @@ function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string | u
       if (iteration.readyHeld?.kind === "checks-running") {
         return undefined;
       }
-      if (iteration.checksRetry?.kind === "queued") {
+      const retry = iteration.readyHeld?.kind === "checks-failing" ? iteration.readyHeld.retry : undefined;
+      if (retry?.kind === "queued") {
         return undefined;
       }
-      if (iteration.checksRetry?.kind === "exhausted") {
-        return `- ${repo}#${ticket.number}: ${checksRetryPhrase(iteration.checksRetry)} — ${pullRequest} stays a draft`;
+      if (retry?.kind === "exhausted") {
+        return `- ${repo}#${ticket.number}: ${checksRetryPhrase(retry)} — ${pullRequest} stays a draft`;
       }
       if (iteration.readyHeld?.kind === "checks-failing" && merge?.kind !== "left-for-human") {
         return `- ${repo}: ${pullRequest} — ${heldPhrase(iteration.readyHeld)}`;
