@@ -69,15 +69,36 @@ function Section({ Box, Text, title, children }: Parts & { title: string; childr
 /** The context a hook receives; `poll` is called from more than one hook. */
 type HookContext = Parameters<Hook<'command.run'>>[0]
 
+/** What the polling shares across hooks: the running tick, and whether a /clear left it writing the ended session's state. */
+type Polling = { tick: { cancel(): void } | undefined; needsRestart: boolean }
+
+/** Reads the manager home `home` into the pane's state through `$`, then keeps doing so every `REFRESH_MS`. */
+async function poll($: HookContext, polling: Polling, home: string) {
+  polling.needsRestart = false
+  // The config directory cannot change during a session, so the shell is asked once.
+  const logs = sessionLogsFolder(argv => $.process.run(argv))
+  const refresh = async () => {
+    const next = await readSnapshot(
+      { read: path => $.fs.read(path), list: path => $.fs.list(path) },
+      processAlive(argv => $.process.run(argv)),
+      home,
+      new Date(await $.clock.now()),
+      await logs,
+    )
+    await update($, snapshot, () => next)
+  }
+  await refresh()
+  polling.tick?.cancel()
+  polling.tick = $.clock.every(REFRESH_MS, () => refresh())
+}
+
 export const register: Register = on => {
   // The manager home cannot change during a session, so the shell is asked once.
   let homeOf: ReturnType<typeof resolveManagerHome> | undefined
-  let tick: { cancel(): void } | undefined
-  /** Set by a /clear: the tick still writes the ended session's state, so the next draw must start polling afresh. */
-  let pollingNeedsRestart = false
+  const polling: Polling = { tick: undefined, needsRestart: false }
   const stopPolling = () => {
-    tick?.cancel()
-    tick = undefined
+    polling.tick?.cancel()
+    polling.tick = undefined
   }
 
   on('session.start', async ($, e, next) => {
@@ -85,29 +106,8 @@ export const register: Register = on => {
     return next(e)
   })
 
-  /** Reads the manager home into the pane's state through `$`, then keeps doing so every `REFRESH_MS`. */
-  const poll = async ($: HookContext) => {
-    pollingNeedsRestart = false
-    const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
-    // The config directory cannot change during a session, so the shell is asked once.
-    const logs = sessionLogsFolder(argv => $.process.run(argv))
-    const refresh = async () => {
-      const next = await readSnapshot(
-        { read: path => $.fs.read(path), list: path => $.fs.list(path) },
-        processAlive(argv => $.process.run(argv)),
-        home,
-        new Date(await $.clock.now()),
-        await logs,
-      )
-      await update($, snapshot, () => next)
-    }
-    await refresh()
-    stopPolling()
-    tick = $.clock.every(REFRESH_MS, () => refresh())
-  }
-
   on('command.run', { command: 'loop-pane' }, async $ => {
-    await poll($)
+    await poll($, polling, await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root)))
     await $.ui.open({ id: PANE, title: 'Morning loop' })
     return { text: 'Loop pane opened.' }
   })
@@ -115,7 +115,7 @@ export const register: Register = on => {
   // A /clear ends the session whose `$` the polling writes through, and the state goes with it.
   // Assumed, not verified against the host: the next draw holds the new session's `$`.
   on('session.end', async ($, e, next) => {
-    if (e.reason === 'clear' && tick !== undefined) pollingNeedsRestart = true
+    if (e.reason === 'clear' && polling.tick !== undefined) polling.needsRestart = true
     return next(e)
   })
 
@@ -127,11 +127,11 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
-    if (pollingNeedsRestart) await poll($)
+    const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
+    if (polling.needsRestart) await poll($, polling, home)
     const { inFlight, usage, discoveries } = await read($, snapshot)
     const said = await read($, notice)
     const now = await $.clock.now()
-    const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
     const checkout = managerHomeOf('', $.plugin.root)
 
     const parts = { Box, Text }
