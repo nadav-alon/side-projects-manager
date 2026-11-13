@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
-import { avoidedTermsIn, avoidedUses, issueTextOf, proseOf } from './terms.ts'
+import { avoidedTermsIn, avoidedUses, issueTextOf, proseOf, repoFlagOf } from './terms.ts'
 
 const CONTEXT = `# Glossary
 
@@ -103,5 +103,22 @@ describe('issueTextOf', () => {
   it('keeps the title and body values, not the other flags', () => {
     const command = 'gh issue edit 12 --add-label ready --title "Each run" -b \'a session\' --repo o/run'
     assert.equal(issueTextOf(command), 'Each run\na session')
+  })
+})
+
+describe('repoFlagOf', () => {
+  it('reads the repo of --repo and -R in each spelling', () => {
+    for (const flags of ['--repo acme/Widgets', '--repo=acme/Widgets', '-R acme/Widgets', '-R=acme/Widgets', '-Racme/Widgets', '-R "acme/Widgets"']) {
+      assert.equal(repoFlagOf(`gh issue comment 5 ${flags} --body hi`), 'acme/widgets', flags)
+    }
+  })
+
+  it('drops a host', () => {
+    assert.equal(repoFlagOf('gh issue create -R github.com/acme/widgets'), 'acme/widgets')
+  })
+
+  it('is null without the flag or with a value that is no repo', () => {
+    assert.equal(repoFlagOf('gh issue create --title "see -R later"'), null)
+    assert.equal(repoFlagOf('gh issue create -R nonsense'), null)
   })
 })
