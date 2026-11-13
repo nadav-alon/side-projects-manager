@@ -630,6 +630,11 @@ export interface Reviewed {
    */
   notReadied?: NotReadied;
   /**
+   * Set when `clean` and the pull request's checks were running or failing,
+   * so it was left a draft. The ticket did close.
+   */
+  readyHeld?: ReadyHold;
+  /**
    * Set when the project is turbo (CONTEXT.md's "Turbo", ADR 0006), the
    * review was not clean, and the repo host refused `APPLY_REVIEW_COMMENT` on
    * the pull request. Tried after the label step, whatever became of it — a
@@ -688,6 +693,13 @@ export interface NotReadied {
 }
 
 /**
+ * Why a pull request was left a draft rather than marked ready for review:
+ * its checks were still running when the wait ended, and a later sweep reads
+ * them again (ADR 0016), or they were failing, which is left unmarked.
+ */
+export type ReadyHold = { kind: "checks-running" } | { kind: "checks-failing" };
+
+/**
  * An apply-review ticket's own iteration that left no thread on its pull
  * request unanswered: its run finished and answered every one, or none was
  * open when the iteration started, so no run was needed. Either way the pull
@@ -730,6 +742,11 @@ export interface AppliedReview {
    * once the ticket is already closed, and reported rather than retried.
    */
   notLabelled?: NotLabelled;
+  /**
+   * Set when the pull request's checks were running or failing, so it was
+   * left a draft: the ticket closed all the same, and no merge gate ran.
+   */
+  readyHeld?: ReadyHold;
   /**
    * What the merge gate did, per `CONTEXT.md`'s "Turboable" and ADR 0009.
    * Present only on a turbo project, once the ticket has closed
@@ -801,6 +818,16 @@ export type MergeGate =
 export interface SettledMerge {
   pullRequest: PullRequestUrl;
   merge: Extract<MergeGate, { kind: "merged" | "left-for-human" }> | { kind: "withdrawn" };
+}
+
+/**
+ * A draft pull request left waiting on running checks that a later sweep
+ * settled: marked `ready-for-review`, left for the developer after a day
+ * still running, or left a draft because its checks went red.
+ */
+export interface SettledReady {
+  pullRequest: PullRequestUrl;
+  outcome: "ready-for-review" | "left-for-you" | Extract<ReadyHold, { kind: "checks-failing" }>;
 }
 
 /**

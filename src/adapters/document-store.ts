@@ -39,6 +39,7 @@ import type {
   RunProgress,
   GrantRecord,
   PendingMerge,
+  PendingReady,
   RunSpan,
   Salvage,
   Size,
@@ -814,6 +815,7 @@ function parseState(document: unknown, file: string): State {
   const runSpans = fieldOf(document, "runSpans", file);
   const grants = fieldOf(document, "grants", file);
   const pendingMerges = fieldOf(document, "pendingMerges", file);
+  const pendingReadies = fieldOf(document, "pendingReadies", file);
   return {
     projects: parseProjectStates(fieldOf(document, "projects", file), file),
     ...(workedToday !== undefined && {
@@ -834,7 +836,25 @@ function parseState(document: unknown, file: string): State {
     ...(pendingMerges !== undefined && {
       pendingMerges: parsePendingMerges(pendingMerges, `${file}: "pendingMerges"`),
     }),
+    ...(pendingReadies !== undefined && {
+      pendingReadies: parsePendingReadies(pendingReadies, `${file}: "pendingReadies"`),
+    }),
   };
+}
+
+/** `[{ "pullRequest": "https://github.com/owner/repo/pull/9", "deferredAt": "…" }]` */
+function parsePendingReadies(value: unknown, where: string): PendingReady[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${where} must be a list of pending readies.`);
+  }
+  return value.map((pending, index) => {
+    const at = `${where}: pending ready ${index + 1}`;
+    const pullRequest = fieldOf(pending, "pullRequest", at);
+    if (typeof pullRequest !== "string" || !isPullRequestUrl(pullRequest)) {
+      throw new Error(`${at}: "pullRequest" must be a pull request URL: ${JSON.stringify(pullRequest)}`);
+    }
+    return { pullRequest, deferredAt: parseInstant(fieldOf(pending, "deferredAt", at), `${at}: "deferredAt"`) };
+  });
 }
 
 /** `[{ "repo": "owner/repo", "number": 7, "pullRequest": "https://github.com/owner/repo/pull/9", "deferredAt": "…" }]` */
@@ -1166,8 +1186,13 @@ function formatState(state: State): string {
     deferredAt: pending.deferredAt.toISOString(),
   }));
 
+  const pendingReadies = state.pendingReadies?.map((pending) => ({
+    pullRequest: pending.pullRequest,
+    deferredAt: pending.deferredAt.toISOString(),
+  }));
+
   return `${JSON.stringify(
-    { projects, workedToday, announcedOn: state.announcedOn, salvages, runSpans, grants, pendingMerges },
+    { projects, workedToday, announcedOn: state.announcedOn, salvages, runSpans, grants, pendingMerges, pendingReadies },
     undefined,
     2,
   )}\n`;

@@ -625,6 +625,37 @@ describe("invocationState", () => {
     });
   });
 
+  describe("pending readies", () => {
+    const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9");
+    const OTHER = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/10");
+    const DEFERRED_AT = new Date("2026-01-01T06:00:00.000Z");
+
+    it("keeps a deferred ready through every later save, and reads it back live", async () => {
+      const store = new FakeStore();
+      const state = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+
+      await state.deferReady(PULL_REQUEST, DEFERRED_AT);
+      await state.ticketSelected(TICKET_8, TODAY);
+
+      const expected = [{ pullRequest: PULL_REQUEST, deferredAt: DEFERRED_AT }];
+      assert.deepEqual(store.pendingReadies(), expected);
+      assert.deepEqual(state.pendingReadies(), expected);
+    });
+
+    it("drops a settled ready, and settling one that is not pending saves nothing", async () => {
+      const store = new FakeStore();
+      const state = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+      await state.deferReady(PULL_REQUEST, DEFERRED_AT);
+
+      await state.settleReady(OTHER);
+      assert.equal(store.pendingReadies().length, 1);
+      await state.settleReady(PULL_REQUEST);
+
+      assert.deepEqual(store.pendingReadies(), []);
+      assert.deepEqual(state.pendingReadies(), []);
+    });
+  });
+
   describe("grant records", () => {
     const GRANTED_AT = new Date("2026-01-01T09:00:00.000Z");
 
