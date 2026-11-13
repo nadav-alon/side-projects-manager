@@ -113,6 +113,7 @@ export const register: Register = on => {
     const said = await read($, notice)
     const now = await $.clock.now()
     const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
+    const checkout = managerHomeOf('', $.plugin.root)
 
     const parts = { Box, Text }
     const alive = processAlive(argv => $.process.run(argv))
@@ -201,7 +202,7 @@ export const register: Register = on => {
                   await update($, notice, () => ({ text: 'An invocation is already running.', failure: false }))
                   return
                 }
-                if (await runReporting('Start now', ['bash', '-c', START_SCRIPT, 'start', managerHomeOf('', $.plugin.root)])) {
+                if (await runReporting('Start now', ['bash', '-c', START_SCRIPT, 'start', checkout])) {
                   await update($, notice, () => ({ text: 'Started an invocation.', failure: false }))
                 }
               }}
