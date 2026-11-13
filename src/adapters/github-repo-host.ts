@@ -632,6 +632,30 @@ export function githubRepoHost(
       ]);
     },
 
+    async readOpenReviewThreadBodies(pullRequest: PullRequestUrl): Promise<string[]> {
+      const { owner, repo, number } = pullRequestParts(pullRequest);
+      const { stdout } = await run("gh", [
+        "api",
+        "graphql",
+        "-F",
+        `owner=${owner}`,
+        "-F",
+        `repo=${repo}`,
+        "-F",
+        `pr=${number}`,
+        "-f",
+        `query=${OPEN_REVIEW_THREADS_QUERY}`,
+      ]);
+      const threads = (
+        JSON.parse(stdout) as {
+          data: { repository: { pullRequest: { reviewThreads: { nodes: OpenThread[] } } } };
+        }
+      ).data.repository.pullRequest.reviewThreads.nodes;
+      return threads
+        .filter((thread) => !thread.isResolved)
+        .flatMap((thread) => thread.comments.nodes.slice(0, 1).map((comment) => comment.body));
+    },
+
     async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {
       // Checked first, so a pull request that never carried the label — one
       // opened before the workflow labelled it, or in a project whose
@@ -968,6 +992,18 @@ async function errorLinesOf(repo: string, runUrl: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+/** Each review thread's resolved state and opening comment, for {@link RepoHost.readOpenReviewThreadBodies}. */
+const OPEN_REVIEW_THREADS_QUERY = `
+query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){
+  reviewThreads(first:100){nodes{isResolved comments(first:1){nodes{body}}}}
+}}}`;
+
+/** One review thread as {@link OPEN_REVIEW_THREADS_QUERY} asks for it. */
+interface OpenThread {
+  isResolved: boolean;
+  comments: { nodes: { body: string }[] };
 }
 
 /**

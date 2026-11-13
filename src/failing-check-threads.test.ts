@@ -37,6 +37,16 @@ describe("postFailingCheckThreads", () => {
     assert.deepEqual(host.reviewThreads, []);
   });
 
+  it("does not post a check again while its thread is still open", async () => {
+    const host = new FakeRepoHost();
+    host.checksStatus = () => "red";
+    host.failingChecks = () => [{ name: "test", errorLines: ["Error: boom"], runUrl: "https://example.test/run" }];
+
+    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 1);
+    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 0);
+    assert.equal(host.reviewThreads.length, 1);
+  });
+
   it("waits for pending checks to settle before reading the failing ones", async () => {
     const host = new FakeRepoHost();
     const reads = ["pending", "red"] as const;

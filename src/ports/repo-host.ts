@@ -784,6 +784,8 @@ export interface RepoHost {
    * own, so the thread is anchored to the pull request's first changed file.
    */
   postReviewThread(pullRequest: PullRequestUrl, body: string): Promise<void>;
+  /** The opening comment's body of each of `pullRequest`'s unresolved review threads. */
+  readOpenReviewThreadBodies(pullRequest: PullRequestUrl): Promise<string[]>;
   /**
    * Removes {@link NEEDS_REBASE_LABEL} from `pullRequest`, once a rebase
    * ticket closes because it no longer needs one.

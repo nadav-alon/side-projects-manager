@@ -13,11 +13,12 @@ export function failingCheckThreadBody(check: FailingCheck): string {
 /**
  * Waits for `pullRequest`'s checks to settle, then posts each failing one as
  * its own review thread, and returns how many it posted. Green, still-pending
- * or no checks post none. Safe to call again after an apply-review run: it
- * posts whatever fails at that moment.
+ * or no checks post none. Safe to call again, as after an apply-review run or
+ * a handed-back review: a check whose thread, naming the same run, is still
+ * open is not posted a second time.
  */
 export async function postFailingCheckThreads(
-  repoHost: Pick<RepoHost, "readChecksStatus" | "readFailingChecks" | "postReviewThread">,
+  repoHost: Pick<RepoHost, "readChecksStatus" | "readFailingChecks" | "postReviewThread" | "readOpenReviewThreadBodies">,
   clock: Clock,
   pullRequest: PullRequestUrl,
 ): Promise<number> {
@@ -25,8 +26,15 @@ export async function postFailingCheckThreads(
     return 0;
   }
   const failing = await repoHost.readFailingChecks(pullRequest);
+  const open = new Set(await repoHost.readOpenReviewThreadBodies(pullRequest));
+  let posted = 0;
   for (const check of failing) {
-    await repoHost.postReviewThread(pullRequest, failingCheckThreadBody(check));
+    const body = failingCheckThreadBody(check);
+    if (open.has(body)) {
+      continue;
+    }
+    await repoHost.postReviewThread(pullRequest, body);
+    posted++;
   }
-  return failing.length;
+  return posted;
 }

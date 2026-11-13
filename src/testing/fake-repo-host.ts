@@ -497,6 +497,10 @@ export class FakeRepoHost implements RepoHost {
     this.postReviewFinding(pullRequest, { path: "src/thing.ts", line: 1, body });
   }
 
+  async readOpenReviewThreadBodies(pullRequest: PullRequestUrl): Promise<string[]> {
+    return this.reviewThreads.filter((thread) => thread.pullRequest === pullRequest).map((thread) => thread.body);
+  }
+
   async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {
     this.#needsRebaseLabelled.delete(pullRequest);
   }
