@@ -11,6 +11,7 @@ import type { InvocationReport } from "./summary.ts";
 import {
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
+  checkRunUrl,
   DEFAULT_BUDGET,
   MergeabilityUnknown,
   NEEDS_REBASE,
@@ -2812,7 +2813,7 @@ describe("morningLoop", () => {
         postedAFinding(ports);
         ports.repoHost.checksStatus = () => "red";
         ports.repoHost.failingChecks = () => [
-          { name: "test", errorLines: ["Error: boom"], runUrl: "https://github.com/nadav-alon/pilot/actions/runs/1" },
+          { name: "test", errorLines: ["Error: boom"], runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1") },
         ];
 
         await morningLoop(ports);
@@ -2828,7 +2829,7 @@ describe("morningLoop", () => {
         postedACleanReview(ports);
         ports.repoHost.checksStatus = () => "red";
         ports.repoHost.failingChecks = () => [
-          { name: "test", errorLines: [], runUrl: "https://github.com/nadav-alon/pilot/actions/runs/1" },
+          { name: "test", errorLines: [], runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1") },
         ];
 
         await morningLoop(ports);

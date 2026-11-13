@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { postFailingCheckThreads } from "./failing-check-threads.ts";
-import { pullRequestUrl } from "./ports/index.ts";
+import { failingCheckThreadBody, postFailingCheckThreads } from "./failing-check-threads.ts";
+import { checkRunUrl, pullRequestUrl } from "./ports/index.ts";
 import { FakeClock, FakeRepoHost } from "./testing/index.ts";
 
 const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
@@ -12,8 +12,8 @@ describe("postFailingCheckThreads", () => {
     const host = new FakeRepoHost();
     host.checksStatus = () => "red";
     host.failingChecks = () => [
-      { name: "test", errorLines: ["Error: boom", "FAIL src/a.test.ts"], runUrl: "https://github.com/nadav-alon/pilot/actions/runs/1" },
-      { name: "lint", errorLines: [], runUrl: "https://github.com/nadav-alon/pilot/actions/runs/2" },
+      { name: "test", errorLines: ["Error: boom", "FAIL src/a.test.ts"], runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1") },
+      { name: "lint", errorLines: [], runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/2") },
     ];
 
     const posted = await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST);
@@ -31,7 +31,7 @@ describe("postFailingCheckThreads", () => {
 
   it("posts none when the checks are green or there are none", async () => {
     const host = new FakeRepoHost();
-    host.failingChecks = () => [{ name: "stale", errorLines: [], runUrl: "https://example.test/run" }];
+    host.failingChecks = () => [{ name: "stale", errorLines: [], runUrl: checkRunUrl("https://example.test/run") }];
 
     assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 0);
     assert.deepEqual(host.reviewThreads, []);
@@ -40,7 +40,7 @@ describe("postFailingCheckThreads", () => {
   it("does not post a check again while its thread is still open", async () => {
     const host = new FakeRepoHost();
     host.checksStatus = () => "red";
-    host.failingChecks = () => [{ name: "test", errorLines: ["Error: boom"], runUrl: "https://example.test/run" }];
+    host.failingChecks = () => [{ name: "test", errorLines: ["Error: boom"], runUrl: checkRunUrl("https://example.test/run") }];
 
     assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 1);
     assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 0);
@@ -52,8 +52,14 @@ describe("postFailingCheckThreads", () => {
     const reads = ["pending", "red"] as const;
     let read = 0;
     host.checksStatus = () => reads[Math.min(read++, 1)] ?? "red";
-    host.failingChecks = () => [{ name: "test", errorLines: [], runUrl: "https://example.test/run" }];
+    host.failingChecks = () => [{ name: "test", errorLines: [], runUrl: checkRunUrl("https://example.test/run") }];
 
     assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 1);
+  });
+});
+
+describe("failingCheckThreadBody", () => {
+  it("leaves the run line out when the check reported no run", () => {
+    assert.equal(failingCheckThreadBody({ name: "ci/legacy", errorLines: [] }), "Failing check: ci/legacy");
   });
 });

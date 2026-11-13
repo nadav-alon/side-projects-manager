@@ -1,4 +1,5 @@
 import type { Branch } from "./branch.ts";
+import type { CheckRunUrl } from "./check-run-url.ts";
 import type { Checkout } from "./checkout.ts";
 import { isIssueNumber, type IssueNumber } from "./issue-number.ts";
 import type { Ticket } from "./issue-tracker.ts";
@@ -235,13 +236,13 @@ export type ChecksStatus = "green" | "pending" | "red";
 /**
  * One check that failed on a pull request: its `name`, the `errorLines` its
  * run printed (empty when the run's log could not be read), and `runUrl`, a
- * link to the failing run. What {@link RepoHost.readFailingChecks} reads and
+ * link to the failing run, absent when the check reported none. What {@link RepoHost.readFailingChecks} reads and
  * `failingCheckThreadBody` renders as a review thread.
  */
 export interface FailingCheck {
   name: string;
   errorLines: string[];
-  runUrl: string;
+  runUrl?: CheckRunUrl;
 }
 
 /**

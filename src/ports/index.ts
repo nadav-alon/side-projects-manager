@@ -175,6 +175,8 @@ export {
   pullRequestLabel,
 } from "./pull-request-label.ts";
 export type { PullRequestLabel } from "./pull-request-label.ts";
+export { checkRunUrl, isCheckRunUrl } from "./check-run-url.ts";
+export type { CheckRunUrl } from "./check-run-url.ts";
 export { isPullRequestUrl, pullRequestUrl } from "./pull-request-url.ts";
 export type { PullRequestUrl } from "./pull-request-url.ts";
 export { isRemoteUrl, remoteUrl, repoOfRemote } from "./remote-url.ts";

@@ -10,6 +10,7 @@ import type {
   Branch,
   Checkout,
   ChecksStatus,
+  CheckRunUrl,
   FailingCheck,
   ClosingIssue,
   ClosingPullRequest,
@@ -34,9 +35,11 @@ import type {
 import {
   branch,
   checkout,
+  commitSha,
   CLOSING_PULL_REQUEST_LIMIT,
   closedTicketIn,
   isBranch,
+  isCheckRunUrl,
   isIssueNumber,
   isMarkedReply,
   isPullRequestLabel,
@@ -46,6 +49,7 @@ import {
   NIT_SECTION_HEADING,
   OPEN_PULL_REQUEST_LIMIT,
   pullRequestUrl,
+  repoSlug,
   resolveNeedsRebase,
   summarizeApplyReviewThreads,
 } from "../ports/index.ts";
@@ -576,11 +580,12 @@ export function githubRepoHost(
       const { owner, repo } = pullRequestParts(pullRequest);
       const failing: FailingCheck[] = [];
       for (const check of (await readRawChecks(pullRequest)).filter(isRed)) {
-        const runUrl = check.detailsUrl ?? check.targetUrl ?? pullRequest;
+        const link = check.detailsUrl ?? check.targetUrl;
+        const runUrl = link !== undefined && isCheckRunUrl(link) ? link : undefined;
         failing.push({
           name: check.name ?? check.context ?? "unnamed check",
-          errorLines: await errorLinesOf(`${owner}/${repo}`, runUrl),
-          runUrl,
+          errorLines: await errorLinesOf(repoSlug(`${owner}/${repo}`), runUrl),
+          ...(runUrl !== undefined && { runUrl }),
         });
       }
       return failing;
@@ -606,7 +611,7 @@ export function githubRepoHost(
         "-f",
         `body=${body}`,
         "-f",
-        `commit_id=${head.trim()}`,
+        `commit_id=${commitSha(head.trim())}`,
         "-f",
         `path=${path}`,
         "-f",
@@ -963,21 +968,33 @@ function checksStatusFrom(checks: RawCheck[]): ChecksStatus {
 const ERROR_LINE_LIMIT = 20;
 
 /**
- * The error lines of the failed run `runUrl` links to, the last
- * {@link ERROR_LINE_LIMIT} of them; none when the link is not a GitHub
- * Actions run or its log cannot be read, since the thread still names the
- * check and links the run.
+ * The tail of the failed log `runUrl` links to, the last
+ * {@link ERROR_LINE_LIMIT} non-blank lines of it, unfiltered: an assertion
+ * diff or a stack frame is as much the error as the line that says "error".
+ * The log is the one job's when the link names a job
+ * (`/actions/runs/<id>/job/<id>`), else every failed job's in the run. None
+ * when there is no link, it is not a GitHub Actions run, or its log cannot be
+ * read, since the thread still names the check and links the run.
  */
-async function errorLinesOf(repo: string, runUrl: string): Promise<string[]> {
-  const id = /\/actions\/runs\/(\d+)/.exec(runUrl)?.[1];
-  if (id === undefined) {
+async function errorLinesOf(repo: RepoSlug, runUrl: CheckRunUrl | undefined): Promise<string[]> {
+  const match = runUrl === undefined ? null : /\/actions\/runs\/(\d+)(?:\/jobs?\/(\d+))?/.exec(runUrl);
+  if (match === null) {
     return [];
   }
+  const [, id, job] = match;
   try {
-    const { stdout } = await run("gh", ["run", "view", id, "--repo", repo, "--log-failed"]);
+    const { stdout } = await run("gh", [
+      "run",
+      "view",
+      id!,
+      "--repo",
+      repo,
+      ...(job === undefined ? [] : ["--job", job]),
+      "--log-failed",
+    ]);
     return stdout
       .split("\n")
-      .filter((line) => /error|fail/i.test(line))
+      .filter((line) => line.trim() !== "")
       .slice(-ERROR_LINE_LIMIT);
   } catch {
     return [];

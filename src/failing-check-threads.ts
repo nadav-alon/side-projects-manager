@@ -3,11 +3,12 @@ import type { Clock, FailingCheck, PullRequestUrl, RepoHost } from "./ports/inde
 
 /**
  * A failing check as a review thread's body: its name, its error lines
- * quoted, and a link to its run.
+ * quoted, and a link to its run when it has one.
  */
 export function failingCheckThreadBody(check: FailingCheck): string {
   const lines = check.errorLines.length === 0 ? "" : `\n\n\`\`\`\n${check.errorLines.join("\n")}\n\`\`\``;
-  return `Failing check: ${check.name}${lines}\n\nRun: ${check.runUrl}`;
+  const run = check.runUrl === undefined ? "" : `\n\nRun: ${check.runUrl}`;
+  return `Failing check: ${check.name}${lines}${run}`;
 }
 
 /**
