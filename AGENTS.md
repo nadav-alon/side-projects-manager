@@ -10,6 +10,14 @@ of the harness (`UNIFORM_FILES`): `new-project` copies them byte for byte into e
 scaffolds. Editing one changes what every project reads, so keep them true of any repo — nothing in
 them may name this one.
 
+### Checks before finishing
+
+A run installs what the checks need (`npm ci`), then runs all three: `npm run typecheck`,
+`npm test`, and `scripts/test-mods.sh`. The last one alone reaches the mod hook tests written with
+`claude-code/testing`, which `npm test` skips and CI's `Mod hook tests` step runs; the sandbox image
+carries the `claude` binary it needs, and it needs no credential. A change to anything under
+`mods/` is not done until it passes.
+
 ### Coding standards
 
 Two files: `docs/agents/coding-standards.md` holds the rules every project shares — comments that
