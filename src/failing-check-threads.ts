@@ -1,4 +1,4 @@
-import { CHECKS_POLL_INTERVAL, CHECKS_WAIT } from "./settled-checks.ts";
+import { waitOutPending } from "./settled-checks.ts";
 import type { Clock, FailingCheck, PullRequestUrl, RepoHost } from "./ports/index.ts";
 
 /**
@@ -21,14 +21,16 @@ export function failingCheckThreadBody(check: FailingCheck): string {
 /**
  * Waits until none of `pullRequest`'s checks is pending, within the same bound
  * as the merge gate's wait, then posts each failing check as its own review
- * thread, and returns how many it posted. Waiting on pending rather than on
- * `settledChecks` is deliberate: that read answers `red` the moment one check
- * fails, while others still run, and a check failing later would go unposted.
+ * thread, and returns how many it posted. `readChecksStatus` answers `red`
+ * while other checks still run, so this waits on `readChecksPending` instead,
+ * or a check failing later would go unposted.
  * Green or no checks post none. A wait that runs out with checks still pending
  * posts what has failed so far, and a comment on the pull request saying the
  * rest went unread. Safe to call again, as after an apply-review run or a
- * handed-back review: a check whose thread, naming the same run, is still open
- * is not posted a second time.
+ * handed-back review, as far as threads go: a check whose thread, naming the
+ * same run, is still open is not posted a second time. The note is not
+ * de-duplicated, so each call that ends with checks still pending posts it
+ * again.
  */
 export async function postFailingCheckThreads(
   repoHost: Pick<
@@ -38,12 +40,11 @@ export async function postFailingCheckThreads(
   clock: Clock,
   pullRequest: PullRequestUrl,
 ): Promise<number> {
-  const deadline = clock.now().getTime() + CHECKS_WAIT;
-  let pending = await repoHost.readChecksPending(pullRequest);
-  while (pending && clock.now().getTime() < deadline) {
-    await clock.sleep(CHECKS_POLL_INTERVAL);
-    pending = await repoHost.readChecksPending(pullRequest);
-  }
+  const pending = await waitOutPending(
+    () => repoHost.readChecksPending(pullRequest),
+    (stillPending) => stillPending,
+    clock,
+  );
   if (pending) {
     await repoHost.postComment(pullRequest, CHECKS_STILL_PENDING_NOTE);
   }
