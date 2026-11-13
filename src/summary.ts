@@ -1257,8 +1257,8 @@ function settledReadiesSection(settledReadies: SettledReady[]): string | undefin
         return `- ${pullRequest}: marked ready for review, its checks having finished green.`;
       case "left-for-you":
         return `- ${pullRequest}: left for you: checks still running after a day.`;
-      case "checks-failing":
-        return `- ${pullRequest}: left draft: checks failing.`;
+      default:
+        return `- ${pullRequest}: ${heldPhrase(outcome)}.`;
     }
   });
   return ["## Ready for review settled", ...lines].join("\n");
@@ -1626,7 +1626,7 @@ function handoverLines(
         ? ""
         : reviewOutcome.readyHeld === undefined
           ? ", marked ready for review"
-          : `, ${readyPhrase(undefined, reviewOutcome.readyHeld)}`
+          : `, ${heldPhrase(reviewOutcome.readyHeld)}`
     }`,
   ];
 }
@@ -1858,7 +1858,7 @@ function reviewSummary(
     case undefined: {
       const posted = clean
         ? `Reviewed ${repo}#${ticket.number}: found nothing to flag on ${pullRequest}${
-            notReadied === undefined ? `, ${readyPhrase(merge, iteration.readyHeld)}` : ""
+            notReadied === undefined ? `, ${cleanPhrase(merge, iteration.readyHeld)}` : ""
           }.`
         : `Reviewed ${repo}#${ticket.number}: posted findings on ${pullRequest}.`;
       const labelNote =
@@ -2000,16 +2000,25 @@ function answered({ ticket, answers }: AppliedReviewIteration): string {
  * implementation ticket it closed, beside the pull request itself, so the
  * developer can't mistake the ticket number for a second pull request.
  */
-function readyPhrase(merge: MergeGate | undefined, held?: ReadyHold): string {
-  if (held?.kind === "checks-running") {
-    return "left draft: checks still running; a later run marks it ready for review once green";
-  }
-  if (held?.kind === "checks-failing") {
-    return "left draft: checks failing";
-  }
+function readyPhrase(merge: MergeGate | undefined): string {
   return merge?.kind === "merged"
     ? `merged, closing ${ticketReference(merge.implementationTicket)}, its branch deleted`
     : "now ready for review";
+}
+
+/** Why a pull request was left a draft, as every summary words it: the one source of both phrases. */
+function heldPhrase(held: ReadyHold): string {
+  switch (held.kind) {
+    case "checks-running":
+      return "left draft: checks still running; a later run marks it ready for review once green";
+    case "checks-failing":
+      return "left draft: checks failing";
+  }
+}
+
+/** `heldPhrase` where the ready-mark held, else `readyPhrase`: what the clean outcome says of the pull request. */
+function cleanPhrase(merge: MergeGate | undefined, held: ReadyHold | undefined): string {
+  return held === undefined ? readyPhrase(merge) : heldPhrase(held);
 }
 
 /**
@@ -2127,7 +2136,7 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
   const applied = `Applied review on ${repo}#${ticket.number}`;
   switch (notClosed?.kind) {
     case undefined: {
-      const ready = `${applied}: ${answered(iteration)}, ${readyPhrase(merge, iteration.readyHeld)}.`;
+      const ready = `${applied}: ${answered(iteration)}, ${cleanPhrase(merge, iteration.readyHeld)}.`;
       const labelled = notLabelled === undefined
         ? ready
         : `${ready} ${notLabelledNote(pullRequest, APPLIED_REVIEW_LABEL, notLabelled)}.`;
@@ -2163,8 +2172,8 @@ function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string | u
       if (iteration.readyHeld?.kind === "checks-running") {
         return undefined;
       }
-      if (iteration.readyHeld?.kind === "checks-failing") {
-        return `- ${repo}: ${pullRequest} — left draft: checks failing`;
+      if (iteration.readyHeld?.kind === "checks-failing" && merge?.kind !== "left-for-human") {
+        return `- ${repo}: ${pullRequest} — ${heldPhrase(iteration.readyHeld)}`;
       }
       return mergeGateWaitingLine(repo, pullRequest, merge) ?? `- ${repo}: ${pullRequest} — ready for review`;
     case "check-failed":

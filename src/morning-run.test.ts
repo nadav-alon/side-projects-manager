@@ -5645,7 +5645,7 @@ describe("morningLoop", () => {
         });
       });
 
-      it("leaves a pull request with failing checks a draft, never merged nor labelled ready-for-human", async () => {
+      it("leaves a pull request with failing checks a draft, never merged, labelled ready-for-human as the gate always did", async () => {
         const ports = fakePorts();
         queuedTurboable(ports);
         ports.repoHost.checksStatus = () => "red";
@@ -5654,7 +5654,10 @@ describe("morningLoop", () => {
 
         assert.deepEqual(ports.repoHost.readyMarked, []);
         assert.deepEqual(ports.repoHost.merged, []);
-        assert.deepEqual(readyForHumanLabels(ports), []);
+        assert.deepEqual(
+          readyForHumanLabels(ports),
+          [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+        );
         assert.deepEqual(ports.store.pendingMerges(), []);
       });
 
@@ -5676,6 +5679,27 @@ describe("morningLoop", () => {
 
         assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
         assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+        assert.deepEqual(ports.store.pendingReadies(), []);
+        assert.deepEqual(ports.store.pendingMerges(), []);
+      });
+
+      it("leaves a turboable pull request for the developer, labelled, when its pending checks go red on a later invocation, rather than reading it withdrawn", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        ports.repoHost.setPullRequestDraft(PULL_REQUEST, true);
+        ports.repoHost.checksStatus = () => "pending";
+
+        await morningLoop(ports);
+
+        ports.repoHost.checksStatus = () => "red";
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.repoHost.merged, []);
+        assert.deepEqual(
+          readyForHumanLabels(ports),
+          [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+        );
         assert.deepEqual(ports.store.pendingReadies(), []);
         assert.deepEqual(ports.store.pendingMerges(), []);
       });

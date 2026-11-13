@@ -827,7 +827,7 @@ export interface SettledMerge {
  */
 export interface SettledReady {
   pullRequest: PullRequestUrl;
-  outcome: "ready-for-review" | "left-for-you" | "checks-failing";
+  outcome: "ready-for-review" | "left-for-you" | Extract<ReadyHold, { kind: "checks-failing" }>;
 }
 
 /**
