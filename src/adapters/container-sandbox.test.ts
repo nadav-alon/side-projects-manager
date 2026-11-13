@@ -816,6 +816,7 @@ describe("containerSandbox", () => {
     await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.match(asked, /run the repo's typecheck and its tests and leave the branch green/);
+    assert.match(asked, /any further check its agent instructions name/);
   });
 
   it("asks for a self-caused nit fixed in its own commit, and any other nit listed under the fixed heading in the pull request body", async () => {
@@ -3964,6 +3965,7 @@ describe("containerSandbox.applyReview", () => {
     await applyReviewOn(sandbox, directory);
 
     assert.match(asked, /run the repo's typecheck and its tests and leave the branch green/);
+    assert.match(asked, /any further check its agent instructions name/);
     assert.match(asked, /re-running the failed job once instead of changing code/);
     assert.match(asked, /if it\s+is still red, say so in your reply to that thread/);
   });
