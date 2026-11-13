@@ -1943,6 +1943,10 @@ function specReviewPromptFor(
   ].join(" ");
 }
 
+/** The implementation and apply-review prompts' instruction to leave the branch passing its checks. */
+const LEAVE_BRANCH_GREEN_INSTRUCTION =
+  "Before finishing, run the repo's typecheck and its tests and leave the branch green.";
+
 /** The spec and ux review prompts' instruction to put findings in the answer's `report`. */
 const REPORT_IN_ANSWER_INSTRUCTIONS = [
   "Put the whole of your findings in the `report` field of your structured answer: it is what",
@@ -2470,6 +2474,10 @@ function applyReviewPromptFor(
     "work every thread, push and reply without asking for confirmation.",
     "Push after each commit rather than once at the end — a run stopped part way through should",
     "still leave its finished commits on the pull request.",
+    LEAVE_BRANCH_GREEN_INSTRUCTION,
+    "A failing-check thread whose failure you find no defect behind (a flaky or infrastructure",
+    "failure) may be answered by re-running the failed job once instead of changing code; if it",
+    "is still red, say so in your reply to that thread.",
     "If the push is rejected because the branch moved, stop, and set `branchMoved` in your",
     "structured answer to the full commit hash the branch has on GitHub now",
     `(\`gh pr view ${url} --json headRefOid\`).`,
@@ -2560,6 +2568,7 @@ function promptFor(
     "a run stopped part way through should still leave reviewable progress on",
     "the branch. Stay on the branch you are on: do not push, and do not open a",
     "pull request.",
+    LEAVE_BRANCH_GREEN_INSTRUCTION,
     ...(writableMounts !== undefined && writableMounts.length > 0
       ? [
           "The developer granted this ticket `live-write`: these directories are",
