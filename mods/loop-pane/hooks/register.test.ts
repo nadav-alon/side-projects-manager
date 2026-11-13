@@ -13,7 +13,7 @@ const iso = (ago: number) => new Date(now - ago).toISOString()
 function engine(
   on: On,
   files: Record<string, string>,
-  { ran = [], reads = [], outcome = { exitCode: 0, stderr: '' }, alive = true, configDir = '' }: { ran?: Ran[]; reads?: string[]; outcome?: { exitCode: number; stderr: string }; alive?: boolean; configDir?: string } = {},
+  { ran = [], reads = [], outcome = { exitCode: 0, stderr: '' }, alive = true, killStderr = '', configDir = '' }: { ran?: Ran[]; reads?: string[]; outcome?: { exitCode: number; stderr: string }; alive?: boolean; killStderr?: string; configDir?: string } = {},
 ) {
   const clock = mock.clock(on, { now })
   on('fs.read', (_$, e) => {
@@ -23,7 +23,7 @@ function engine(
     return { value: text } as never
   })
   on('process.run', (_$, { argv, init }) => {
-    if (argv[0] === 'kill') return { value: { exitCode: alive ? 0 : 1, stdout: '', stderr: '' } } as never
+    if (argv[0] === 'kill') return { value: { exitCode: alive ? 0 : 1, stdout: '', stderr: alive ? '' : killStderr } } as never
     if (argv[0] === 'sh') return { value: { exitCode: 0, stdout: configDir, stderr: '' } } as never
     ran.push({ argv, cwd: init?.cwd })
     return { value: { exitCode: outcome.exitCode, stdout: '', stderr: outcome.stderr } } as never
@@ -179,6 +179,83 @@ test('stop runs the stop command once the person agrees', async ($, on) => {
   const ui = await mount($)
   await ui.press({ key: 'stop' })
   expect(ran).toEqual([{ argv: ['npm', 'run', '--silent', 'stop'], cwd: HOME }])
+})
+
+test('start now runs the start script from the manager home, passing the home to it', async ($, on) => {
+  const ran: Ran[] = []
+  engine(on, {}, { ran })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(ran.length).toBe(1)
+  const [shell, flag, script, name, home] = ran[0].argv
+  expect([shell, flag, name, home, ran[0].cwd]).toEqual(['bash', '-c', 'start', HOME, HOME])
+  expect(script).toContain('git pull --ff-only')
+  expect(script).toContain('morning-run.ts')
+})
+
+test('start now says why when the start script exits non-zero', async ($, on) => {
+  engine(on, {}, { outcome: { exitCode: 1, stderr: 'node is not on PATH' } })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(await texts(ui)).toContain('Start now failed (exit 1): node is not on PATH')
+})
+
+test('start now starts nothing and says so while an invocation holds the lease', async ($, on) => {
+  const ran: Ran[] = []
+  engine(on, { [`${HOME}/invocation.lease`]: '4242' }, { ran })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(ran).toEqual([])
+  expect(await texts(ui)).toContain('An invocation is already running.')
+})
+
+test('start now starts an invocation when the lease holder is dead', async ($, on) => {
+  const ran: Ran[] = []
+  engine(on, { [`${HOME}/invocation.lease`]: '4242' }, { ran, alive: false })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(ran.length).toBe(1)
+})
+
+test('start now says it started, so the press shows it did something', async ($, on) => {
+  engine(on, {})
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(await texts(ui)).toContain('Started an invocation.')
+})
+
+test('start now starts an invocation when the lease holds junk', async ($, on) => {
+  const ran: Ran[] = []
+  engine(on, { [`${HOME}/invocation.lease`]: 'not a pid' }, { ran })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(ran.length).toBe(1)
+})
+
+test('start now counts a holder it lacks the right to signal as alive', async ($, on) => {
+  const ran: Ran[] = []
+  engine(on, { [`${HOME}/invocation.lease`]: '4242' }, { ran, alive: false, killStderr: 'kill: (4242): Operation not permitted' })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(ran).toEqual([])
+  expect(await texts(ui)).toContain('An invocation is already running.')
+})
+
+test('start now starts nothing while a lease takeover is in progress', async ($, on) => {
+  const ran: Ran[] = []
+  engine(on, { [`${HOME}/invocation.lease.takeover`]: '4242' }, { ran })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(ran).toEqual([])
+  expect(await texts(ui)).toContain('An invocation is already running.')
 })
 
 test('the pane shows when the invocation opened in local time, and for how long', async ($, on) => {
