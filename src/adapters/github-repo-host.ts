@@ -569,31 +569,13 @@ export function githubRepoHost(
     },
 
     async readChecksStatus(pullRequest: PullRequestUrl): Promise<ChecksStatus> {
-      const { stdout } = await run("gh", [
-        "pr",
-        "view",
-        pullRequest,
-        "--json",
-        "statusCheckRollup",
-        "--jq",
-        ".statusCheckRollup",
-      ]);
-      return checksStatusFrom(stdout);
+      return checksStatusFrom(await readRawChecks(pullRequest));
     },
 
     async readFailingChecks(pullRequest: PullRequestUrl): Promise<FailingCheck[]> {
       const { owner, repo } = pullRequestParts(pullRequest);
-      const { stdout } = await run("gh", [
-        "pr",
-        "view",
-        pullRequest,
-        "--json",
-        "statusCheckRollup",
-        "--jq",
-        ".statusCheckRollup",
-      ]);
       const failing: FailingCheck[] = [];
-      for (const check of failingRawChecks(stdout)) {
+      for (const check of (await readRawChecks(pullRequest)).filter(isRed)) {
         const runUrl = check.detailsUrl ?? check.targetUrl ?? pullRequest;
         failing.push({
           name: check.name ?? check.context ?? "unnamed check",
@@ -928,45 +910,53 @@ interface RawCheck {
 const RED_CONCLUSIONS = new Set(["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"]);
 const RED_STATES = new Set(["ERROR", "FAILURE"]);
 
+/** `pullRequest`'s `statusCheckRollup`: each check, a check run or a legacy status context. */
+async function readRawChecks(pullRequest: PullRequestUrl): Promise<RawCheck[]> {
+  const { stdout } = await run("gh", [
+    "pr",
+    "view",
+    pullRequest,
+    "--json",
+    "statusCheckRollup",
+    "--jq",
+    ".statusCheckRollup",
+  ]);
+  return JSON.parse(stdout) as RawCheck[];
+}
+
 /**
- * `stdout`, `.statusCheckRollup`'s own JSON, read down to {@link ChecksStatus}:
+ * Whether `check` reads as red: a legacy status context's `state` is one of
+ * {@link RED_STATES}, or a check run has completed with one of
+ * {@link RED_CONCLUSIONS}. The one test the merge gate and the failing-check
+ * review threads share, so they agree on what is red.
+ */
+function isRed(check: RawCheck): boolean {
+  if (check.state !== undefined) {
+    return RED_STATES.has(check.state);
+  }
+  return (
+    check.status === "COMPLETED" &&
+    check.conclusion !== undefined &&
+    check.conclusion !== null &&
+    RED_CONCLUSIONS.has(check.conclusion)
+  );
+}
+
+/**
+ * `checks`, `.statusCheckRollup`'s, read down to {@link ChecksStatus}:
  * a check run (`status`/`conclusion`) or a legacy status context (`state`),
  * mixed freely since a pull request may carry either kind. Red beats pending,
  * which beats green, and no checks at all reads green — there is nothing to
  * wait on.
  */
-function checksStatusFrom(stdout: string): ChecksStatus {
-  const checks = JSON.parse(stdout) as RawCheck[];
-  let pending = false;
-  for (const check of checks) {
-    if (check.state !== undefined) {
-      if (RED_STATES.has(check.state)) {
-        return "red";
-      }
-      pending ||= check.state !== "SUCCESS";
-      continue;
-    }
-    if (check.status !== "COMPLETED") {
-      pending = true;
-      continue;
-    }
-    if (check.conclusion !== undefined && check.conclusion !== null && RED_CONCLUSIONS.has(check.conclusion)) {
-      return "red";
-    }
+function checksStatusFrom(checks: RawCheck[]): ChecksStatus {
+  if (checks.some(isRed)) {
+    return "red";
   }
-  return pending ? "pending" : "green";
-}
-
-/** `stdout`, `.statusCheckRollup`'s own JSON, read down to the checks {@link checksStatusFrom} reads as red. */
-function failingRawChecks(stdout: string): RawCheck[] {
-  return (JSON.parse(stdout) as RawCheck[]).filter((check) =>
-    check.state !== undefined
-      ? RED_STATES.has(check.state)
-      : check.status === "COMPLETED" &&
-        check.conclusion !== undefined &&
-        check.conclusion !== null &&
-        RED_CONCLUSIONS.has(check.conclusion),
+  const pending = checks.some((check) =>
+    check.state !== undefined ? check.state !== "SUCCESS" : check.status !== "COMPLETED",
   );
+  return pending ? "pending" : "green";
 }
 
 /** How many of a failed run's error lines a review thread quotes. */
