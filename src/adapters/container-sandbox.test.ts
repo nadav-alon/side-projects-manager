@@ -805,6 +805,19 @@ describe("containerSandbox", () => {
     assert.match(asked, /do not push, and do\s+not open a pull request/);
   });
 
+  it("asks an implementation run to run the repo's typecheck and tests and leave the branch green", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.match(asked, /run the repo's typecheck and its tests and\s+leave the branch green/);
+  });
+
   it("asks for a self-caused nit fixed in its own commit, and any other nit listed under the fixed heading in the pull request body", async () => {
     const directory = await project();
     let asked = "";

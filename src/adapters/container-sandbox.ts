@@ -2559,7 +2559,8 @@ function promptFor(
     "soon as that behavior's test passes, rather than one commit at the end —",
     "a run stopped part way through should still leave reviewable progress on",
     "the branch. Stay on the branch you are on: do not push, and do not open a",
-    "pull request.",
+    "pull request. Before finishing, run the repo's typecheck and its tests and",
+    "leave the branch green.",
     ...(writableMounts !== undefined && writableMounts.length > 0
       ? [
           "The developer granted this ticket `live-write`: these directories are",
