@@ -61,6 +61,7 @@ import {
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
   APPLY_REVIEW_RETRIED,
+  applyReviewTitle,
   MergeabilityUnknown,
   READY_FOR_HUMAN_PULL_REQUEST_LABEL,
   REVIEWED_LABEL,
@@ -2617,7 +2618,13 @@ async function finishApplyReview(
       checksRetry = await retryRedChecks(ports, ticket);
       if (checksRetry.kind === "exhausted") {
         await ports.tracker.handBack(ticket, CHECKS_STILL_FAILING_COMMENT(pullRequest));
-        return { ...applied, readyHeld, checksRetry };
+        // The gate, given the red checks already read, labels the pull request
+        // `ready-for-human` and uses up the grant, as it does for any red one.
+        const merge =
+          mergeGateContext === undefined
+            ? undefined
+            : await mergeGate(ports, ticket, mergeGateContext, "red");
+        return { ...applied, readyHeld, checksRetry, ...(merge !== undefined && { merge }) };
       }
     } catch (error: unknown) {
       return {
@@ -2688,7 +2695,16 @@ async function retryRedChecks(
   }
   await postFailingCheckThreads(ports.repoHost, ports.clock, pullRequest);
   const checks = (await ports.repoHost.readFailingChecks(pullRequest)).map((check) => check.name);
-  const queued = await ports.tracker.createApplyReviewTicket(implementation, pullRequest);
+  if (checks.length === 0) {
+    throw new Error(`the checks on ${pullRequest} no longer read red, so no retry was queued`);
+  }
+  // A retry ticket a failed label write left open is the one queued retry:
+  // reused, never a second.
+  const title = applyReviewTitle(pullRequest);
+  const existing = (await ports.tracker.listOpenIssues(ticket.repo)).issues.find(
+    (issue) => issue.ticket.title === title && issue.ticket.number !== ticket.number,
+  )?.ticket;
+  const queued = existing ?? (await ports.tracker.createApplyReviewTicket(implementation, pullRequest));
   await ports.repoHost.labelPullRequest(pullRequest, APPLY_REVIEW_RETRIED);
   return { kind: "queued", ticket: queued, checks };
 }
