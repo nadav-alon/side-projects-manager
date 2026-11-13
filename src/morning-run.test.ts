@@ -2940,6 +2940,66 @@ describe("morningLoop", () => {
           assert.deepEqual(ports.store.pendingReadies(), []);
           assert.match(ports.tracker.summaries[0]?.body ?? "", /left draft: checks failing/);
         });
+
+        describe("when they turn red after the review began", () => {
+          const CHECK = {
+            name: "test",
+            errorLines: ["Error: boom"],
+            runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1"),
+          };
+          const IMPLEMENTATION = issueNumber(7);
+
+          /** A review ticket under implementation ticket #7, its checks green until the review has run. */
+          function queuedRedAfterReview(ports: FakePorts): void {
+            ports.store.register(PILOT, {});
+            ports.tracker.addIneligibleTicket(PILOT, { number: IMPLEMENTATION, title: "Add the thing" });
+            ports.tracker.addEligibleTicket(PILOT, {
+              number: issueNumber(42),
+              title: "Review the draft pull request for #7",
+              pullRequest: { kind: "review", url: PULL_REQUEST },
+              parent: IMPLEMENTATION,
+            });
+            postedACleanReview(ports);
+            ports.repoHost.checksStatus = readsInTurn("green", "red").checksStatus;
+            ports.repoHost.failingChecks = () => [CHECK];
+          }
+
+          it("posts each failing check as a thread and queues one apply-review ticket under the implementation ticket, leaving it a draft", async () => {
+            const ports = fakePorts();
+            queuedRedAfterReview(ports);
+
+            await morningLoop(ports);
+
+            assert.match(ports.repoHost.reviewThreads[0]?.body ?? "", /Failing check: test/);
+            assert.equal(ports.repoHost.reviewThreads.length, 1);
+            const [retry] = ports.tracker.applyReviewTickets;
+            assert.equal(ports.tracker.applyReviewTickets.length, 1);
+            assert.equal(retry?.parent.number, IMPLEMENTATION);
+            assert.equal(retry?.pullRequest, PULL_REQUEST);
+            assert.ok(ports.repoHost.labelled.some((entry) => entry.label === APPLY_REVIEW_RETRIED));
+            assert.deepEqual(ports.repoHost.readyMarked, []);
+            assert.match(
+              ports.tracker.summaries[0]?.body ?? "",
+              new RegExp(`checks failing \\(test\\); queued apply-review #${retry?.ticket.number} to fix them`),
+            );
+          });
+
+          it("leaves it for the developer, queueing nothing, once it has spent its one retry", async () => {
+            const ports = fakePorts();
+            queuedRedAfterReview(ports);
+            ports.repoHost.labelled.push({ pullRequest: PULL_REQUEST, label: APPLY_REVIEW_RETRIED });
+
+            await morningLoop(ports);
+
+            assert.deepEqual(ports.tracker.applyReviewTickets, []);
+            assert.deepEqual(ports.repoHost.reviewThreads, []);
+            assert.deepEqual(ports.repoHost.readyMarked, []);
+            assert.match(
+              ports.tracker.summaries[0]?.body ?? "",
+              /left for you: checks still failing after one fix attempt/,
+            );
+          });
+        });
       });
 
       it("checks the pull request for a posted review, having found no finding on it", async () => {
@@ -3227,11 +3287,31 @@ describe("morningLoop", () => {
             assert.deepEqual(ports.store.grants(), []);
           });
 
-          it("uses the record up when the gate leaves the pull request for a human, its checks failing", async () => {
+          it("keeps the record for the retry it queues when its checks fail", async () => {
             const ports = fakePorts();
             grantInsideAnotherRunSpan(ports);
             ports.store.markGranted(GRANT_RECORDED, GRANTED_IN_TIME);
             postedACleanReview(ports);
+            ports.repoHost.checksStatus = readsInTurn("green", "red").checksStatus;
+            ports.repoHost.failingChecks = () => [
+              { name: "test", errorLines: [], runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1") },
+            ];
+
+            const report = await morningLoop(ports);
+
+            assert.deepEqual(ports.repoHost.merged, []);
+            assert.equal(ports.tracker.applyReviewTickets.length, 1);
+            const outcome = report.iterations[0];
+            assert.equal(outcome?.kind === "reviewed" ? outcome.merge : "other", undefined);
+            assert.deepEqual(ports.store.grants(), [{ ...GRANT_RECORDED, grantedAt: GRANTED_IN_TIME }]);
+          });
+
+          it("uses the record up when the gate leaves the pull request for a human, its checks failing after its one retry", async () => {
+            const ports = fakePorts();
+            grantInsideAnotherRunSpan(ports);
+            ports.store.markGranted(GRANT_RECORDED, GRANTED_IN_TIME);
+            postedACleanReview(ports);
+            ports.repoHost.labelled.push({ pullRequest: PULL_REQUEST, label: APPLY_REVIEW_RETRIED });
             // Green to mark it ready for review, then red for the gate.
             ports.repoHost.checksStatus = readsInTurn("green", "red").checksStatus;
 
