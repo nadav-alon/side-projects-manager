@@ -777,9 +777,7 @@ export interface RepoHost {
   /**
    * Whether any of `pullRequest`'s checks is still running, read once — even
    * when another has already failed, which {@link readChecksStatus} reads as
-   * `"red"` all the same. What the failing-check threads wait on, so a check
-   * that fails later in the same run is not missed; the merge gate does not
-   * read it.
+   * `"red"` all the same.
    */
   readChecksPending(pullRequest: PullRequestUrl): Promise<boolean>;
   /**
