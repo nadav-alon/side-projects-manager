@@ -10,7 +10,7 @@ import { after, describe, it } from 'node:test'
 
 const ORIGINALS = import.meta.dirname
 const MODS = join(ORIGINALS, '..')
-const SHARED = ['reader.ts', 'types.ts']
+const SHARED = ['reader.ts', 'types.ts', 'home.ts']
 const HEADER = readFileSync(join(ORIGINALS, 'reader.ts'), 'utf8').split('\n')[0]
 
 /** The copies, as `<mod>/hooks/manager-home/<file>`, that differ from, or are missing beside, the originals. */
@@ -59,6 +59,7 @@ describe('the manager-home reader copies', () => {
     mkdirSync(folder, { recursive: true })
     mkdirSync(join(mods, 'mode-band', 'hooks'), { recursive: true })
     writeFileSync(join(folder, 'reader.ts'), readFileSync(join(ORIGINALS, 'reader.ts')))
+    writeFileSync(join(folder, 'home.ts'), readFileSync(join(ORIGINALS, 'home.ts')))
     assert.deepEqual(driftedCopies(mods), ['loop-pane/hooks/manager-home/types.ts'])
 
     writeFileSync(join(folder, 'types.ts'), '// edited\n')

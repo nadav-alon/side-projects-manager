@@ -4,7 +4,8 @@ import type { Register } from 'claude-code'
 import type { LoopSnapshot } from '../types'
 import { isProcessId, type ProcessId } from './manager-home/types.ts'
 import { compactCount, elapsed, localTime, percentOf } from './format'
-import { managerHome, readSnapshot } from './snapshot'
+import { managerHomeOf, resolveManagerHome } from './manager-home/home'
+import { readSnapshot } from './snapshot'
 import { sessionLogsFolder } from './session-logs'
 
 const PANE = 'loop-pane'
@@ -34,7 +35,7 @@ const BUTTONS = [
 ] as const
 
 /**
- * Starts an invocation as the schedule's cron line does — env file sourced, the checkout fast-forwarded, output appended to `trigger.log` — detached so closing the pane does not stop it. The manager home is `$1`.
+ * Starts an invocation as the schedule's cron line does — env file sourced, the checkout fast-forwarded, output appended to `trigger.log` — detached so closing the pane does not stop it. The checkout is `$1`: the manager home may lie outside it, and the log goes there.
  * What can fail (the env file, the directory, `node` missing) is checked in the foreground so the press sees a non-zero exit; the pull and the run go in the background.
  * The env file is the one `scripts/install-triggers.sh` writes as `ENV_FILE`: keep the two paths the same.
  */
@@ -66,6 +67,8 @@ function Section({ Box, Text, title, children }: Parts & { title: string; childr
 }
 
 export const register: Register = on => {
+  // The manager home cannot change during a session, so the shell is asked once.
+  let homeOf: ReturnType<typeof resolveManagerHome> | undefined
   let tick: { cancel(): void } | undefined
   const stopPolling = () => {
     tick?.cancel()
@@ -78,7 +81,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'loop-pane' }, async $ => {
-    const home = managerHome($.plugin.root)
+    const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
     // The config directory cannot change during a session, so the shell is asked once.
     const logs = sessionLogsFolder(argv => $.process.run(argv))
     const refresh = async () => {
@@ -109,7 +112,8 @@ export const register: Register = on => {
     const { inFlight, usage } = await read($, snapshot)
     const said = await read($, notice)
     const now = await $.clock.now()
-    const home = managerHome($.plugin.root)
+    const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
+    const checkout = managerHomeOf('', $.plugin.root)
 
     const parts = { Box, Text }
     const alive = processAlive(argv => $.process.run(argv))
@@ -198,7 +202,7 @@ export const register: Register = on => {
                   await update($, notice, () => ({ text: 'An invocation is already running.', failure: false }))
                   return
                 }
-                if (await runReporting('Start now', ['bash', '-c', START_SCRIPT, 'start', home])) {
+                if (await runReporting('Start now', ['bash', '-c', START_SCRIPT, 'start', checkout])) {
                   await update($, notice, () => ({ text: 'Started an invocation.', failure: false }))
                 }
               }}

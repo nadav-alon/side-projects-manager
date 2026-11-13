@@ -8,14 +8,17 @@ const FAILING = ['Invocation started.', 'Failed a/b #7: the sandbox image could 
  * Stands for the engine beneath the mod: `log` is the trigger log's lines, `tick()` fires one poll
  * of the mod's timer and resolves once the poll has finished, and the toasts the mod makes are collected.
  */
-function engine(on: On, log: string[]) {
+function engine(on: On, log: string[], home = '') {
   const toasts: string[] = []
+  const read: string[] = []
   let release = () => {}
   let polled = () => {}
   let ticked = new Promise<void>(resolve => (release = resolve))
 
   on('session.start', () => ({ cwd: '/session' }))
-  on('fs.read', () => {
+  on('process.run', () => ({ value: { exitCode: 0, stdout: home, stderr: '' } }) as never)
+  on('fs.read', (_$, e) => {
+    read.push(e.path)
     polled()
     return { value: log.join('\n') } as never
   })
@@ -30,6 +33,7 @@ function engine(on: On, log: string[]) {
   })
   return {
     toasts,
+    read,
     tick: async () => {
       const done = new Promise<void>(resolve => (polled = resolve))
       release()
@@ -96,4 +100,11 @@ test('a streak whose start scrolls out of the window toasts once, not again when
   log.push('Failed a/b #7: the sandbox image could not build.')
   await tick()
   expect(toasts.length).toBe(1)
+})
+
+test('the trigger log is read from SIDE_PROJECTS_MANAGER_HOME when it is set', async ($, on) => {
+  const { read } = engine(on, FAILING, '/elsewhere/home')
+  await $.session.start({ cwd: '/session' } as never)
+
+  expect(read).toContain('/elsewhere/home/trigger.log')
 })

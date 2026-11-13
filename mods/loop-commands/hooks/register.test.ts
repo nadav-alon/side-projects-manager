@@ -3,9 +3,10 @@ import { expect, test, type TestBody } from 'claude-code/testing'
 type On = Parameters<TestBody>[1]
 type Ran = { argv: readonly string[]; cwd?: string }
 
-/** Stands for the engine beneath the mod: a shell-less process run that records its call and answers `answer`. */
-function engine(on: On, ran: Ran[], answer: { exitCode: number; stdout: string; stderr: string }): void {
+/** Stands for the engine beneath the mod: a shell-less process run that records its call and answers `answer`; the shell asked for `SIDE_PROJECTS_MANAGER_HOME` answers `home`, empty when unset. */
+function engine(on: On, ran: Ran[], answer: { exitCode: number; stdout: string; stderr: string }, home = ''): void {
   on('process.run', (_$, { argv, init }) => {
+    if (argv[0] === 'sh') return { value: { exitCode: 0, stdout: home, stderr: '' } } as never
     ran.push({ argv, cwd: init?.cwd })
     return { value: answer } as never
   })
@@ -131,4 +132,11 @@ test('/grant reads a ticket number with leading zeros as the number', async ($, 
   engine(on, ran, { exitCode: 0, stdout: 'granted\n', stderr: '' })
   await $.command.run({ command: 'grant', args: 'o/r#012' })
   expect(ran[0]?.argv).toEqual(['npm', 'run', '--silent', 'grant', '--', 'o/r#12'])
+})
+
+test('/loop-status runs from SIDE_PROJECTS_MANAGER_HOME when it is set', async ($, on) => {
+  const ran: Ran[] = []
+  engine(on, ran, { exitCode: 0, stdout: 'loop: running\n', stderr: '' }, '/elsewhere/home')
+  await $.command.run({ command: 'loop-status' })
+  expect(ran[0]?.cwd).toBe('/elsewhere/home')
 })
