@@ -69,12 +69,12 @@ function Section({ Box, Text, title, children }: Parts & { title: string; childr
 /** The context a hook receives; `poll` is called from more than one hook. */
 type HookContext = Parameters<Hook<'command.run'>>[0]
 
-/** What the polling shares across hooks: the running tick, and whether a /clear left it writing the ended session's state. */
-type Polling = { tick: { cancel(): void } | undefined; needsRestart: boolean }
+/** What the polling shares across hooks: the running tick, and the session whose `$` it writes through. */
+type Polling = { tick: { cancel(): void } | undefined; sessionId: string | undefined }
 
 /** Reads the manager home `home` into the pane's state through `$`, then keeps doing so every `REFRESH_MS`. */
 async function poll($: HookContext, polling: Polling, home: string) {
-  polling.needsRestart = false
+  polling.sessionId = await $.session.id()
   // The config directory cannot change during a session, so the shell is asked once.
   const logs = sessionLogsFolder(argv => $.process.run(argv))
   const refresh = async () => {
@@ -95,7 +95,7 @@ async function poll($: HookContext, polling: Polling, home: string) {
 export const register: Register = on => {
   // The manager home cannot change during a session, so the shell is asked once.
   let homeOf: ReturnType<typeof resolveManagerHome> | undefined
-  const polling: Polling = { tick: undefined, needsRestart: false }
+  const polling: Polling = { tick: undefined, sessionId: undefined }
   const stopPolling = () => {
     polling.tick?.cancel()
     polling.tick = undefined
@@ -112,11 +112,12 @@ export const register: Register = on => {
     return { text: 'Loop pane opened.' }
   })
 
-  // A /clear ends the session whose `$` the polling writes through, and the state goes with it.
-  // Assumed, not verified against the host: the next draw holds the new session's `$`.
+  // A /clear ends the session whose `$` the polling writes through, and its state with it: the pane is drawn
+  // again, and that draw, holding the new session's `$`, restarts the polling there.
   on('session.end', async ($, e, next) => {
-    if (e.reason === 'clear' && polling.tick !== undefined) polling.needsRestart = true
-    return next(e)
+    const ended = await next(e)
+    if (e.reason === 'clear' && polling.tick !== undefined) $.ui.invalidate('ui.render')
+    return ended
   })
 
   on('ui.close', async ($, e, next) => {
@@ -128,7 +129,13 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
-    if (polling.needsRestart) await poll($, polling, home)
+    const sessionId = await $.session.id()
+    if (polling.tick !== undefined && sessionId !== polling.sessionId) {
+      // A draw may not write state, so the restart waits for the draw to end.
+      polling.sessionId = sessionId
+      polling.tick.cancel()
+      polling.tick = $.clock.after(0, () => void poll($, polling, home))
+    }
     const { inFlight, usage, discoveries } = await read($, snapshot)
     const said = await read($, notice)
     const now = await $.clock.now()
