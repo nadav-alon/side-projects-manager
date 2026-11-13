@@ -64,3 +64,12 @@ export function isIssueNumber(value: number): value is IssueNumber {
 export function isTicketKind(value: string): value is TicketKind {
   return (TICKET_KINDS as readonly string[]).includes(value)
 }
+
+/** The kinds of discovery a run files, as the manager names them. */
+export const DISCOVERY_KINDS = ['correction', 'prerequisite', 'clarification', 'suggestion'] as const
+
+export type DiscoveryKind = (typeof DISCOVERY_KINDS)[number]
+
+export function isDiscoveryKind(value: string): value is DiscoveryKind {
+  return (DISCOVERY_KINDS as readonly string[]).includes(value)
+}

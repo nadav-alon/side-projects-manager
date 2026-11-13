@@ -211,6 +211,27 @@ describe('the discoveries folder', () => {
   })
 })
 
+describe('the recorded discoveries', () => {
+  const file = `${HOME}/recorded-discoveries.json`
+  const entry = (number: number, filedAt: string) => ({ repo: 'o/a', number, kind: 'suggestion', title: `T${number}`, filedAt })
+
+  it('lists them newest filed first', async () => {
+    const document = { discoveries: [entry(1, '2026-01-01T00:00:00.000Z'), entry(2, '2026-01-03T00:00:00.000Z')] }
+    const found = await reader({ [file]: JSON.stringify(document) }).recordedDiscoveries()
+    assert.deepEqual(found?.map((discovery) => discovery.number), [2, 1])
+    assert.equal(found?.[0]?.title, 'T2')
+  })
+
+  it('lists none as empty, not as nothing known', async () => {
+    assert.deepEqual(await reader({ [file]: JSON.stringify({ discoveries: [] }) }).recordedDiscoveries(), [])
+  })
+
+  it('is nothing known when the document is missing or not one', async () => {
+    assert.equal(await reader().recordedDiscoveries(), undefined)
+    assert.equal(await reader({ [file]: JSON.stringify({ discoveries: [{ ...entry(1, '2026-01-01T00:00:00.000Z'), kind: 'idea' }] }) }).recordedDiscoveries(), undefined)
+  })
+})
+
 describe('a home given with trailing slashes', () => {
   it('is read the same', async () => {
     const files = { [`${HOME}/trigger.log`]: 'one\n' }
