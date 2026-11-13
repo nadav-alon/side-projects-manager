@@ -1,13 +1,13 @@
 import type { Register } from 'claude-code'
 
-import { avoidedTermsIn, avoidedUses, issueTextOf, proseOf, type AvoidedTerm } from './terms'
-import { termsForCommand } from './vocabulary'
+import { avoidedUses, proseOf, type AvoidedTerm } from './terms'
+import { vocabularySources } from './sources'
+import type { ShellTrail } from './target-repo/target'
+import { sessionTerms, usesIn } from './vocabulary'
+import { ghWrites } from './writes'
 
-/**
- * Issue and pull request text a `gh` command writes, checked as a whole: its `--title` and `--body` values.
- * Out of scope: `gh api … -f body=`, and `--body-file`, whose prose lives in a file the command only names.
- */
-const ISSUE_TEXT = /\bgh\s+(issue|pr)\s+(create|edit|comment|review)\b/
+/** This checkout's root: the mod sits at `mods/avoided-terms/hooks`. */
+const CHECKOUT_ROOT = import.meta.dir.split('/').slice(0, -3).join('/')
 
 type Result = { context?: string[] }
 
@@ -25,32 +25,13 @@ function wrote(result: { deny?: unknown; isError?: boolean }): boolean {
   return result.deny === undefined && result.isError !== true
 }
 
-async function termsOf($: { session: { cwd(): Promise<string> }; fs: { read(path: string): Promise<unknown> } }): Promise<AvoidedTerm[]> {
-  const context = await $.fs.read(`${await $.session.cwd()}/CONTEXT.md`).catch(() => undefined)
-  return typeof context === 'string' ? avoidedTermsIn(context) : []
-}
-
-/** Where the manager clones projects, resolved as `src/adapters/manager-home.ts` resolves it; null when neither it nor `HOME` is set. */
-async function managedLocation($: { process: { run(argv: string[]): Promise<{ stdout: string }> } }): Promise<string | null> {
-  const { stdout } = await $.process.run(['sh', '-c', 'printf "%s\\n%s" "$SIDE_PROJECTS_MANAGED_LOCATION" "$HOME"'])
-  const [managed, home] = stdout.split('\n')
-  return managed || (home ? `${home}/side-projects` : null)
-}
-
-/** The repo of the session's working directory, as lower-case `owner/repo`. */
-async function sessionRepo($: { process: { run(argv: string[]): Promise<{ exitCode: number; stdout: string }> } }): Promise<string> {
-  const { exitCode, stdout } = await $.process.run(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
-  if (exitCode !== 0) throw new Error('gh repo view failed')
-  return stdout.trim().toLowerCase()
-}
-
 // A note rides on the result and never blocks the write. A session whose repo has no CONTEXT.md is untouched.
 export const register: Register = on => {
   for (const tool of ['Edit', 'Write'] as const) {
     on('tool.call', { tool }, async ($, e, next) => {
       const result = await next(e)
       if (!wrote(result)) return result
-      const terms = await termsOf($)
+      const terms = await sessionTerms(vocabularySources($, CHECKOUT_ROOT))
       if (terms.length === 0) return result
       const prose = proseOf(e.file_path, e.tool === 'Edit' ? e.new_string : e.content)
       // An edit carries over the text around it, so only a term it adds is news.
@@ -60,18 +41,13 @@ export const register: Register = on => {
     })
   }
 
+  // One trail per loaded mod: it must outlive each call, but a hot reload forgets a `cd` from before it.
+  const trail: ShellTrail = { moved: false }
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const result = await next(e)
-    if (!wrote(result) || !ISSUE_TEXT.test(e.command)) return result
-    const terms = await termsForCommand(e.command, {
-      cwd: () => $.session.cwd(),
-      managed: () => managedLocation($),
-      sessionRepo: () => sessionRepo($),
-      read: async path => {
-        const text = await $.fs.read(path)
-        return typeof text === 'string' ? text : null
-      },
-    })
-    return withNote(result, $.plugin.name, 'The issue text', avoidedUses(issueTextOf(e.command), terms))
+    // Walked whether or not the call wrote, so a `cd` reaches the trail.
+    const writes = ghWrites(e.command, trail)
+    if (!wrote(result) || writes.length === 0) return result
+    return withNote(result, $.plugin.name, 'The issue text', await usesIn(writes, vocabularySources($, CHECKOUT_ROOT)))
   })
 }

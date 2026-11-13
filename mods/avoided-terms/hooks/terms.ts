@@ -70,20 +70,3 @@ export function proseOf(path: string, content: string): string {
   }
   return ''
 }
-
-/** The values of the `--title`/`-t` and `--body`/`-b` flags in a shell command: the prose of an issue or pull request, without its flags and arguments. */
-export function issueTextOf(command: string): string {
-  const values = command.matchAll(/(?:^|\s)(?:--title|--body|-t|-b)(?:\s+|=)("(?:[^"\\]|\\[\s\S])*"|'[^']*'|\S+)/g)
-  return [...values].map(m => (m[1] ?? '').replace(/^["']|["']$/g, '')).join('\n').replace(/`[^`\n]*`/g, '')
-}
-
-/**
- * The repo a `gh` command's `--repo`/`-R` flag names, as lower-case `owner/repo` (a host is dropped);
- * null when it has no such flag or the value is not a repo.
- */
-export function repoFlagOf(command: string): string | null {
-  const value = /(?:^|\s)(?:--repo|-R)(?:\s+|=|(?=[\w]))("[^"]*"|'[^']*'|\S+)/.exec(command)?.[1]?.replace(/^["']|["']$/g, '')
-  const parts = value?.split('/') ?? []
-  const slug = (parts.length === 3 ? parts.slice(1) : parts).join('/').toLowerCase()
-  return /^[\w.-]+\/[\w.-]+$/.test(slug) ? slug : null
-}
