@@ -2,6 +2,7 @@ import type { Branch } from "./branch.ts";
 import type { Budget } from "./budget.ts";
 import type { Day } from "./day.ts";
 import type { IssueNumber } from "./issue-number.ts";
+import type { IssueReference } from "./issue-tracker.ts";
 import {
   inFlight,
   sameInvocation,
@@ -706,5 +707,5 @@ export interface Store {
    * Drops every recorded discovery filed against one of `tickets`. Applied to
    * the document as it stands when called, as `recordDiscoveries` is.
    */
-  forgetDiscoveries(tickets: readonly { repo: RepoSlug; number: IssueNumber }[]): Promise<void>;
+  dropDiscoveries(tickets: readonly IssueReference[]): Promise<void>;
 }

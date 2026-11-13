@@ -5,6 +5,7 @@ import type {
   InvocationClosing,
   InvocationRecord,
   IssueNumber,
+  IssueReference,
   Journal,
   JournaledFreedEntry,
   KeptSummaryPath,
@@ -362,7 +363,7 @@ export class FakeStore implements Store {
     ];
   }
 
-  async forgetDiscoveries(tickets: readonly { repo: RepoSlug; number: IssueNumber }[]): Promise<void> {
+  async dropDiscoveries(tickets: readonly IssueReference[]): Promise<void> {
     this.#recordedDiscoveries = this.#recordedDiscoveries.filter(
       (discovery) => !tickets.some((ticket) => ticketKey(ticket) === ticketKey(discovery)),
     );

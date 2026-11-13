@@ -2312,7 +2312,7 @@ describe("forgetting recorded discoveries", () => {
     });
     await store.recordDiscoveries([discovery(7, "a"), discovery(8, "b"), discovery(7, "c")]);
 
-    await store.forgetDiscoveries([{ repo: PILOT, number: issueNumber(7) }]);
+    await store.dropDiscoveries([{ repo: PILOT, number: issueNumber(7) }]);
 
     assert.deepEqual(await store.loadRecordedDiscoveries(), [discovery(8, "b")]);
   });

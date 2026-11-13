@@ -1,6 +1,6 @@
 import { errorMessage } from "./error-message.ts";
-import type { IssueNumber, IssueTracker, RepoSlug, Store } from "./ports/index.ts";
-import { ticketReference } from "./ports/index.ts";
+import type { IssueReference, IssueTracker, Store } from "./ports/index.ts";
+import { ticketKey, ticketReference } from "./ports/index.ts";
 
 /**
  * Drops the recorded discoveries whose ticket no longer waits on the
@@ -13,27 +13,27 @@ import { ticketReference } from "./ports/index.ts";
  */
 export async function recordedDiscoverySweep(
   tracker: Pick<IssueTracker, "isWaitingOnDeveloper">,
-  store: Pick<Store, "loadRecordedDiscoveries" | "forgetDiscoveries">,
+  store: Pick<Store, "loadRecordedDiscoveries" | "dropDiscoveries">,
 ): Promise<void> {
   try {
-    const tickets = new Map<string, { repo: RepoSlug; number: IssueNumber }>();
+    const tickets = new Map<string, IssueReference>();
     for (const { repo, number } of await store.loadRecordedDiscoveries()) {
-      tickets.set(ticketReference({ repo, number }), { repo, number });
+      tickets.set(ticketKey({ repo, number }), { repo, number });
     }
-    const settled: { repo: RepoSlug; number: IssueNumber }[] = [];
-    for (const [reference, ticket] of tickets) {
+    const settled: IssueReference[] = [];
+    for (const ticket of tickets.values()) {
       try {
         if (!(await tracker.isWaitingOnDeveloper(ticket))) {
           settled.push(ticket);
         }
       } catch (error: unknown) {
-        console.warn(`Could not read ${reference} to prune its recorded discoveries: ${errorMessage(error)}`);
+        console.warn(`Could not read ${ticketReference(ticket)} to drop its recorded discoveries: ${errorMessage(error)}`);
       }
     }
     if (settled.length > 0) {
-      await store.forgetDiscoveries(settled);
+      await store.dropDiscoveries(settled);
     }
   } catch (error: unknown) {
-    console.warn(`Could not prune the recorded discoveries: ${errorMessage(error)}`);
+    console.warn(`Could not drop the recorded discoveries: ${errorMessage(error)}`);
   }
 }

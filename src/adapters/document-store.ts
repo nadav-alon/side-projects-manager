@@ -17,6 +17,7 @@ import type {
   InvocationOutcome,
   InvocationRecord,
   IssueNumber,
+  IssueReference,
   IssueUrl,
   Journal,
   JournaledFreedEntry,
@@ -88,6 +89,7 @@ import {
   isTokenCount,
   isUsd,
   spendCeilingFor,
+  ticketKey,
 } from "../ports/index.ts";
 import { expectField } from "./expect-field.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
@@ -131,6 +133,8 @@ export function documentStore(home: string = MANAGER_HOME): Store {
   const modelsFile = path.join(home, MODELS_FILE);
   const journalFile = path.join(home, JOURNAL_FILE);
   const recordedDiscoveriesFile = path.join(home, RECORDED_DISCOVERIES_FILE);
+  const readRecordedDiscoveries = async (): Promise<RecordedDiscovery[]> =>
+    parseRecordedDiscoveries(await readDocument(recordedDiscoveriesFile), recordedDiscoveriesFile);
   // Every read-modify-write of the recorded discoveries is chained onto this,
   // so overlapping calls never read the same document and overwrite each other.
   let recordingDiscoveries: Promise<unknown> = Promise.resolve();
@@ -138,10 +142,7 @@ export function documentStore(home: string = MANAGER_HOME): Store {
     change: (kept: RecordedDiscovery[]) => readonly RecordedDiscovery[],
   ): Promise<void> => {
     const write = async (): Promise<void> => {
-      const kept = parseRecordedDiscoveries(
-        await readDocument(recordedDiscoveriesFile),
-        recordedDiscoveriesFile,
-      );
+      const kept = await readRecordedDiscoveries();
       await writeDocument(home, recordedDiscoveriesFile, formatRecordedDiscoveries(change(kept)));
     };
     const written = recordingDiscoveries.then(write, write);
@@ -286,23 +287,17 @@ export function documentStore(home: string = MANAGER_HOME): Store {
     },
 
     async loadRecordedDiscoveries(): Promise<RecordedDiscovery[]> {
-      return parseRecordedDiscoveries(
-        await readDocument(recordedDiscoveriesFile),
-        recordedDiscoveriesFile,
-      );
+      return readRecordedDiscoveries();
     },
 
     recordDiscoveries(discoveries: readonly RecordedDiscovery[]): Promise<void> {
       return changeRecordedDiscoveries((kept) => [...kept, ...discoveries]);
     },
 
-    forgetDiscoveries(
-      tickets: readonly { repo: RepoSlug; number: IssueNumber }[],
-    ): Promise<void> {
+    dropDiscoveries(tickets: readonly IssueReference[]): Promise<void> {
       return changeRecordedDiscoveries((kept) =>
         kept.filter(
-          (discovery) =>
-            !tickets.some(({ repo, number }) => repo === discovery.repo && number === discovery.number),
+          (discovery) => !tickets.some((ticket) => ticketKey(ticket) === ticketKey(discovery)),
         ),
       );
     },
