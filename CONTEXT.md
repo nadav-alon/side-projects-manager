@@ -652,7 +652,11 @@ request is labelled — see the Applied-review label; a refusal is reported on t
 than retried, and never reopens the ticket. A pull request with no open thread when the iteration
 starts has nothing to apply: no run starts, and the ticket closes, promotes it and labels it all the
 same. One whose own pull request is already merged or closed closes the same way, with no run,
-nothing marked ready and no label.
+nothing marked ready and no label. One whose pull request is red when it finishes gets one
+automatic retry for the pull request's whole life: each failing check is posted as a review thread,
+the pull request is labelled `apply-review-retried`, and the manager opens one more apply-review
+ticket. A developer's `/apply-review` never counts toward that. Red again once the label is on, the
+ticket is handed back, not closed, and the pull request stays a draft.
 _Avoid_: apply ticket, fix-review ticket, action ticket
 
 **Spec review ticket**:

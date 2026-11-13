@@ -53,6 +53,8 @@ import {
   isTicketPriority,
   modelLabelOf,
   reviewTitle,
+  applyReviewTitle,
+  applyReviewBody,
   sameRepo,
   sizeLabelOf,
   specReviewTitle,
@@ -201,44 +203,31 @@ export function ghIssueTracker(
       ticket: Ticket,
       pullRequest: PullRequestUrl,
     ): Promise<Ticket> {
-      const title = reviewTitle(ticket);
-      await ensureLabel(ticket.repo, READY_FOR_AGENT_LABEL);
-
-      const { stdout } = await execFileAsync("gh", [
-        "issue",
-        "create",
-        "--repo",
-        ticket.repo,
-        "--title",
-        title,
-        // The one label the manager applies itself. Applied at creation rather
-        // than after, so there is no instant in which the review exists and is
-        // not yet eligible.
-        "--label",
-        READY_FOR_AGENT_LABEL,
-        "--body",
-        reviewBody(ticket, pullRequest),
-      ]);
-
-      const review: Ticket = {
-        repo: ticket.repo,
-        number: issueNumberIn(stdout, ticket.repo),
-        title,
-        pullRequest: { kind: "review", url: pullRequest },
-      };
-
       // The review exists and is eligible, so the morning's work is not lost
-      // even if the link below fails — but it is floating free of the ticket
+      // even if the link fails — but it is floating free of the ticket
       // that earned it, and nothing else will notice that. The pull request
       // is named because it is the thing the morning was for, and a failure
       // here is where the developer finds out about it.
-      await linkOrExplain(
-        review,
-        ticket,
-        async () => reviewBody(ticket, pullRequest),
-        `Opened #${review.number} in ${review.repo} to review ${pullRequest}, the draft pull request for #${ticket.number}`,
-      );
-      return review;
+      return createLinkedTicket(ticket, {
+        title: reviewTitle(ticket),
+        body: reviewBody(ticket, pullRequest),
+        pullRequest: { kind: "review", url: pullRequest },
+        explanation: (created) =>
+          `Opened #${created.number} in ${created.repo} to review ${pullRequest}, the draft pull request for #${ticket.number}`,
+      });
+    },
+
+    async createApplyReviewTicket(
+      ticket: Ticket,
+      pullRequest: PullRequestUrl,
+    ): Promise<Ticket> {
+      return createLinkedTicket(ticket, {
+        title: applyReviewTitle(pullRequest),
+        body: applyReviewBody(ticket, pullRequest),
+        pullRequest: { kind: "apply-review", url: pullRequest },
+        explanation: (created) =>
+          `Opened #${created.number} in ${created.repo} to apply the review on ${pullRequest}, the draft pull request for #${ticket.number}`,
+      });
     },
 
     async createSpecReviewTicket(ticket: Ticket, body: string): Promise<Ticket> {
@@ -830,6 +819,48 @@ function bindingMatching(
   return url !== undefined && isPullRequestUrl(url)
     ? { kind, url }
     : undefined;
+}
+
+/**
+ * Opens a `READY_FOR_AGENT_LABEL` issue in `parent`'s repo, bound to its
+ * pull request, and links it to `parent` as a sub-issue: what a review ticket
+ * and an apply-review ticket both are. `explanation` names what already
+ * happened, for a refused link. The label is applied at creation rather than
+ * after, so there is no instant in which the ticket exists and is not yet
+ * eligible.
+ */
+async function createLinkedTicket(
+  parent: Ticket,
+  opening: {
+    title: string;
+    body: string;
+    pullRequest: PullRequestBinding;
+    explanation: (created: Ticket) => string;
+  },
+): Promise<Ticket> {
+  await ensureLabel(parent.repo, READY_FOR_AGENT_LABEL);
+
+  const { stdout } = await execFileAsync("gh", [
+    "issue",
+    "create",
+    "--repo",
+    parent.repo,
+    "--title",
+    opening.title,
+    "--label",
+    READY_FOR_AGENT_LABEL,
+    "--body",
+    opening.body,
+  ]);
+
+  const created: Ticket = {
+    repo: parent.repo,
+    number: issueNumberIn(stdout, parent.repo),
+    title: opening.title,
+    pullRequest: opening.pullRequest,
+  };
+  await linkOrExplain(created, parent, async () => opening.body, opening.explanation(created));
+  return created;
 }
 
 /**

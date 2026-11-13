@@ -697,7 +697,14 @@ export interface NotReadied {
  * its checks were still running when the wait ended, and a later sweep reads
  * them again (ADR 0016), or they were failing, which is left unmarked.
  */
-export type ReadyHold = { kind: "checks-running" } | { kind: "checks-failing" };
+export type ReadyHold =
+  | { kind: "checks-running" }
+  /**
+   * `retry` is set only on an apply-review's own finish: what became of the
+   * red checks. No merge gate runs either way — a queued retry's own finish
+   * fires it once the checks are green.
+   */
+  | { kind: "checks-failing"; retry?: ChecksRetry };
 
 /**
  * An apply-review ticket's own iteration that left no thread on its pull
@@ -831,6 +838,17 @@ export interface SettledReady {
 }
 
 /**
+ * What an apply-review run's red checks came to. `queued`: the failing
+ * checks were posted as review threads and `ticket`, the pull request's one
+ * automatic retry, opened to fix them; `checks` names the failing ones.
+ * `exhausted`: that retry was already spent, so this iteration's ticket was
+ * handed back, open, and the pull request stays a draft.
+ */
+export type ChecksRetry =
+  | { kind: "queued"; ticket: Ticket; checks: string[] }
+  | { kind: "exhausted" };
+
+/**
  * Why an apply-review iteration left its ticket open, and the error that
  * stopped it. `demote-failed` alone names `ticket`, the implementation
  * ticket whose `Closes #N.` the run could not rewrite to `Part of #N.`: the
@@ -841,6 +859,7 @@ export type ApplyReviewNotClosed =
   | { kind: "check-failed"; error: string }
   | { kind: "demote-failed"; error: string; ticket: Ticket }
   | { kind: "ready-failed"; error: string }
+  | { kind: "retry-failed"; error: string }
   | { kind: "close-failed"; error: string };
 
 /**

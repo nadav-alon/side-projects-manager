@@ -447,6 +447,18 @@ export const NEEDS_REBASE_LABEL = "needs-rebase";
 export const NEEDS_REBASE = pullRequestLabel(NEEDS_REBASE_LABEL);
 
 /**
+ * The name of {@link APPLY_REVIEW_RETRIED}, the label the loop adds to a pull
+ * request when it queues that pull
+ * request's one automatic apply-review retry. It stays on for the pull
+ * request's life, which is what makes the limit one per pull request rather
+ * than one per run.
+ */
+export const APPLY_REVIEW_RETRIED_LABEL = "apply-review-retried";
+
+/** {@link APPLY_REVIEW_RETRIED_LABEL}, branded once as {@link NEEDS_REBASE} is. */
+export const APPLY_REVIEW_RETRIED = pullRequestLabel(APPLY_REVIEW_RETRIED_LABEL);
+
+/**
  * Whether a pull request needs a rebase, read repeatedly through `read` until
  * it settles.
  *
@@ -746,6 +758,12 @@ export interface RepoHost {
     pullRequest: PullRequestUrl,
     label: PullRequestLabel,
   ): Promise<void>;
+  /**
+   * The labels `pullRequest` carries now, read from the pull request itself
+   * rather than a listing, so one past {@link OPEN_PULL_REQUEST_LIMIT} still
+   * answers. A read that fails throws: a label not read is not a label absent.
+   */
+  readPullRequestLabels(pullRequest: PullRequestUrl): Promise<PullRequestLabel[]>;
   /**
    * Whether `pullRequest`'s branch needs a rebase onto its base branch:
    * because it conflicts with it, or because it is merely behind its tip.

@@ -560,6 +560,19 @@ export function githubRepoHost(
       await run("gh", ["pr", "edit", pullRequest, "--add-label", label]);
     },
 
+    async readPullRequestLabels(pullRequest: PullRequestUrl): Promise<PullRequestLabel[]> {
+      const { stdout } = await run("gh", [
+        "pr",
+        "view",
+        pullRequest,
+        "--json",
+        "labels",
+        "--jq",
+        ".labels[].name",
+      ]);
+      return stdout.split("\n").filter(isPullRequestLabel);
+    },
+
     async needsRebase(pullRequest: PullRequestUrl): Promise<boolean> {
       return resolveNeedsRebase(
         pullRequest,

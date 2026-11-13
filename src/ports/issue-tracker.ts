@@ -1,6 +1,6 @@
 import type { IssueNumber } from "./issue-number.ts";
 import { isModelName, type ModelName } from "./model-name.ts";
-import type { PullRequestUrl } from "./pull-request-url.ts";
+import { pullRequestNumber, type PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import { isSize, largerSize, type Size } from "./size.ts";
 import {
@@ -1059,6 +1059,23 @@ export interface IssueTracker {
   ): Promise<Ticket>;
 
   /**
+   * Opens an apply-review ticket against `ticket` — a sub-issue asking for
+   * every open review thread on the draft pull request at `pullRequest` to
+   * be worked — and answers with it: the ticket the `/apply-review` workflow
+   * opens when the developer comments, opened by the loop itself.
+   *
+   * Born carrying ready-for-agent, as {@link createReviewTicket}'s review is,
+   * and for the same reason. Its body carries the line the workflow writes, so
+   * a later morning binds it to `pullRequest` as it does the workflow's own.
+   *
+   * `ticket` is read, never written.
+   */
+  createApplyReviewTicket(
+    ticket: Ticket,
+    pullRequest: PullRequestUrl,
+  ): Promise<Ticket>;
+
+  /**
    * Gives `ticket` back to the developer once the loop has stopped working on
    * it — whether the run failed or finished: comments `comment` on it, and
    * moves it from ready-for-agent to ready-for-human.
@@ -1212,6 +1229,22 @@ export interface IssueTracker {
  */
 export function reviewTitle(ticket: Ticket): string {
   return `Review the draft pull request for #${ticket.number}`;
+}
+
+/**
+ * The title an apply-review ticket carries, as the `/apply-review` workflow
+ * writes it: the pull request's number, read off its URL.
+ */
+export function applyReviewTitle(pullRequest: PullRequestUrl): string {
+  return `Apply the review on #${pullRequestNumber(pullRequest)}`;
+}
+
+/**
+ * The line an apply-review ticket's body carries, as the `/apply-review`
+ * workflow writes it: the one thing binding the ticket to its pull request.
+ */
+export function applyReviewBody(ticket: Ticket, pullRequest: PullRequestUrl): string {
+  return `Apply the review on ${pullRequest}, the draft pull request opened for #${ticket.number}.`;
 }
 
 /**

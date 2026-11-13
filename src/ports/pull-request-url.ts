@@ -42,3 +42,12 @@ export function pullRequestUrl(value: string): PullRequestUrl {
   }
   return value;
 }
+
+/** The number `url` ends with: the one way a pull request's identity is read off its address. */
+export function pullRequestNumber(url: PullRequestUrl): number {
+  const match = /\/pull\/(\d+)$/.exec(new URL(url).pathname);
+  if (match?.[1] === undefined) {
+    throw new TypeError(`Not a pull request URL: expected one ending /pull/<number>, got ${url}`);
+  }
+  return Number(match[1]);
+}

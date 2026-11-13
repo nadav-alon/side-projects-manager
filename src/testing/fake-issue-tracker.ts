@@ -42,6 +42,7 @@ import {
   issueUrl,
   modelLabelOf,
   reviewTitle,
+  applyReviewTitle,
   sizeLabelOf,
   specReviewTitle,
   ticketReference,
@@ -189,6 +190,8 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
   /** The review tickets opened, in the order they were opened. */
   readonly reviewTickets: FakeReviewTicket[] = [];
+  /** The apply-review tickets the loop opened, in the order they were opened. */
+  readonly applyReviewTickets: FakeReviewTicket[] = [];
   /** The spec review tickets opened, in the order they were opened. */
   readonly specReviewTickets: FakeSpecReviewTicket[] = [];
   /** The spec review tickets linked to a supertask without being opened, in link order — see {@link linkSpecReviewTicket}. */
@@ -621,6 +624,26 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
     this.reviewTickets.push({ parent: ticket, pullRequest, ticket: review });
     return review;
+  }
+
+  /**
+   * As {@link createReviewTicket}, for an apply-review ticket: born eligible
+   * in the parent's backlog, linked to it, numbered above every ticket the
+   * repo has.
+   */
+  async createApplyReviewTicket(
+    ticket: Ticket,
+    pullRequest: PullRequestUrl,
+  ): Promise<Ticket> {
+    const applyReview = this.addEligibleTicket(ticket.repo, {
+      number: this.#nextNumber(ticket.repo, ticket),
+      title: applyReviewTitle(pullRequest),
+      pullRequest: { kind: "apply-review", url: pullRequest },
+      parent: ticket.number,
+    });
+
+    this.applyReviewTickets.push({ parent: ticket, pullRequest, ticket: applyReview });
+    return applyReview;
   }
 
   /**

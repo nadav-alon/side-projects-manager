@@ -3030,3 +3030,45 @@ describe("ghIssueTracker.isWaitingOnDeveloper", () => {
     await assert.rejects(ghIssueTracker().isWaitingOnDeveloper(TICKET), /rate limited/);
   });
 });
+
+describe("ghIssueTracker.createApplyReviewTicket", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const TICKET: Ticket = { repo: PILOT, number: issueNumber(7), title: "Add the thing" };
+  const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12");
+  const APPLY_URL = "https://github.com/nadav-alon/pilot/issues/42";
+  const WORKING = [
+    `case "$1 $2" in`,
+    `  "issue create") echo ${APPLY_URL} ;;`,
+    `  "api repos/nadav-alon/pilot/issues/42") echo 2159872455 ;;`,
+    `  *) : ;;`,
+    `esac`,
+  ].join("\n");
+
+  it("opens the ticket the /apply-review workflow would, carrying ready-for-agent and never turboable", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    const applyReview = await ghIssueTracker().createApplyReviewTicket(TICKET, PULL_REQUEST);
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create);
+    assert.equal(valueOf(create, "--repo"), PILOT);
+    assert.equal(valueOf(create, "--label"), READY_FOR_AGENT_LABEL);
+    assert.ok(!create.includes(TURBOABLE_LABEL));
+    assert.equal(valueOf(create, "--title"), "Apply the review on #12");
+    assert.equal(
+      valueOf(create, "--body"),
+      `Apply the review on ${PULL_REQUEST}, the draft pull request opened for #7.`,
+    );
+    assert.equal(applyReview.number, 42);
+    assert.deepEqual(applyReview.pullRequest, { kind: "apply-review", url: PULL_REQUEST });
+  });
+
+  it("hangs it off the ticket with the tracker's own sub-issue relationship", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createApplyReviewTicket(TICKET, PULL_REQUEST);
+
+    const link = callWith(await gh.calls(), "api", "--method", "POST");
+    assert.ok(link?.includes("repos/nadav-alon/pilot/issues/7/sub_issues"));
+  });
+});

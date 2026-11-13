@@ -2742,3 +2742,24 @@ describe("listing a repo's pull requests closing issues", () => {
     );
   });
 });
+
+describe("reading a pull request's labels", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  it("answers each label the pull request carries", async (t) => {
+    await recordingGh(t, `if [ "$2" = view ]; then printf 'reviewed\\napply-review-retried\\n'; fi`);
+
+    assert.deepEqual(await githubRepoHost().readPullRequestLabels(PULL_REQUEST), [
+      "reviewed",
+      "apply-review-retried",
+    ]);
+  });
+
+  it("answers none for a pull request carrying none", async (t) => {
+    await recordingGh(t, ":");
+
+    assert.deepEqual(await githubRepoHost().readPullRequestLabels(PULL_REQUEST), []);
+  });
+});
