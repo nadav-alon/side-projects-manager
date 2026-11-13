@@ -1,4 +1,4 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { Register } from 'claude-code'
 import { resolveManagerHome } from './manager-home/home'
 import { parseTicketReference } from './ticket-reference'
 
@@ -42,7 +42,6 @@ const COMMANDS: Record<string, LoopCommand> = {
 export const register: Register = on => {
   // The manager home cannot change during a session, so the shell is asked once.
   let homeOf: ReturnType<typeof resolveManagerHome> | undefined
-  const managerHome = ($: EngineInterface) => (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
   on('session.start', async ($, e, next) => {
     for (const [name, { description }] of Object.entries(COMMANDS)) await $.command.register({ name, description })
     return next(e)
@@ -58,7 +57,7 @@ export const register: Register = on => {
       }
       let result
       try {
-        result = await $.process.run(['npm', 'run', '--silent', command.script, ...scriptArgs], { cwd: await managerHome($) })
+        result = await $.process.run(['npm', 'run', '--silent', command.script, ...scriptArgs], { cwd: await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root)) })
       } catch (error) {
         return { text: `/${name} failed: ${error instanceof Error ? error.message : String(error)}` }
       }

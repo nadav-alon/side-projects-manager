@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { Register } from 'claude-code'
 
 import type { LoopSnapshot } from '../types'
 import { isProcessId, type ProcessId } from './manager-home/types.ts'
@@ -69,7 +69,6 @@ function Section({ Box, Text, title, children }: Parts & { title: string; childr
 export const register: Register = on => {
   // The manager home cannot change during a session, so the shell is asked once.
   let homeOf: ReturnType<typeof resolveManagerHome> | undefined
-  const managerHome = ($: EngineInterface) => (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
   let tick: { cancel(): void } | undefined
   const stopPolling = () => {
     tick?.cancel()
@@ -82,7 +81,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'loop-pane' }, async $ => {
-    const home = await managerHome($)
+    const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
     // The config directory cannot change during a session, so the shell is asked once.
     const logs = sessionLogsFolder(argv => $.process.run(argv))
     const refresh = async () => {
@@ -113,7 +112,7 @@ export const register: Register = on => {
     const { inFlight, usage } = await read($, snapshot)
     const said = await read($, notice)
     const now = await $.clock.now()
-    const home = await managerHome($)
+    const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
 
     const parts = { Box, Text }
     const alive = processAlive(argv => $.process.run(argv))
