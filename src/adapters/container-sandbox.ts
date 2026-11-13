@@ -1945,7 +1945,8 @@ function specReviewPromptFor(
 
 /** The implementation and apply-review prompts' instruction to leave the branch passing its checks. */
 const LEAVE_BRANCH_GREEN_INSTRUCTION =
-  "Before finishing, run the repo's typecheck and its tests and leave the branch green.";
+  "Before finishing, run the repo's typecheck and its tests and leave the branch green, along with " +
+  "any further check its agent instructions name.";
 
 /** The spec and ux review prompts' instruction to put findings in the answer's `report`. */
 const REPORT_IN_ANSWER_INSTRUCTIONS = [

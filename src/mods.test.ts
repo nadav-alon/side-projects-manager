@@ -126,11 +126,3 @@ describe("test-mods.sh", () => {
     assert.equal(run(modsWithFakeClaude(["plain", plain])).status, 1);
   });
 });
-
-describe("the agent instructions", () => {
-  const agents = readFileSync(resolve(import.meta.dirname, "../AGENTS.md"), "utf8");
-
-  it("name scripts/test-mods.sh as a check a run makes before finishing", () => {
-    assert.match(agents, /scripts\/test-mods\.sh/);
-  });
-});

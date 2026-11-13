@@ -51,7 +51,7 @@ Outdated threads are decided like any other: check whether the current code stil
 
 ## 5. Apply
 
-Work the applied threads one at a time: make the change, run the repo's tests and type check, commit. One commit per thread; threads touching the same code may share one, named in its message. Every commit leaves the tests green.
+Work the applied threads one at a time: make the change, run the repo's tests and type check and any further check its agent instructions name, commit. One commit per thread; threads touching the same code may share one, named in its message. Every commit leaves the tests green.
 
 A change that cannot be made green flips to **declined**: revert it and give the failure as the reason.
 
