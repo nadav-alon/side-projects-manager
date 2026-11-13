@@ -1,4 +1,4 @@
-import type { IssueNumber, RepoSlug } from '../types'
+import type { IssueNumber, RepoSlug } from '../types/index.d.ts'
 
 const slugPattern = /^[\w.-]+\/[\w.-]+$/
 

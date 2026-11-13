@@ -1,5 +1,4 @@
-import type { AbsolutePath } from '../types'
-import { absolutePath } from './switcher.ts'
+import { absolutePath, type AbsolutePath } from './switcher.ts'
 
 /** Where the manager keeps its registry and where it clones projects, resolved as `src/adapters/manager-home.ts` resolves them. */
 export interface Locations {
