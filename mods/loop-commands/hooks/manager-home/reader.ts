@@ -322,7 +322,7 @@ async function readLogEntries(fs: HomeFs, sessionLogs: string): Promise<LogEntry
 
 /** Whether `error` says the path is not there, as Node's `ENOENT` does. */
 function isMissing(error: unknown): boolean {
-  return (error as { code?: unknown } | null)?.code === 'ENOENT' || String((error as Error | null)?.message ?? error).startsWith('ENOENT')
+  return (error as { code?: unknown } | null)?.code === 'ENOENT' || String((error as Error | null)?.message ?? error).includes('ENOENT')
 }
 
 async function listIfPresent(fs: HomeFs, path: string): Promise<readonly { name: string }[]> {
