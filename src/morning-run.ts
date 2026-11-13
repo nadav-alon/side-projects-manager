@@ -174,6 +174,7 @@ import {
 } from "./summary.ts";
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
 import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
+import { postFailingCheckThreads } from "./failing-check-threads.ts";
 import { settledChecks } from "./settled-checks.ts";
 import { grantSweep } from "./grant-sweep.ts";
 import { recordedDiscoverySweep } from "./recorded-discovery-sweep.ts";
@@ -2007,6 +2008,10 @@ async function runReview(
   if (resolved !== undefined) {
     return resolved;
   }
+
+  // Before the reviewer starts, so the apply-review run that follows works a
+  // red check like any finding; the reviewing agent itself never reads checks.
+  await postFailingCheckThreads(ports.repoHost, ports.clock, ticket.pullRequest.url);
 
   // Used only if the review turns out clean; a review with findings never
   // reads it, but the lookup runs all the same, the same waste
