@@ -464,6 +464,10 @@ export class FakeRepoHost implements RepoHost {
     this.labelled.push({ pullRequest, label });
   }
 
+  async readPullRequestLabels(pullRequest: PullRequestUrl): Promise<PullRequestLabel[]> {
+    return this.labelled.filter((entry) => entry.pullRequest === pullRequest).map((entry) => entry.label);
+  }
+
   async postComment(pullRequest: PullRequestUrl, body: string): Promise<void> {
     this.comments.push({ pullRequest, body });
   }
