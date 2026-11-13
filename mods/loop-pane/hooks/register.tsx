@@ -66,16 +66,18 @@ function Section({ Box, Text, title, children }: Parts & { title: string; childr
   )
 }
 
+/** The context a hook receives; `poll` is called from more than one hook. */
+type HookContext = Parameters<Hook<'command.run'>>[0]
+
 export const register: Register = on => {
   // The manager home cannot change during a session, so the shell is asked once.
   let homeOf: ReturnType<typeof resolveManagerHome> | undefined
   let tick: { cancel(): void } | undefined
-  /** Whether the session the polling runs in has ended in a /clear, leaving the process in a new one. */
-  let pollingEnded = false
+  /** Set by a /clear: the tick still writes the ended session's state, so the next draw must start polling afresh. */
+  let pollingNeedsRestart = false
   const stopPolling = () => {
     tick?.cancel()
     tick = undefined
-    pollingEnded = false
   }
 
   on('session.start', async ($, e, next) => {
@@ -84,7 +86,8 @@ export const register: Register = on => {
   })
 
   /** Reads the manager home into the pane's state through `$`, then keeps doing so every `REFRESH_MS`. */
-  const poll = async ($: Parameters<Hook<'command.run'>>[0]) => {
+  const poll = async ($: HookContext) => {
+    pollingNeedsRestart = false
     const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
     // The config directory cannot change during a session, so the shell is asked once.
     const logs = sessionLogsFolder(argv => $.process.run(argv))
@@ -109,9 +112,10 @@ export const register: Register = on => {
     return { text: 'Loop pane opened.' }
   })
 
-  // A /clear ends the session whose `$` the polling writes through, and the state goes with it; the next draw holds the new session's `$`.
+  // A /clear ends the session whose `$` the polling writes through, and the state goes with it.
+  // Assumed, not verified against the host: the next draw holds the new session's `$`.
   on('session.end', async ($, e, next) => {
-    if (e.reason === 'clear' && tick !== undefined) pollingEnded = true
+    if (e.reason === 'clear' && tick !== undefined) pollingNeedsRestart = true
     return next(e)
   })
 
@@ -123,7 +127,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
-    if (pollingEnded) await poll($)
+    if (pollingNeedsRestart) await poll($)
     const { inFlight, usage, discoveries } = await read($, snapshot)
     const said = await read($, notice)
     const now = await $.clock.now()

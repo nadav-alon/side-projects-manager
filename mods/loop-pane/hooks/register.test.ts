@@ -367,6 +367,8 @@ test('halt and resume run the manager command from SIDE_PROJECTS_MANAGER_HOME wh
   ])
 })
 
+// The test kit shares one `$` across the clear, so the per-session state reset cannot be modelled here:
+// this only checks the pane still draws after a clear, and passes without the restart in `register.tsx`.
 test('the pane shows the invocation again after a /clear', async ($, on) => {
   const clock = engine(on, home)
   await $.command.run({ command: 'loop-pane', args: '' })
