@@ -17,6 +17,7 @@ import type {
   OnRunStarted,
   OpenInvocation,
   Progress,
+  IssueNumber,
   PullRequestLabel,
   GrantRecord,
   PullRequestState,
@@ -75,6 +76,9 @@ import {
   localDay,
   notify,
   parentTicketIn,
+  pullRequestNumber,
+  pullRequestRepo,
+  sameRepo,
   runSpanFor,
   ticketKind,
   ticketKey,
@@ -2684,13 +2688,37 @@ async function retryRedChecks(
   ports: MorningLoopPorts,
   ticket: ApplyReviewTicket,
 ): Promise<ChecksRetry> {
-  const pullRequest = ticket.pullRequest.url;
+  const retry = await queueChecksRetry(
+    ports,
+    ticket.pullRequest.url,
+    () => implementationTicketFor(ports.tracker, ticket),
+    ticket.number,
+  );
+  if (retry === undefined) {
+    throw new Error(`the implementation ticket of ${ticketReference(ticket)} was not found`);
+  }
+  return retry;
+}
+
+/**
+ * `retryRedChecks`'s body, for any red `pullRequest`: `exhausted` once it
+ * carries `APPLY_REVIEW_RETRIED`, else the retry queued under the ticket
+ * `implementation` finds, read only then. `undefined` where that finds none.
+ * `current`, the apply-review ticket being finished if there is one, is never
+ * taken for the queued retry.
+ */
+async function queueChecksRetry(
+  ports: MorningLoopPorts,
+  pullRequest: PullRequestUrl,
+  implementationOf: () => Promise<Ticket | undefined>,
+  current?: IssueNumber,
+): Promise<ChecksRetry | undefined> {
   if ((await ports.repoHost.readPullRequestLabels(pullRequest)).includes(APPLY_REVIEW_RETRIED)) {
     return { kind: "exhausted" };
   }
-  const implementation = await implementationTicketFor(ports.tracker, ticket);
+  const implementation = await implementationOf();
   if (implementation === undefined) {
-    throw new Error(`the implementation ticket of ${ticketReference(ticket)} was not found`);
+    return undefined;
   }
   await postFailingCheckThreads(ports.repoHost, ports.clock, pullRequest);
   const checks = (await ports.repoHost.readFailingChecks(pullRequest)).map((check) => check.name);
@@ -2700,12 +2728,35 @@ async function retryRedChecks(
   // A retry ticket a failed label write left open is the one queued retry:
   // reused, never a second.
   const title = applyReviewTitle(pullRequest);
-  const existing = (await ports.tracker.listOpenIssues(ticket.repo)).issues.find(
-    (issue) => issue.ticket.title === title && issue.ticket.number !== ticket.number,
+  const existing = (await ports.tracker.listOpenIssues(implementation.repo)).issues.find(
+    (issue) => issue.ticket.title === title && issue.ticket.number !== current,
   )?.ticket;
   const queued = existing ?? (await ports.tracker.createApplyReviewTicket(implementation, pullRequest));
   await ports.repoHost.labelPullRequest(pullRequest, APPLY_REVIEW_RETRIED);
   return { kind: "queued", ticket: queued, checks };
+}
+
+/**
+ * The open ticket `pullRequest`'s body closes in its own repo: its
+ * implementation ticket. `undefined` where it closes none — a reference an
+ * apply-review run demoted, or a ticket no longer open.
+ */
+async function closedTicketOf(
+  ports: MorningLoopPorts,
+  pullRequest: PullRequestUrl,
+): Promise<Ticket | undefined> {
+  const repo = pullRequestRepo(pullRequest);
+  const number = pullRequestNumber(pullRequest);
+  const closing = (await ports.repoHost.listPullRequestsClosingIssues(repo)).find(
+    (candidate) => candidate.number === number,
+  );
+  const closes = closing?.closesIssues.find((issue) => sameRepo(issue.repo, repo));
+  if (closes === undefined) {
+    return undefined;
+  }
+  return (await ports.tracker.listOpenIssues(repo)).issues.find(
+    (issue) => issue.ticket.number === closes.number,
+  )?.ticket;
 }
 
 /**
@@ -2748,7 +2799,9 @@ function heldChecks(held: ReadyHold | undefined): ChecksStatus | undefined {
  * `pendingMergeSweep` is. Each call reads the checks of every one once
  * more, with no wait: green marks it ready for review, still running stays
  * pending until `PENDING_READY_LIMIT` and then is left for the developer, and
- * failing checks leave it a draft, unmarked. A pull request closed, merged or
+ * failing checks leave it a draft, unmarked, with the one automatic retry a
+ * red apply-review finish gets (`queueChecksRetry`), under the ticket its
+ * body closes. A pull request closed, merged or
  * already marked ready by hand settles quietly. Never throws: a failure
  * leaves it pending for the next call.
  */
@@ -2775,11 +2828,13 @@ function pendingReadySweep(
         }
         const checks = await ports.repoHost.readChecksStatus(pullRequest);
         let held: string | undefined;
+        let retry: ChecksRetry | undefined;
         if (checks === "green") {
           await ports.repoHost.markPullRequestReady(pullRequest);
           settled.push({ pullRequest, outcome: "ready-for-review" });
         } else if (checks === "red") {
           held = "checks failing";
+          retry = await queueChecksRetry(ports, pullRequest, () => closedTicketOf(ports, pullRequest));
         } else if (ports.clock.now().getTime() - deferredAt.getTime() >= PENDING_READY_LIMIT) {
           held = "checks still running after a day";
         } else {
@@ -2794,8 +2849,15 @@ function pendingReadySweep(
           if (merge === undefined) {
             settled.push({
               pullRequest,
-              outcome: checks === "red" ? { kind: "checks-failing" } : "left-for-you",
+              outcome:
+                checks === "red"
+                  ? { kind: "checks-failing", ...(retry !== undefined && { retry }) }
+                  : "left-for-you",
             });
+          } else if (retry?.kind === "queued") {
+            // The queued retry's own finish fires the gate once green.
+            settled.push({ pullRequest, outcome: { kind: "checks-failing", retry } });
+            await state.settleMerge(merge);
           } else {
             const verdict = await leftForHuman(ports, pullRequest, held);
             if (verdict.kind === "left-for-human") {

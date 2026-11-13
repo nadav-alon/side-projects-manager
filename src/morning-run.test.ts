@@ -10,6 +10,7 @@ import { CHECKS_POLL_INTERVAL, CHECKS_WAIT } from "./settled-checks.ts";
 import type { InvocationReport } from "./summary.ts";
 import {
   APPLIED_REVIEW_LABEL,
+  APPLY_REVIEW_RETRIED,
   APPLY_REVIEW_COMMENT,
   applyReviewTitle,
   checkRunUrl,
@@ -30,6 +31,7 @@ import {
   hostPath,
   iterationLimit,
   issueNumber,
+  pullRequestNumber,
   sameInvocation,
   localDay,
   modelName,
@@ -5007,6 +5009,69 @@ describe("morningLoop", () => {
 
         assert.deepEqual(ports.repoHost.readyMarked, []);
         assert.deepEqual(ports.store.pendingReadies(), []);
+      });
+
+      describe("when its checks have gone red", () => {
+        function redUnderImplementation(ports: FakePorts): void {
+          queuedPendingReady(ports);
+          ports.tracker.addIneligibleTicket(PILOT, { number: IMPLEMENTATION, title: "Add the thing" });
+          ports.repoHost.setPullRequestsClosingIssues(PILOT, [
+            {
+              number: issueNumber(pullRequestNumber(PULL_REQUEST)),
+              state: "open",
+              branch: branch("issue-7-add-the-thing"),
+              closesIssues: [{ repo: PILOT, number: IMPLEMENTATION }],
+            },
+          ]);
+          ports.repoHost.checksStatus = () => "red";
+          ports.repoHost.failingChecks = () => [TEST_CHECK];
+        }
+
+        it("posts each failing check as a thread and queues one apply-review ticket under its closing reference", async () => {
+          const ports = fakePorts();
+          redUnderImplementation(ports);
+
+          await morningLoop(ports);
+
+          assert.match(ports.repoHost.reviewThreads[0]?.body ?? "", /Failing check: test/);
+          assert.equal(ports.tracker.applyReviewTickets.length, 1);
+          const [retry] = ports.tracker.applyReviewTickets;
+          assert.equal(retry?.parent.number, IMPLEMENTATION);
+          assert.equal(retry?.pullRequest, PULL_REQUEST);
+          assert.deepEqual(ports.repoHost.readyMarked, []);
+          assert.deepEqual(ports.store.pendingReadies(), []);
+          assert.match(
+            ports.tracker.summaries[0]?.body ?? "",
+            new RegExp(`checks failing \\(test\\); queued apply-review #${retry?.ticket.number} to fix them`),
+          );
+        });
+
+        it("leaves it for the developer, queueing nothing, once it has spent its one retry", async () => {
+          const ports = fakePorts();
+          redUnderImplementation(ports);
+          ports.repoHost.labelled.push({ pullRequest: PULL_REQUEST, label: APPLY_REVIEW_RETRIED });
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.tracker.applyReviewTickets, []);
+          assert.deepEqual(ports.repoHost.reviewThreads, []);
+          assert.match(
+            ports.tracker.summaries[0]?.body ?? "",
+            /left for you: checks still failing after one fix attempt/,
+          );
+        });
+
+        it("is left a draft with no retry when its body closes no open ticket", async () => {
+          const ports = fakePorts();
+          queuedPendingReady(ports);
+          ports.repoHost.checksStatus = () => "red";
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.tracker.applyReviewTickets, []);
+          assert.deepEqual(ports.store.pendingReadies(), []);
+          assert.match(ports.tracker.summaries[0]?.body ?? "", /left draft: checks failing/);
+        });
       });
 
       it("settles quietly once the developer marked it ready themselves", async () => {

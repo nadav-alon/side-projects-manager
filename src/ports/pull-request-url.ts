@@ -1,3 +1,5 @@
+import { repoSlug, type RepoSlug } from "./repo-slug.ts";
+
 declare const pullRequestUrlBrand: unique symbol;
 
 /**
@@ -50,4 +52,13 @@ export function pullRequestNumber(url: PullRequestUrl): number {
     throw new TypeError(`Not a pull request URL: expected one ending /pull/<number>, got ${url}`);
   }
   return Number(match[1]);
+}
+
+/** The repo `url` belongs to: the owner and name ahead of `/pull/<number>`. */
+export function pullRequestRepo(url: PullRequestUrl): RepoSlug {
+  const match = /^\/([^/]+\/[^/]+)\/pull\/\d+$/.exec(new URL(url).pathname);
+  if (match?.[1] === undefined) {
+    throw new TypeError(`Not a pull request URL: expected one ending /pull/<number>, got ${url}`);
+  }
+  return repoSlug(match[1]);
 }
