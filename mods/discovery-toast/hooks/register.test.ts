@@ -22,6 +22,7 @@ function engine(
   let ticked = new Promise<void>(resolve => (release = resolve))
 
   on('session.start', () => ({ cwd: '/session' }))
+  on('command.register', () => ({ value: undefined }) as never)
   on('fs.list', (_$, e) => {
     const parts = e.path.split('/')
     const inside = parts.at(-2) === 'discoveries' ? files[parts.at(-1)!] : parts.at(-1) === 'discoveries' ? Object.keys(files) : undefined
