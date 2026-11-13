@@ -45,6 +45,7 @@ import {
   type NotCommented,
   type NotLabelled,
   type NotReadied,
+  type NotRetried,
   type PullRequestResolved,
   type Rebased,
   type Reviewed,
@@ -1424,6 +1425,9 @@ function waitingSection(
           ...(iteration.notReadied === undefined
             ? []
             : [notReadiedLine(iteration, iteration.notReadied)]),
+          ...(iteration.notRetried === undefined
+            ? []
+            : [notRetriedLine(iteration, iteration.notRetried)]),
           ...(iteration.notCommented === undefined
             ? []
             : [notCommentedLine(iteration, iteration.notCommented)]),
@@ -1853,7 +1857,7 @@ function handbackNote(finished: Finished): string {
 function reviewSummary(
   iteration: { repo: RepoSlug; ticket: ReviewTicket } & Reviewed,
 ): string {
-  const { repo, ticket, clean, notClosed, notLabelled, notReadied, notCommented, merge } =
+  const { repo, ticket, clean, notClosed, notLabelled, notReadied, notRetried, notCommented, merge } =
     iteration;
   const pullRequest = ticket.pullRequest.url;
   switch (notClosed?.kind) {
@@ -1869,9 +1873,11 @@ function reviewSummary(
           : ` ${notLabelledNote(pullRequest, REVIEWED_LABEL, notLabelled)}.`;
       const readyNote =
         notReadied === undefined ? "" : ` ${notReadiedNote(pullRequest, notReadied)}.`;
+      const retryNote =
+        notRetried === undefined ? "" : ` ${notRetriedNote(pullRequest, notRetried)}.`;
       const commentNote =
         notCommented === undefined ? "" : ` ${notCommentedNote(pullRequest, notCommented)}.`;
-      return `${posted}${labelNote}${readyNote}${commentNote}${mergeGateNote(pullRequest, merge)}`;
+      return `${posted}${labelNote}${readyNote}${retryNote}${commentNote}${mergeGateNote(pullRequest, merge)}`;
     }
     case "check-failed":
       return `Reviewed ${repo}#${ticket.number}, but ${pullRequest} could not be checked for a posted review: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check ${pullRequest} and close it yourself.`;
@@ -1923,6 +1929,24 @@ function notLabelledLine(
  */
 function notReadiedNote(pullRequest: PullRequestUrl, { error }: NotReadied): string {
   return `${pullRequest} could not be marked ready for review: ${withoutTrailingStop(error)}; mark it ready yourself`;
+}
+
+/**
+ * The sentence a clean review's red checks that could not be retried read as,
+ * wherever it is said: read at `notRetriedLine`, and inline at the end of
+ * `reviewSummary`'s clean-outcome sentence. As `retry-failed` for an
+ * apply-review finish: the checks are the developer's to fix.
+ */
+function notRetriedNote(pullRequest: PullRequestUrl, { error }: NotRetried): string {
+  return `${pullRequest}'s failing checks could not be retried: ${withoutTrailingStop(error)}; fix them yourself and mark it ready`;
+}
+
+/** The Waiting-on-you line for a clean review iteration whose red checks could not be retried. */
+function notRetriedLine(
+  { repo, ticket }: { repo: RepoSlug; ticket: ReviewTicket },
+  notRetried: NotRetried,
+): string {
+  return `- ${repo}#${ticket.number}: ${notRetriedNote(ticket.pullRequest.url, notRetried)}`;
 }
 
 /**

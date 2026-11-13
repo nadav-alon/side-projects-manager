@@ -162,6 +162,8 @@ import {
   type NotCommented,
   type NotLabelled,
   type NotReadied,
+  type NotRetried,
+  retryQueued,
   type ProviderFailed,
   type PullRequestResolved,
   type Rebased,
@@ -1935,28 +1937,39 @@ async function postTurboComment(
  * was left a draft instead. Red checks get the one automatic retry a red
  * apply-review finish gets (`queueChecksRetry`), under `implementation`, the
  * review ticket's parent read before it closed: `readyHeld.retry` says how it
- * came out, and is absent where that ticket was not found.
+ * came out. A retry that could not be queued — that ticket not found, or a
+ * read or write failing — is `notRetried`, never `notReadied`.
  *
  * Never throws, same as `labelClosedPullRequest`: best effort, since the
- * ticket having closed is what matters. `summary.ts` renders `notReadied` to
- * the developer.
+ * ticket having closed is what matters. `summary.ts` renders `notReadied` and
+ * `notRetried` to the developer.
  */
 async function markCleanReviewReady(
   ports: MorningLoopPorts,
   invocation: Pick<RunRecording, "deferReady">,
-  ticket: ReviewTicket,
+  pullRequest: PullRequestUrl,
   implementation: Ticket | undefined,
-): Promise<{ notReadied?: NotReadied; readyHeld?: ReadyHold }> {
-  const pullRequest = ticket.pullRequest.url;
+  reviewTicket: ReviewTicket,
+): Promise<{ notReadied?: NotReadied; readyHeld?: ReadyHold; notRetried?: NotRetried }> {
+  let held: ReadyHold | undefined;
   try {
-    const held = await readyOnGreen(ports, invocation, pullRequest);
-    if (held?.kind === "checks-failing") {
-      const retry = await queueChecksRetry(ports, pullRequest, async () => implementation);
-      return { readyHeld: { ...held, ...(retry !== undefined && { retry }) } };
-    }
-    return held === undefined ? {} : { readyHeld: held };
+    held = await readyOnGreen(ports, invocation, pullRequest);
   } catch (error: unknown) {
     return { notReadied: { error: errorMessage(error) } };
+  }
+  if (held?.kind !== "checks-failing") {
+    return held === undefined ? {} : { readyHeld: held };
+  }
+  // Kept apart from `notReadied`: the ready-mark was never refused, the
+  // retry could not be queued, and the developer is told to fix red checks.
+  try {
+    const retry = await queueChecksRetry(ports, pullRequest, async () => implementation);
+    if (retry === undefined) {
+      throw new Error(`the implementation ticket of ${ticketReference(reviewTicket)} was not found`);
+    }
+    return { readyHeld: { ...held, retry } };
+  } catch (error: unknown) {
+    return { readyHeld: held, notRetried: { error: errorMessage(error) } };
   }
 }
 
@@ -2038,12 +2051,14 @@ async function runReview(
     return infrastructureFailure(error);
   }
 
-  // Used only if the review turns out clean; a review with findings never
-  // reads it, but the lookup runs all the same, the same waste
-  // `runApplyReview` already accepts for the identical reason. Read while the
-  // ticket is still open: its close takes it, and its parent, out of the
-  // backlog the lookup reads. Caught as `mergeGateContextFor`'s is.
-  const implementation = await implementationTicketFor(ports.tracker, ticket).catch(() => undefined);
+  // Used only if the review turns out clean, for the red-checks retry and,
+  // on a turbo project, the merge gate; a review with findings never reads
+  // it, but the lookup runs all the same, on a project that is not turbo too:
+  // one extra `listOpenIssues` per review, unlike `mergeGateContextFor`'s
+  // own turbo-only lookup. Read while the ticket is still open: its close
+  // takes it, and its parent, out of the backlog the lookup reads. Caught
+  // by `implementationTicketOrUndefined`.
+  const implementation = await implementationTicketOrUndefined(ports, ticket);
   const mergeGateContext: MergeGateContext | undefined = turbo ? { implementation, invocation } : undefined;
 
   const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts, onProgress) =>
@@ -2142,7 +2157,7 @@ async function runReview(
   // not — CONTEXT.md's "Clean review" — so it is marked ready for review
   // instead of getting `APPLY_REVIEW_COMMENT`.
   const readied = clean
-    ? await markCleanReviewReady(ports, invocation, ticket, implementation)
+    ? await markCleanReviewReady(ports, invocation, ticket.pullRequest.url, implementation, ticket)
     : {};
   const commented = turbo && !clean
     ? await postTurboComment(ports, ticket.pullRequest.url)
@@ -2159,8 +2174,7 @@ async function runReview(
   // the ready-mark read: failing ones are left for the developer, running
   // ones recorded pending beside the ready-mark, never attempted on a draft.
   // A queued retry takes the gate's place: its own finish fires it.
-  const retryQueued = readied.readyHeld?.kind === "checks-failing" && readied.readyHeld.retry?.kind === "queued";
-  const merge = mergeGateContext !== undefined && clean && readied.notReadied === undefined && !retryQueued
+  const merge = mergeGateContext !== undefined && clean && readied.notReadied === undefined && !retryQueued(readied.readyHeld)
     ? await mergeGate(ports, ticket, mergeGateContext, heldChecks(readied.readyHeld))
     : undefined;
   const reviewed: Reviewed = {
@@ -2396,8 +2410,10 @@ interface MergeGateContext {
  * itself is ever closed: `listOpenIssues` only ever reports an open issue,
  * and `ticket` is exactly that until the caller closes it. Shared by
  * `runApplyReview` and `runReview`, which each build it the same way right
- * before their own close. Skipped outright on a project that is not turbo,
- * per `mergeGate`'s own doc — the merge gate never asks there.
+ * before their own close — `runReview` reading the same lookup itself
+ * (`implementationTicketOrUndefined`) for the red-checks retry too. Skipped
+ * outright on a project that is not turbo, per `mergeGate`'s own doc — the
+ * merge gate never asks there.
  *
  * The lookup is caught rather than left to raise: it exists only to feed a
  * gate that fires after this run, so a transient tracker failure here must
@@ -2411,13 +2427,19 @@ async function mergeGateContextFor(
   turbo: boolean,
 ): Promise<MergeGateContext | undefined> {
   return turbo
-    ? {
-        implementation: await implementationTicketFor(ports.tracker, ticket).catch(
-          () => undefined,
-        ),
-        invocation,
-      }
+    ? { implementation: await implementationTicketOrUndefined(ports, ticket), invocation }
     : undefined;
+}
+
+/**
+ * `implementationTicketFor`, caught: a transient tracker failure reads the
+ * same as an implementation ticket the lookup found none for.
+ */
+async function implementationTicketOrUndefined(
+  ports: MorningLoopPorts,
+  ticket: PullRequestTicket,
+): Promise<Ticket | undefined> {
+  return implementationTicketFor(ports.tracker, ticket).catch(() => undefined);
 }
 
 async function runApplyReview(

@@ -635,6 +635,13 @@ export interface Reviewed {
    */
   readyHeld?: ReadyHold;
   /**
+   * Set when `clean`, the checks read red, and the one automatic retry could
+   * not be queued — the implementation ticket was not found, or a read or
+   * write failed. The pull request is left a draft for the developer, and
+   * `readyHeld` carries no `retry`. Never alongside `notReadied`.
+   */
+  notRetried?: NotRetried;
+  /**
    * Set when the project is turbo (CONTEXT.md's "Turbo", ADR 0006), the
    * review was not clean, and the repo host refused `APPLY_REVIEW_COMMENT` on
    * the pull request. Tried after the label step, whatever became of it — a
@@ -693,6 +700,15 @@ export interface NotReadied {
 }
 
 /**
+ * Why a clean review's red checks got no automatic retry, and the error that
+ * stopped it. Its own interface rather than `NotReadied`: the pull request
+ * was never refused its ready-mark, its checks are failing.
+ */
+export interface NotRetried {
+  error: string;
+}
+
+/**
  * Why a pull request was left a draft rather than marked ready for review:
  * its checks were still running when the wait ended, and a later sweep reads
  * them again (ADR 0016), or they were failing, which is left unmarked.
@@ -700,11 +716,17 @@ export interface NotReadied {
 export type ReadyHold =
   | { kind: "checks-running" }
   /**
-   * `retry` is set only on an apply-review's own finish: what became of the
-   * red checks. No merge gate runs either way — a queued retry's own finish
-   * fires it once the checks are green.
+   * `retry` is set on an apply-review's own finish and on a clean review's:
+   * what became of the red checks. An apply-review's finish runs no merge
+   * gate either way; a clean review's runs it unless the retry was queued — a
+   * queued retry's own finish fires it once the checks are green.
    */
   | { kind: "checks-failing"; retry?: ChecksRetry };
+
+/** Whether `held` is red checks whose automatic retry was queued. */
+export function retryQueued(held: ReadyHold | undefined): boolean {
+  return held?.kind === "checks-failing" && held.retry?.kind === "queued";
+}
 
 /**
  * An apply-review ticket's own iteration that left no thread on its pull
@@ -841,8 +863,9 @@ export interface SettledReady {
  * What an apply-review run's red checks came to. `queued`: the failing
  * checks were posted as review threads and `ticket`, the pull request's one
  * automatic retry, opened to fix them; `checks` names the failing ones.
- * `exhausted`: that retry was already spent, so this iteration's ticket was
- * handed back, open, and the pull request stays a draft.
+ * `exhausted`: that retry was already spent, so the pull request stays a
+ * draft: an apply-review iteration's ticket was handed back, open, while a
+ * clean review's, already closed, is simply left.
  */
 export type ChecksRetry =
   | { kind: "queued"; ticket: Ticket; checks: string[] }

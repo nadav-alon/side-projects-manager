@@ -164,6 +164,13 @@ const PULL_REQUEST = pullRequestUrl(
   "https://github.com/nadav-alon/pilot/pull/12",
 );
 
+/** A failing check on `PULL_REQUEST`, as the repo host reads it. */
+const FAILING_CHECK = {
+  name: "test",
+  errorLines: ["Error: boom"],
+  runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1"),
+};
+
 /** A review ticket, eligible like any other, naming the pull request it asks about. */
 function queued(ports: FakePorts, registration: Registration = {}): ReviewTicket {
   ports.store.register(PILOT, registration);
@@ -2815,9 +2822,7 @@ describe("morningLoop", () => {
         queued(ports);
         postedAFinding(ports);
         ports.repoHost.checksStatus = () => "red";
-        ports.repoHost.failingChecks = () => [
-          { name: "test", errorLines: ["Error: boom"], runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1") },
-        ];
+        ports.repoHost.failingChecks = () => [FAILING_CHECK];
 
         await morningLoop(ports);
 
@@ -2831,9 +2836,7 @@ describe("morningLoop", () => {
         const ticket = queued(ports);
         postedACleanReview(ports);
         ports.repoHost.checksStatus = () => "red";
-        ports.repoHost.failingChecks = () => [
-          { name: "test", errorLines: [], runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1") },
-        ];
+        ports.repoHost.failingChecks = () => [FAILING_CHECK];
 
         await morningLoop(ports);
 
@@ -2930,6 +2933,8 @@ describe("morningLoop", () => {
 
         it("leaves it a draft, unrecorded, when they are red", async () => {
           const ports = fakePorts();
+          // No parent: the implementation ticket is not found, so the retry
+          // cannot be queued; the next tests say so.
           queued(ports);
           postedACleanReview(ports);
           ports.repoHost.checksStatus = () => "red";
@@ -2942,11 +2947,6 @@ describe("morningLoop", () => {
         });
 
         describe("when they turn red after the review began", () => {
-          const CHECK = {
-            name: "test",
-            errorLines: ["Error: boom"],
-            runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1"),
-          };
           const IMPLEMENTATION = issueNumber(7);
 
           /** A review ticket under implementation ticket #7, its checks green until the review has run. */
@@ -2961,7 +2961,7 @@ describe("morningLoop", () => {
             });
             postedACleanReview(ports);
             ports.repoHost.checksStatus = readsInTurn("green", "red").checksStatus;
-            ports.repoHost.failingChecks = () => [CHECK];
+            ports.repoHost.failingChecks = () => [FAILING_CHECK];
           }
 
           it("posts each failing check as a thread and queues one apply-review ticket under the implementation ticket, leaving it a draft", async () => {
@@ -2982,6 +2982,47 @@ describe("morningLoop", () => {
               ports.tracker.summaries[0]?.body ?? "",
               new RegExp(`checks failing \\(test\\); queued apply-review #${retry?.ticket.number} to fix them`),
             );
+          });
+
+          it("reports a retry that cannot be queued for want of the implementation ticket, posting no thread", async () => {
+            const ports = fakePorts();
+            queued(ports);
+            postedACleanReview(ports);
+            ports.repoHost.checksStatus = readsInTurn("green", "red").checksStatus;
+            ports.repoHost.failingChecks = () => [FAILING_CHECK];
+
+            const report = await morningLoop(ports);
+
+            const outcome = report.iterations[0];
+            assert.match(outcome?.kind === "reviewed" ? (outcome.notRetried?.error ?? "") : "", /was not found/);
+            assert.equal(outcome?.kind === "reviewed" ? outcome.notReadied : "other", undefined);
+            assert.deepEqual(ports.tracker.applyReviewTickets, []);
+            assert.deepEqual(ports.repoHost.readyMarked, []);
+            assert.match(
+              ports.tracker.summaries[0]?.body ?? "",
+              /failing checks could not be retried: .*was not found; fix them yourself/,
+            );
+            assert.doesNotMatch(ports.tracker.summaries[0]?.body ?? "", /could not be marked ready/);
+          });
+
+          it("reports an error thrown inside the retry as a failed retry, not a failed ready-mark", async (t) => {
+            const ports = fakePorts();
+            queuedRedAfterReview(ports);
+            t.mock.method(ports.tracker, "createApplyReviewTicket", async () => {
+              throw new Error("tracker is down");
+            });
+
+            const report = await morningLoop(ports);
+
+            const outcome = report.iterations[0];
+            assert.equal(outcome?.kind === "reviewed" ? outcome.notRetried?.error : undefined, "tracker is down");
+            assert.equal(outcome?.kind === "reviewed" ? outcome.notReadied : "other", undefined);
+            assert.deepEqual(ports.repoHost.readyMarked, []);
+            assert.match(
+              ports.tracker.summaries[0]?.body ?? "",
+              /failing checks could not be retried: tracker is down/,
+            );
+            assert.doesNotMatch(ports.tracker.summaries[0]?.body ?? "", /could not be marked ready/);
           });
 
           it("leaves it for the developer, queueing nothing, once it has spent its one retry", async () => {
@@ -3293,9 +3334,7 @@ describe("morningLoop", () => {
             ports.store.markGranted(GRANT_RECORDED, GRANTED_IN_TIME);
             postedACleanReview(ports);
             ports.repoHost.checksStatus = readsInTurn("green", "red").checksStatus;
-            ports.repoHost.failingChecks = () => [
-              { name: "test", errorLines: [], runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1") },
-            ];
+            ports.repoHost.failingChecks = () => [FAILING_CHECK];
 
             const report = await morningLoop(ports);
 
@@ -4691,12 +4730,6 @@ describe("morningLoop", () => {
     /** When the run's replies land: after it started, as every real one does. */
     const DURING_THE_RUN = new Date(FROZEN_NOW.getTime() + 60_000);
 
-    const TEST_CHECK = {
-      name: "test",
-      errorLines: ["Error: boom"],
-      runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1"),
-    };
-
     /** An apply-review ticket under the implementation ticket it is for, as the workflow opens one. */
     function queuedUnderImplementation(
       ports: FakePorts,
@@ -4715,13 +4748,13 @@ describe("morningLoop", () => {
     }
 
     /**
-     * Red, with `TEST_CHECK` failing, until a run answers the check's
+     * Red, with `FAILING_CHECK` failing, until a run answers the check's
      * thread; `fixes` says whether that run also turns the checks green.
      */
     function redUntilRun(ports: FakePorts, { fixes }: { fixes: boolean }): void {
       let green = false;
       ports.repoHost.checksStatus = () => (green ? "green" : "red");
-      ports.repoHost.failingChecks = () => (green ? [] : [TEST_CHECK]);
+      ports.repoHost.failingChecks = () => (green ? [] : [FAILING_CHECK]);
       ports.sandbox.applyReviewResult = () => {
         ports.repoHost.answerApplyReviewThread(PULL_REQUEST, 0, "applied", "fixed it", DURING_THE_RUN);
         green = fixes;
@@ -5104,7 +5137,7 @@ describe("morningLoop", () => {
             },
           ]);
           ports.repoHost.checksStatus = () => "red";
-          ports.repoHost.failingChecks = () => [TEST_CHECK];
+          ports.repoHost.failingChecks = () => [FAILING_CHECK];
         }
 
         it("posts each failing check as a thread and queues one apply-review ticket under its closing reference", async () => {
