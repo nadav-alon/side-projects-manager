@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { isPullRequestUrl, pullRequestUrl } from "./pull-request-url.ts";
+import {
+  isPullRequestUrl,
+  pullRequestNumber,
+  pullRequestRepo,
+  pullRequestUrl,
+} from "./pull-request-url.ts";
 
 describe("isPullRequestUrl", () => {
   it("accepts what gh pr create answers with", () => {
@@ -65,5 +70,26 @@ describe("pullRequestUrl", () => {
       () => pullRequestUrl("https://github.com/nadav-alon/pilot/issues/7"),
       /issues\/7/,
     );
+  });
+});
+
+describe("pullRequestNumber", () => {
+  it("reads the number off the end", () => {
+    assert.equal(pullRequestNumber(pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7")), 7);
+  });
+});
+
+describe("pullRequestRepo", () => {
+  it("reads the owner and name ahead of /pull/<number>", () => {
+    assert.equal(
+      pullRequestRepo(pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7")),
+      "nadav-alon/pilot",
+    );
+  });
+
+  it("throws for an address with no owner and repo, which still has a number", () => {
+    const url = pullRequestUrl("https://github.com/pull/7");
+    assert.equal(pullRequestNumber(url), 7);
+    assert.throws(() => pullRequestRepo(url), /owner and repo/);
   });
 });

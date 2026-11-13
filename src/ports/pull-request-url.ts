@@ -1,3 +1,5 @@
+import { repoSlug, type RepoSlug } from "./repo-slug.ts";
+
 declare const pullRequestUrlBrand: unique symbol;
 
 /**
@@ -43,11 +45,25 @@ export function pullRequestUrl(value: string): PullRequestUrl {
   return value;
 }
 
-/** The number `url` ends with: the one way a pull request's identity is read off its address. */
-export function pullRequestNumber(url: PullRequestUrl): number {
-  const match = /\/pull\/(\d+)$/.exec(new URL(url).pathname);
-  if (match?.[1] === undefined) {
+/** The pieces of `url`'s path: the number it ends with, and the owner and name ahead of `/pull/`, if it has them. */
+function pullRequestParts(url: PullRequestUrl): { repo: RepoSlug | undefined; number: number } {
+  const match = /(?:^|\/([^/]+\/[^/]+))\/pull\/(\d+)$/.exec(new URL(url).pathname);
+  if (match?.[2] === undefined) {
     throw new TypeError(`Not a pull request URL: expected one ending /pull/<number>, got ${url}`);
   }
-  return Number(match[1]);
+  return { repo: match[1] === undefined ? undefined : repoSlug(match[1]), number: Number(match[2]) };
+}
+
+/** The number `url` ends with: the one way a pull request's identity is read off its address. */
+export function pullRequestNumber(url: PullRequestUrl): number {
+  return pullRequestParts(url).number;
+}
+
+/** The repo `url` belongs to: the owner and name ahead of `/pull/<number>`. */
+export function pullRequestRepo(url: PullRequestUrl): RepoSlug {
+  const { repo } = pullRequestParts(url);
+  if (repo === undefined) {
+    throw new TypeError(`Not a pull request URL: expected one with an owner and repo, got ${url}`);
+  }
+  return repo;
 }
