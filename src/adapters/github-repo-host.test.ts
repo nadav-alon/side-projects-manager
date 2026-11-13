@@ -2237,6 +2237,38 @@ describe("reading a pull request's mergeability once", () => {
   });
 });
 
+describe("reading whether a pull request's checks are pending", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  const rollup = (checks: object[]) => `echo '${JSON.stringify(checks)}'`;
+
+  it("reads a failed legacy status context as settled, not pending", async (t) => {
+    await recordingGh(t, rollup([{ context: "ci/legacy", state: "FAILURE" }, { context: "ci/other", state: "ERROR" }]));
+
+    assert.equal(await githubRepoHost().readChecksPending(PULL_REQUEST), false);
+  });
+
+  it("reads a pending legacy status context as pending beside a failed one", async (t) => {
+    await recordingGh(t, rollup([{ context: "ci/legacy", state: "FAILURE" }, { context: "ci/slow", state: "PENDING" }]));
+
+    assert.equal(await githubRepoHost().readChecksPending(PULL_REQUEST), true);
+  });
+
+  it("reads a check run not yet completed as pending beside a completed failure", async (t) => {
+    await recordingGh(
+      t,
+      rollup([
+        { name: "lint", status: "COMPLETED", conclusion: "FAILURE" },
+        { name: "test", status: "IN_PROGRESS" },
+      ]),
+    );
+
+    assert.equal(await githubRepoHost().readChecksPending(PULL_REQUEST), true);
+  });
+});
+
 describe("removing needs-rebase from a pull request", () => {
   const PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/7",

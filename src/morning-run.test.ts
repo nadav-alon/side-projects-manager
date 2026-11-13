@@ -2908,6 +2908,7 @@ describe("morningLoop", () => {
           const ticket = queued(ports);
           postedACleanReview(ports);
           ports.repoHost.checksStatus = () => "pending";
+          ports.repoHost.checksPending = () => true;
 
           const report = await morningLoop(ports);
 
@@ -3069,8 +3070,8 @@ describe("morningLoop", () => {
 
           const report = await morningLoop(ports);
 
-          // The pre-review wait reads pending then green, the ready-mark reads once, and the gate once more.
-          assert.equal(checks.reads(), 4);
+          // The failing-check read takes the first (pending), the ready-mark the second (green), and the gate the third.
+          assert.equal(checks.reads(), 3);
           assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
           const outcome = report.iterations[0];
           assert.deepEqual(
@@ -3426,6 +3427,7 @@ describe("morningLoop", () => {
           const implementation = queuedTurboableReview(ports);
           postedACleanReview(ports);
           ports.repoHost.checksStatus = () => "pending";
+          ports.repoHost.checksPending = () => true;
 
           const report = await morningLoop(ports);
 

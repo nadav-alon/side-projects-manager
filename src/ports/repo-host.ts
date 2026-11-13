@@ -775,6 +775,12 @@ export interface RepoHost {
    */
   readChecksStatus(pullRequest: PullRequestUrl): Promise<ChecksStatus>;
   /**
+   * Whether any of `pullRequest`'s checks is still running, read once — even
+   * when another has already failed, which {@link readChecksStatus} reads as
+   * `"red"` all the same.
+   */
+  readChecksPending(pullRequest: PullRequestUrl): Promise<boolean>;
+  /**
    * Reads each of `pullRequest`'s checks that has failed, once: see {@link
    * FailingCheck}. None when no check failed, whatever else is pending.
    */
