@@ -31,3 +31,7 @@ test("the registry stays committed", () => {
 test("the recorded discoveries are not committed", () => {
   assert.equal(isIgnored("recorded-discoveries.json"), true);
 });
+
+test("the per-run discoveries directory is not committed", () => {
+  assert.equal(isIgnored("discoveries/run-NQTmsE/1.json"), true);
+});
