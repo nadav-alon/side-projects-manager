@@ -230,6 +230,22 @@ describe('the recorded discoveries', () => {
     assert.deepEqual(await reader().recordedDiscoveries(), [])
   })
 
+  it('lists none as empty when the engine names the absent file after its own prefix', async () => {
+    const fs: HomeFs = {
+      read: async (path) => Promise.reject(new Error(`loop-pane: $.fs.read: ENOENT: ${path}`)),
+      list: async () => [],
+    }
+    assert.deepEqual(await managerHomeReader(fs, HOME).recordedDiscoveries(), [])
+  })
+
+  it('is nothing known when the document cannot be read for another reason', async () => {
+    const fs: HomeFs = {
+      read: async (path) => Promise.reject(new Error(`loop-pane: $.fs.read: EACCES: ${path}`)),
+      list: async () => [],
+    }
+    assert.equal(await managerHomeReader(fs, HOME).recordedDiscoveries(), undefined)
+  })
+
   it('is nothing known when the document is not one', async () => {
     assert.equal(await reader({ [file]: '{' }).recordedDiscoveries(), undefined)
     assert.equal(await reader({ [file]: JSON.stringify({ discoveries: [{ ...entry(1, '2026-01-01T00:00:00.000Z'), kind: 'idea' }] }) }).recordedDiscoveries(), undefined)

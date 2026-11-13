@@ -19,7 +19,8 @@ function engine(
   on('fs.read', (_$, e) => {
     reads.push(e.path)
     const text = files[e.path]
-    if (text === undefined) throw new Error(`ENOENT: ${e.path}`)
+    // A hook that throws is skipped, leaving the read with no implementation; a deny rejects it, as an absent file does.
+    if (text === undefined) return { deny: `ENOENT: ${e.path}` } as never
     return { value: text } as never
   })
   on('process.run', (_$, { argv, init }) => {
