@@ -24,7 +24,7 @@ function engine(
   })
   on('process.run', (_$, { argv, init }) => {
     if (argv[0] === 'kill') return { value: { exitCode: alive ? 0 : 1, stdout: '', stderr: alive ? '' : killStderr } } as never
-    if (argv[2]?.includes('SIDE_PROJECTS_MANAGER_HOME')) return { value: { exitCode: 0, stdout: managerHome, stderr: '' } } as never
+    if (argv[0] === 'sh' && argv[2]?.includes('SIDE_PROJECTS_MANAGER_HOME')) return { value: { exitCode: 0, stdout: managerHome, stderr: '' } } as never
     if (argv[0] === 'sh') return { value: { exitCode: 0, stdout: configDir, stderr: '' } } as never
     ran.push({ argv, cwd: init?.cwd })
     return { value: { exitCode: outcome.exitCode, stdout: '', stderr: outcome.stderr } } as never
