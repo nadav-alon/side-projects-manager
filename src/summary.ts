@@ -34,6 +34,7 @@ import {
   type Failed,
   type Finished,
   type Handover,
+  type Iteration,
   type IterationOutcome,
   type MergeGate,
   type SettledMerge,
@@ -832,7 +833,7 @@ export async function composeInvocationReport(
  * `undefined` for a kind that never routes discoveries at all, or one whose
  * run filed and dropped nothing.
  */
-function discoveryReportOf(iteration: IterationOutcome): DiscoveryReport | undefined {
+export function discoveryReportOf(iteration: Iteration): DiscoveryReport | undefined {
   switch (iteration.kind) {
     case "discovery-blocked":
     case "blocked-on-existing":

@@ -39,7 +39,7 @@ export interface Discovery {
   ready?: boolean;
 }
 
-function isDiscoveryKind(value: unknown): value is DiscoveryKind {
+export function isDiscoveryKind(value: unknown): value is DiscoveryKind {
   return (
     typeof value === "string" &&
     (DISCOVERY_KINDS as readonly string[]).includes(value)

@@ -221,7 +221,7 @@ _Avoid_: unworked, new, cold
 
 **Manager home**:
 The manager's own checkout, holding the committed registry; the gitignored state document and
-journal, which the loop writes; the gitignored budget document; and a gitignored `transcripts/`
+journal, which the loop writes; the gitignored budget document; the gitignored recorded discoveries; and a gitignored `transcripts/`
 directory of session transcripts. Distinct from the managed location, which is where projects are
 cloned to.
 _Avoid_: config directory, data directory, root
@@ -434,6 +434,15 @@ A file under a run's `/discoveries` mount that never became a discovery: not val
 kind outside the four. Counted rather than carried, so the caller can report how many there were,
 and never fails the run on its own.
 _Avoid_: invalid discovery, malformed discovery, discarded discovery
+
+**Recorded discovery**:
+A discovery the manager filed, kept in the manager home's gitignored `recorded-discoveries.json` with
+the ticket it was filed against (`owner/repo#n`), its kind, its title and when it was filed — so a
+discovery whose toast the developer missed is still found locally, not only on GitHub. One per filed
+discovery; a discovery the tracker refused was never filed and is not recorded. Kept only while its ticket
+waits on the developer — open and carrying `ready-for-human` — and dropped, checked at the start of
+each invocation, once the ticket closes or loses that label.
+_Avoid_: discovery log, discovery history
 
 **Infrastructure failure**:
 A run that never happened, or whose work never reached the checkout, because the sandbox or the repo

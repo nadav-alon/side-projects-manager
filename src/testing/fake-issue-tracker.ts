@@ -797,6 +797,12 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     return true;
   }
 
+  /** Open and carrying `READY_FOR_HUMAN_LABEL`; a ticket this fake never held is not. */
+  async isWaitingOnDeveloper(ticket: IssueReference): Promise<boolean> {
+    const found = this.#find(ticket);
+    return found !== undefined && found.closed !== true && found.labels.has(READY_FOR_HUMAN_LABEL);
+  }
+
   /**
    * Closes `ticket`, the way a real close drops it from the open issues — a
    * ticket a later iteration must not see again — and takes ready-for-agent

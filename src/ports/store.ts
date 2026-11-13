@@ -2,6 +2,7 @@ import type { Branch } from "./branch.ts";
 import type { Budget } from "./budget.ts";
 import type { Day } from "./day.ts";
 import type { IssueNumber } from "./issue-number.ts";
+import type { IssueReference } from "./issue-tracker.ts";
 import {
   inFlight,
   sameInvocation,
@@ -17,6 +18,7 @@ import type { ModelDefaults } from "./model-defaults.ts";
 import type { Priority } from "./priority.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { ReadOnlyMount } from "./read-only-mount.ts";
+import type { RecordedDiscovery } from "./recorded-discovery.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { RunProgress } from "./sandbox.ts";
 import type { TokenCount } from "./token-count.ts";
@@ -690,4 +692,20 @@ export interface Store {
    * like the rest and exercisable through a fake.
    */
   keepSummary(startedAt: Date, body: string): Promise<KeptSummaryPath>;
+  /**
+   * Every discovery the manager filed and still keeps in the manager home,
+   * oldest first. Empty when none is kept, or the document does not exist.
+   */
+  loadRecordedDiscoveries(): Promise<RecordedDiscovery[]>;
+  /**
+   * Adds `discoveries` after those already kept. Applied to the document as
+   * it stands when called, so overlapping calls from concurrent iterations
+   * lose none.
+   */
+  recordDiscoveries(discoveries: readonly RecordedDiscovery[]): Promise<void>;
+  /**
+   * Drops every recorded discovery filed against one of `tickets`. Applied to
+   * the document as it stands when called, as `recordDiscoveries` is.
+   */
+  dropDiscoveries(tickets: readonly IssueReference[]): Promise<void>;
 }

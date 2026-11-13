@@ -5,6 +5,7 @@ import type {
   InvocationClosing,
   InvocationRecord,
   IssueNumber,
+  IssueReference,
   Journal,
   JournaledFreedEntry,
   KeptSummaryPath,
@@ -12,6 +13,7 @@ import type {
   OpenInvocation,
   Priority,
   ReadOnlyMount,
+  RecordedDiscovery,
   ProjectState,
   RegisteredProject,
   RepoSlug,
@@ -72,6 +74,7 @@ export class FakeStore implements Store {
   #grants: GrantRecord[] | undefined = undefined;
   #pendingMerges: PendingMerge[] | undefined = undefined;
   #journal: InvocationRecord[] = [];
+  #recordedDiscoveries: RecordedDiscovery[] = [];
   #keptSummaries: { at: KeptSummaryPath; body: string }[] = [];
   /** What the developer declared they are willing to spend. */
   budget: Budget = DEFAULT_BUDGET;
@@ -347,6 +350,23 @@ export class FakeStore implements Store {
       -KEPT_SUMMARY_LIMIT,
     );
     return at;
+  }
+
+  async loadRecordedDiscoveries(): Promise<RecordedDiscovery[]> {
+    return this.#recordedDiscoveries.map((discovery) => ({ ...discovery }));
+  }
+
+  async recordDiscoveries(discoveries: readonly RecordedDiscovery[]): Promise<void> {
+    this.#recordedDiscoveries = [
+      ...this.#recordedDiscoveries,
+      ...discoveries.map((discovery) => ({ ...discovery })),
+    ];
+  }
+
+  async dropDiscoveries(tickets: readonly IssueReference[]): Promise<void> {
+    this.#recordedDiscoveries = this.#recordedDiscoveries.filter(
+      (discovery) => !tickets.some((ticket) => ticketKey(ticket) === ticketKey(discovery)),
+    );
   }
 }
 

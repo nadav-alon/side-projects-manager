@@ -2994,3 +2994,39 @@ describe("ghIssueTracker.labelTurboable", () => {
     assert.ok(callWith(await gh.calls(), "issue", "edit"));
   });
 });
+
+describe("ghIssueTracker.isWaitingOnDeveloper", () => {
+  const TICKET = { repo: repoSlug("nadav-alon/pilot"), number: issueNumber(7) };
+
+  it("reads the state and labels of the ticket and answers what gh computes from them", async (t) => {
+    const gh = await recordingGh(t, `case "$1 $2" in "issue view") echo true ;; esac`);
+
+    assert.equal(await ghIssueTracker().isWaitingOnDeveloper(TICKET), true);
+
+    const view = callWith(await gh.calls(), "issue", "view", "7");
+    assert.equal(valueOf(view, "--repo"), TICKET.repo);
+    assert.equal(valueOf(view, "--json"), "state,labels");
+    assert.match(valueOf(view, "--jq") ?? "", /OPEN.*ready-for-human/);
+  });
+
+  it("answers false when gh says the ticket does not wait", async (t) => {
+    await recordingGh(t, `case "$1 $2" in "issue view") echo false ;; esac`);
+
+    assert.equal(await ghIssueTracker().isWaitingOnDeveloper(TICKET), false);
+  });
+
+  it("answers false for a ticket that does not exist", async (t) => {
+    await recordingGh(
+      t,
+      `case "$1 $2" in "issue view") echo "Could not resolve to an issue or pull request with the number of 7." >&2; exit 1 ;; esac`,
+    );
+
+    assert.equal(await ghIssueTracker().isWaitingOnDeveloper(TICKET), false);
+  });
+
+  it("raises a read failure that is not a not-found", async (t) => {
+    await recordingGh(t, `case "$1 $2" in "issue view") echo "rate limited" >&2; exit 1 ;; esac`);
+
+    await assert.rejects(ghIssueTracker().isWaitingOnDeveloper(TICKET), /rate limited/);
+  });
+});

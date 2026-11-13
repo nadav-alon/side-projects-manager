@@ -2247,3 +2247,73 @@ describe("keeping a summary that could not be published", () => {
     assert.deepEqual(kept, [...kept].sort());
   });
 });
+
+describe("the recorded discoveries document", () => {
+  const FILED_AT = new Date("2026-01-01T06:00:00.000Z");
+
+  it("reads as none on a machine that has recorded nothing", async () => {
+    assert.deepEqual(await documentStore(await home()).loadRecordedDiscoveries(), []);
+  });
+
+  it("keeps what was recorded, in order, across calls and instances", async () => {
+    const directory = await home();
+    const first = {
+      repo: PILOT,
+      number: issueNumber(7),
+      kind: "correction" as const,
+      title: "The ticket names the wrong file",
+      filedAt: FILED_AT,
+    };
+    const second = { ...first, number: issueNumber(8), kind: "prerequisite" as const, title: "Needs the port" };
+
+    await documentStore(directory).recordDiscoveries([first]);
+    await documentStore(directory).recordDiscoveries([second]);
+
+    assert.deepEqual(await documentStore(directory).loadRecordedDiscoveries(), [first, second]);
+  });
+
+  it("loses none when recordings overlap", async () => {
+    const store = documentStore(await home());
+    const discovery = (number: number) => ({
+      repo: PILOT,
+      number: issueNumber(number),
+      kind: "suggestion" as const,
+      title: `Discovery ${number}`,
+      filedAt: FILED_AT,
+    });
+
+    await Promise.all([1, 2, 3, 4, 5].map((number) => store.recordDiscoveries([discovery(number)])));
+
+    assert.equal((await store.loadRecordedDiscoveries()).length, 5);
+  });
+
+  it("rejects a recorded discovery naming a kind outside the four", async () => {
+    const directory = await home();
+    await writeFile(
+      path.join(directory, "recorded-discoveries.json"),
+      JSON.stringify({
+        discoveries: [{ repo: PILOT, number: 7, kind: "gripe", title: "x", filedAt: FILED_AT.toISOString() }],
+      }),
+    );
+
+    await assert.rejects(documentStore(directory).loadRecordedDiscoveries(), /"kind" must be one of/);
+  });
+});
+
+describe("forgetting recorded discoveries", () => {
+  it("drops every discovery filed against the named tickets and keeps the rest", async () => {
+    const store = documentStore(await home());
+    const discovery = (number: number, title: string) => ({
+      repo: PILOT,
+      number: issueNumber(number),
+      kind: "suggestion" as const,
+      title,
+      filedAt: new Date("2026-01-01T06:00:00.000Z"),
+    });
+    await store.recordDiscoveries([discovery(7, "a"), discovery(8, "b"), discovery(7, "c")]);
+
+    await store.dropDiscoveries([{ repo: PILOT, number: issueNumber(7) }]);
+
+    assert.deepEqual(await store.loadRecordedDiscoveries(), [discovery(8, "b")]);
+  });
+});
