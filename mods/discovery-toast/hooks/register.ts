@@ -1,6 +1,6 @@
 import type { Register } from 'claude-code'
 
-import { managerHomeReader } from './manager-home/reader'
+import { managerHomeReader, type HomeFs } from './manager-home/reader'
 
 /** The manager home: the plugin sits at `<home>/mods/<name>`, so the home is two levels up. */
 function managerHome(pluginRoot: string): string {
@@ -24,7 +24,38 @@ function pendingStatus(pending: number, newest: string | undefined): string | un
 const MAX_TITLE = 30
 
 /** The kinds a discovery has; a file naming any other is not read as a discovery. */
-const KINDS = ['correction', 'prerequisite', 'clarification', 'suggestion']
+const KINDS = ['correction', 'prerequisite', 'clarification', 'suggestion'] as const
+
+type DiscoveryKind = (typeof KINDS)[number]
+
+/** A discovery as its file holds it; `body` is absent when the file has none. */
+interface Discovery {
+  kind: DiscoveryKind
+  title: string
+  body?: string
+}
+
+type Read = (path: string) => Promise<string>
+
+function isKind(value: unknown): value is DiscoveryKind {
+  return KINDS.some(kind => kind === value)
+}
+
+/** The discovery at `discovery`, or `undefined` when its file cannot be read as one: the one rule for what counts as a discovery. */
+async function parse(read: Read, home: string, discovery: string): Promise<Discovery | undefined> {
+  try {
+    const document: unknown = JSON.parse(await read(`${home}/discoveries/${discovery}`))
+    if (typeof document === 'object' && document !== null) {
+      const { kind, title, body } = document as Record<string, unknown>
+      if (isKind(kind) && typeof title === 'string') {
+        return typeof body === 'string' ? { kind, title, body } : { kind, title }
+      }
+    }
+  } catch {
+    // Unreadable or unparseable: the caller names the discovery by its path.
+  }
+  return undefined
+}
 
 /** `title`, cut to `MAX_TITLE` characters and kept to one line. */
 function shortTitle(title: string): string {
@@ -33,19 +64,9 @@ function shortTitle(title: string): string {
 }
 
 /** What a discovery is called: its `<kind>: <title>`, or `undefined` when its file cannot be read as one. */
-async function describe(read: (path: string) => Promise<string>, home: string, discovery: string) {
-  try {
-    const document: unknown = JSON.parse(await read(`${home}/discoveries/${discovery}`))
-    if (typeof document === 'object' && document !== null) {
-      const { kind, title } = document as Record<string, unknown>
-      if (typeof kind === 'string' && KINDS.includes(kind) && typeof title === 'string') {
-        return `${kind}: ${shortTitle(title)}`
-      }
-    }
-  } catch {
-    // Unreadable or unparseable: the caller names the discovery by its path.
-  }
-  return undefined
+async function describe(read: Read, home: string, discovery: string) {
+  const found = await parse(read, home, discovery)
+  return found === undefined ? undefined : `${found.kind}: ${shortTitle(found.title)}`
 }
 
 /** A discovery path's run folder and the number its file is named by (`run-x/10.json` is run `run-x`, number 10). */
@@ -73,11 +94,61 @@ function newestOf(seen: Iterable<string>, pending: string[]): string | undefined
   return newest
 }
 
+/** A discovery in full, as `/discoveries` lists it: its path, kind, title and body. */
+function listing(path: string, discovery: Discovery): string {
+  const heading = `${path} — ${discovery.kind}: ${discovery.title}`
+  return discovery.body === undefined ? heading : `${heading}\n${discovery.body}`
+}
+
+/** `pending` with each run's files in the order they were filed, the runs staying in listed order. */
+function inFilingOrder(pending: string[]): string[] {
+  const runs = new Map<string, string[]>()
+  for (const discovery of pending) {
+    const { run } = position(discovery)
+    runs.set(run, [...(runs.get(run) ?? []), discovery])
+  }
+  return [...runs.values()].flatMap(files => files.sort((a, b) => position(a).number - position(b).number))
+}
+
+/** The manager home the mod sits in, the file reading it goes through and its reader. */
+function readerFor($: { plugin: { root: string }; fs: HomeFs }) {
+  const home = managerHome($.plugin.root)
+  const read: Read = path => $.fs.read(path)
+  return { home, read, reader: managerHomeReader({ read, list: path => $.fs.list(path) }, home) }
+}
+
+/** Whether `home` is a manager home: one holding a journal or a state document. */
+async function isManagerHome(read: Read, home: string): Promise<boolean> {
+  for (const file of ['journal.json', 'state.json']) {
+    try {
+      await read(`${home}/${file}`)
+      return true
+    } catch {
+      // Not there: try the next.
+    }
+  }
+  return false
+}
+
 export const register: Register = on => {
+  on('command.run', { command: 'discoveries' }, async $ => {
+    const { home, read, reader } = readerFor($)
+    const pending = await reader.discoveries()
+    // No discoveries folder in a real home is none pending; outside a home there is no home to read.
+    if (pending === undefined && !(await isManagerHome(read, home))) {
+      return { text: 'There is no manager home to read discoveries from.' }
+    }
+    const entries: string[] = []
+    for (const discovery of inFilingOrder(pending ?? [])) {
+      const found = await parse(read, home, discovery)
+      entries.push(found === undefined ? `${discovery} — could not be read or parsed as a discovery` : listing(discovery, found))
+    }
+    return { text: entries.length === 0 ? 'No pending discoveries.' : entries.join('\n\n') }
+  })
+
   on('session.start', async ($, e, next) => {
-    const home = managerHome($.plugin.root)
-    const read = (path: string) => $.fs.read(path)
-    const reader = managerHomeReader({ read, list: path => $.fs.list(path) }, home)
+    await $.command.register({ name: 'discoveries', description: 'List the pending discoveries in full' })
+    const { home, read, reader } = readerFor($)
 
     // Every discovery the session has seen, in the order first seen: the ones present at start are
     // never toasted, and one that goes and comes back is not toasted twice.
