@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { failingCheckThreadBody, postFailingCheckThreads } from "./failing-check-threads.ts";
+import { CHECKS_STILL_PENDING_NOTE, failingCheckThreadBody, postFailingCheckThreads } from "./failing-check-threads.ts";
 import { checkRunUrl, pullRequestUrl } from "./ports/index.ts";
 import { FakeClock, FakeRepoHost } from "./testing/index.ts";
 
@@ -47,14 +47,30 @@ describe("postFailingCheckThreads", () => {
     assert.equal(host.reviewThreads.length, 1);
   });
 
-  it("waits for pending checks to settle before reading the failing ones", async () => {
+  it("keeps waiting while a check is pending even though another already failed, then posts both", async () => {
     const host = new FakeRepoHost();
-    const reads = ["pending", "red"] as const;
-    let read = 0;
-    host.checksStatus = () => reads[Math.min(read++, 1)] ?? "red";
-    host.failingChecks = () => [{ name: "test", errorLines: [], runUrl: checkRunUrl("https://example.test/run") }];
+    let reads = 0;
+    host.checksPending = () => ++reads < 3;
+    host.checksStatus = () => "red";
+    host.failingChecks = () =>
+      reads < 3
+        ? [{ name: "lint", errorLines: [] }]
+        : [
+            { name: "lint", errorLines: [] },
+            { name: "test", errorLines: [] },
+          ];
 
-    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 1);
+    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 2);
+    assert.deepEqual(host.comments, []);
+  });
+
+  it("notes on the pull request that checks went unread when the wait times out still pending", async () => {
+    const host = new FakeRepoHost();
+    host.checksPending = () => true;
+    host.checksStatus = () => "pending";
+
+    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 0);
+    assert.deepEqual(host.comments, [{ pullRequest: PULL_REQUEST, body: CHECKS_STILL_PENDING_NOTE }]);
   });
 });
 

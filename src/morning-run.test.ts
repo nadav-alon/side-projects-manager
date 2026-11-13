@@ -3069,8 +3069,8 @@ describe("morningLoop", () => {
 
           const report = await morningLoop(ports);
 
-          // The pre-review wait reads pending then green, the ready-mark reads once, and the gate once more.
-          assert.equal(checks.reads(), 4);
+          // The pre-review wait reads pending then green and the failing-check read once more, the ready-mark reads once, and the gate once more.
+          assert.equal(checks.reads(), 5);
           assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
           const outcome = report.iterations[0];
           assert.deepEqual(

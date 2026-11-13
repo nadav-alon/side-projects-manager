@@ -576,6 +576,10 @@ export function githubRepoHost(
       return checksStatusFrom(await readRawChecks(pullRequest));
     },
 
+    async readChecksPending(pullRequest: PullRequestUrl): Promise<boolean> {
+      return (await readRawChecks(pullRequest)).some(isPending);
+    },
+
     async readFailingChecks(pullRequest: PullRequestUrl): Promise<FailingCheck[]> {
       const { owner, repo } = pullRequestParts(pullRequest);
       const failing: FailingCheck[] = [];
@@ -958,10 +962,12 @@ function checksStatusFrom(checks: RawCheck[]): ChecksStatus {
   if (checks.some(isRed)) {
     return "red";
   }
-  const pending = checks.some((check) =>
-    check.state !== undefined ? check.state !== "SUCCESS" : check.status !== "COMPLETED",
-  );
-  return pending ? "pending" : "green";
+  return checks.some(isPending) ? "pending" : "green";
+}
+
+/** Whether `check` is still running: a legacy status context not yet `SUCCESS`, or a check run not yet completed. */
+function isPending(check: RawCheck): boolean {
+  return check.state !== undefined ? check.state !== "SUCCESS" : check.status !== "COMPLETED";
 }
 
 /** How many of a failed run's error lines a review thread quotes. */

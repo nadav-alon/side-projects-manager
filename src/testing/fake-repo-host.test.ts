@@ -318,3 +318,13 @@ describe("FakeRepoHost listPullRequestsClosingIssues", () => {
     assert.deepEqual(await host.listPullRequestsClosingIssues(PILOT), []);
   });
 });
+
+describe("FakeRepoHost readChecksPending", () => {
+  it("answers whether checksStatus is pending by default, and with what checksPending is scripted to say", async () => {
+    const host = new FakeRepoHost();
+    assert.equal(await host.readChecksPending(PULL_REQUEST), false);
+
+    host.checksPending = () => true;
+    assert.equal(await host.readChecksPending(PULL_REQUEST), true);
+  });
+});

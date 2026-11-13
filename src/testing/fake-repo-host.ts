@@ -163,6 +163,9 @@ export class FakeRepoHost implements RepoHost {
   /** What `readChecksStatus` answers for a pull request. Green, unless a test says otherwise. */
   checksStatus: (pullRequest: PullRequestUrl) => ChecksStatus = () => "green";
 
+  /** What `readChecksPending` answers for a pull request. Pending when `checksStatus` reads pending, unless a test says otherwise. */
+  checksPending: (pullRequest: PullRequestUrl) => boolean = (pullRequest) => this.checksStatus(pullRequest) === "pending";
+
   /** What `readFailingChecks` answers for a pull request. None, unless a test says otherwise. */
   failingChecks: (pullRequest: PullRequestUrl) => FailingCheck[] = () => [];
 
@@ -485,6 +488,10 @@ export class FakeRepoHost implements RepoHost {
 
   async readChecksStatus(pullRequest: PullRequestUrl): Promise<ChecksStatus> {
     return this.checksStatus(pullRequest);
+  }
+
+  async readChecksPending(pullRequest: PullRequestUrl): Promise<boolean> {
+    return this.checksPending(pullRequest);
   }
 
   async readFailingChecks(pullRequest: PullRequestUrl): Promise<FailingCheck[]> {
