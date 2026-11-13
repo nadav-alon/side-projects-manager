@@ -2822,6 +2822,34 @@ describe("morningLoop", () => {
         assert.match(ports.repoHost.reviewThreads[0]?.body ?? "", /Failing check: test/);
       });
 
+      it("counts as a finding, so a clean-looking review is not marked ready", async () => {
+        const ports = fakePorts();
+        const ticket = queued(ports);
+        postedACleanReview(ports);
+        ports.repoHost.checksStatus = () => "red";
+        ports.repoHost.failingChecks = () => [
+          { name: "test", errorLines: [], runUrl: "https://github.com/nadav-alon/pilot/actions/runs/1" },
+        ];
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+      });
+
+      it("is an infrastructure failure, leaving the ticket as it was, when posting throws", async () => {
+        const ports = fakePorts();
+        queued(ports);
+        ports.repoHost.checksStatus = () => {
+          throw new Error("gh down");
+        };
+
+        const report = await morningLoop(ports);
+
+        assert.equal(report.iterations[0]?.kind, "failed");
+        assert.deepEqual(ports.tracker.closedReviewTickets, []);
+      });
+
       it("posts no thread when the checks are green", async () => {
         const ports = fakePorts();
         queued(ports);

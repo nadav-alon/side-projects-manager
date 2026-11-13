@@ -493,6 +493,8 @@ export class FakeRepoHost implements RepoHost {
 
   async postReviewThread(pullRequest: PullRequestUrl, body: string): Promise<void> {
     this.reviewThreads.push({ pullRequest, body });
+    // A review thread is a finding, as it is on GitHub.
+    this.postReviewFinding(pullRequest, { path: "src/thing.ts", line: 1, body });
   }
 
   async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {
