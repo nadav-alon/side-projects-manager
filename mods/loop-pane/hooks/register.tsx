@@ -171,9 +171,10 @@ export const register: Register = on => {
           </Section>
         )}
         <Section {...parts} title="Discoveries waiting on you">
-          {discoveries.length === 0 && <Text dimColor>No discovery is waiting on you.</Text>}
-          {discoveries.map(discovery => (
-            <Box gap={1}>
+          {discoveries === null && <Text dimColor>Recorded discoveries cannot be read.</Text>}
+          {discoveries?.length === 0 && <Text dimColor>No discovery is waiting on you.</Text>}
+          {discoveries?.map(discovery => (
+            <Box key={`${discovery.repo}#${discovery.number}:${discovery.kind}:${discovery.title}`} gap={1}>
               <Text>
                 {discovery.repo}#{discovery.number}
               </Text>

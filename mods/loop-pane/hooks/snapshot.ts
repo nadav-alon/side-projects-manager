@@ -34,6 +34,6 @@ export async function readSnapshot(
             freed: invocation.freed,
           },
     usage: usage === undefined ? null : { tokensUsed: usage.tokensUsed, spendable: spendableOf(usage.allowance, usage.reserveFraction) },
-    discoveries: (recorded ?? []).map(({ repo, number, kind, title }) => ({ repo, number, kind, title })),
+    discoveries: recorded === undefined ? null : recorded.map(({ repo, number, kind, title }) => ({ repo, number, kind, title })),
   }
 }

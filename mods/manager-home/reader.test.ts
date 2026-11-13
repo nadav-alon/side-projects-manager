@@ -226,8 +226,12 @@ describe('the recorded discoveries', () => {
     assert.deepEqual(await reader({ [file]: JSON.stringify({ discoveries: [] }) }).recordedDiscoveries(), [])
   })
 
-  it('is nothing known when the document is missing or not one', async () => {
-    assert.equal(await reader().recordedDiscoveries(), undefined)
+  it('lists none as empty when there is no document yet', async () => {
+    assert.deepEqual(await reader().recordedDiscoveries(), [])
+  })
+
+  it('is nothing known when the document is not one', async () => {
+    assert.equal(await reader({ [file]: '{' }).recordedDiscoveries(), undefined)
     assert.equal(await reader({ [file]: JSON.stringify({ discoveries: [{ ...entry(1, '2026-01-01T00:00:00.000Z'), kind: 'idea' }] }) }).recordedDiscoveries(), undefined)
   })
 })

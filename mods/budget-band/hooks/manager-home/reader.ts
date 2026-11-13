@@ -138,7 +138,7 @@ export interface ManagerHomeReader {
    * per run under it and removes it once the run's discoveries are read, so this is often empty.
    */
   discoveries(): Promise<string[] | undefined>
-  /** The recorded discoveries, newest filed first; `undefined` when the document is missing or cannot be read as one. */
+  /** The recorded discoveries, newest filed first; an empty list when there is no document, `undefined` when it cannot be read as one. */
   recordedDiscoveries(): Promise<RecordedDiscovery[] | undefined>
 }
 
@@ -230,15 +230,28 @@ export function managerHomeReader(fs: HomeFs, home: string, sessionLogs?: string
     },
 
     async recordedDiscoveries() {
-      const document = await readJson(fs, at('recorded-discoveries.json'))
+      let text: string | undefined
+      try {
+        text = await readIfPresent(fs, at('recorded-discoveries.json'))
+      } catch {
+        return undefined
+      }
+      // The manager writes the document once something is filed, so none yet is no file.
+      if (text === undefined) return []
+      let document: unknown
+      try {
+        document = JSON.parse(text)
+      } catch {
+        return undefined
+      }
       const recorded = isRecord(document) ? document.discoveries : undefined
       if (!Array.isArray(recorded)) return undefined
       const found: RecordedDiscovery[] = []
       for (const entry of recorded) {
+        if (!isRecord(entry)) return undefined
         const ticket = journaledTicket(entry)[0]
-        const kind = isRecord(entry) ? entry.kind : undefined
-        const title = isRecord(entry) ? entry.title : undefined
-        const filedAt = isRecord(entry) ? instant(entry.filedAt) : undefined
+        const { kind, title } = entry
+        const filedAt = instant(entry.filedAt)
         if (ticket === undefined || typeof kind !== 'string' || !isDiscoveryKind(kind) || typeof title !== 'string' || filedAt === undefined) return undefined
         found.push({ ...ticket, kind, title, filedAt })
       }
