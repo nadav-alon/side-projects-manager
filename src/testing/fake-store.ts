@@ -361,6 +361,12 @@ export class FakeStore implements Store {
       ...discoveries.map((discovery) => ({ ...discovery })),
     ];
   }
+
+  async forgetDiscoveries(tickets: readonly { repo: RepoSlug; number: IssueNumber }[]): Promise<void> {
+    this.#recordedDiscoveries = this.#recordedDiscoveries.filter(
+      (discovery) => !tickets.some((ticket) => ticketKey(ticket) === ticketKey(discovery)),
+    );
+  }
 }
 
 /** A copy the loop cannot reach back into once saved or loaded. */

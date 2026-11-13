@@ -524,6 +524,38 @@ export function ghIssueTracker(
       await blockOn(ticket, prerequisite);
       return true;
     },
+
+    async isWaitingOnDeveloper(ticket: IssueReference): Promise<boolean> {
+      let stdout: string;
+      try {
+        ({ stdout } = await execFileAsync("gh", [
+          "issue",
+          "view",
+          ...issueArgs(ticket),
+          "--json",
+          "state,labels",
+          "--jq",
+          `.state == "OPEN" and any(.labels[]; .name == "${READY_FOR_HUMAN_LABEL}")`,
+        ]));
+      } catch (error) {
+        if (issueNotFound(error)) {
+          return false;
+        }
+        throw error;
+      }
+
+      const waiting = stdout.trim();
+      switch (waiting) {
+        case "true":
+          return true;
+        case "false":
+          return false;
+        default:
+          throw new Error(
+            `gh issue view ${ticket.repo}#${ticket.number}: expected true or false, got ${JSON.stringify(waiting)}`,
+          );
+      }
+    },
   };
 }
 

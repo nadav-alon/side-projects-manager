@@ -134,6 +134,20 @@ export function documentStore(home: string = MANAGER_HOME): Store {
   // Every read-modify-write of the recorded discoveries is chained onto this,
   // so overlapping calls never read the same document and overwrite each other.
   let recordingDiscoveries: Promise<unknown> = Promise.resolve();
+  const changeRecordedDiscoveries = (
+    change: (kept: RecordedDiscovery[]) => readonly RecordedDiscovery[],
+  ): Promise<void> => {
+    const write = async (): Promise<void> => {
+      const kept = parseRecordedDiscoveries(
+        await readDocument(recordedDiscoveriesFile),
+        recordedDiscoveriesFile,
+      );
+      await writeDocument(home, recordedDiscoveriesFile, formatRecordedDiscoveries(change(kept)));
+    };
+    const written = recordingDiscoveries.then(write, write);
+    recordingDiscoveries = written.catch(() => undefined);
+    return written;
+  };
 
   return {
     async loadRegistry(): Promise<RegisteredProject[]> {
@@ -279,20 +293,18 @@ export function documentStore(home: string = MANAGER_HOME): Store {
     },
 
     recordDiscoveries(discoveries: readonly RecordedDiscovery[]): Promise<void> {
-      const write = async (): Promise<void> => {
-        const kept = parseRecordedDiscoveries(
-          await readDocument(recordedDiscoveriesFile),
-          recordedDiscoveriesFile,
-        );
-        await writeDocument(
-          home,
-          recordedDiscoveriesFile,
-          formatRecordedDiscoveries([...kept, ...discoveries]),
-        );
-      };
-      const written = recordingDiscoveries.then(write, write);
-      recordingDiscoveries = written.catch(() => undefined);
-      return written;
+      return changeRecordedDiscoveries((kept) => [...kept, ...discoveries]);
+    },
+
+    forgetDiscoveries(
+      tickets: readonly { repo: RepoSlug; number: IssueNumber }[],
+    ): Promise<void> {
+      return changeRecordedDiscoveries((kept) =>
+        kept.filter(
+          (discovery) =>
+            !tickets.some(({ repo, number }) => repo === discovery.repo && number === discovery.number),
+        ),
+      );
     },
   };
 }

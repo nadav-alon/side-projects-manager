@@ -2277,6 +2277,19 @@ describe("morningLoop", () => {
         assert.deepEqual(await ports.store.loadRecordedDiscoveries(), []);
       });
 
+      it("drops a recorded discovery once its ticket no longer waits on the developer, checked each invocation", async () => {
+        const ports = fakePorts();
+        const ticket = ran(ports, { discoveries: [correction()] });
+        await morningLoop(ports);
+        assert.equal((await ports.store.loadRecordedDiscoveries()).length, 1);
+        assert.equal(await ports.tracker.isWaitingOnDeveloper(ticket), true);
+
+        ports.tracker.closeOutOfBand(ticket);
+        await morningLoop(ports);
+
+        assert.deepEqual(await ports.store.loadRecordedDiscoveries(), []);
+      });
+
       it("blocks the ticket on an existing open issue directly, keeping it ready-for-agent rather than opening a pull request or handing it back", async () => {
         const ports = fakePorts();
         const blocker = ports.tracker.addIneligibleTicket(PILOT, {

@@ -439,7 +439,9 @@ _Avoid_: invalid discovery, malformed discovery, discarded discovery
 A discovery the manager filed, kept in the manager home's gitignored `recorded-discoveries.json` with
 the ticket it was filed against (`owner/repo#n`), its kind, its title and when it was filed — so a
 discovery whose toast the developer missed is still found locally, not only on GitHub. One per filed
-discovery; a discovery the tracker refused was never filed and is not recorded.
+discovery; a discovery the tracker refused was never filed and is not recorded. Kept only while its ticket
+waits on the developer — open and carrying `ready-for-human` — and dropped, checked at the start of
+each invocation, once the ticket closes or loses that label.
 _Avoid_: discovery log, discovery history
 
 **Infrastructure failure**:

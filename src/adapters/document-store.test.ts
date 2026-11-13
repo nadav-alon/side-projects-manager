@@ -2299,3 +2299,21 @@ describe("the recorded discoveries document", () => {
     await assert.rejects(documentStore(directory).loadRecordedDiscoveries(), /"kind" must be one of/);
   });
 });
+
+describe("forgetting recorded discoveries", () => {
+  it("drops every discovery filed against the named tickets and keeps the rest", async () => {
+    const store = documentStore(await home());
+    const discovery = (number: number, title: string) => ({
+      repo: PILOT,
+      number: issueNumber(number),
+      kind: "suggestion" as const,
+      title,
+      filedAt: new Date("2026-01-01T06:00:00.000Z"),
+    });
+    await store.recordDiscoveries([discovery(7, "a"), discovery(8, "b"), discovery(7, "c")]);
+
+    await store.forgetDiscoveries([{ repo: PILOT, number: issueNumber(7) }]);
+
+    assert.deepEqual(await store.loadRecordedDiscoveries(), [discovery(8, "b")]);
+  });
+});

@@ -1149,6 +1149,14 @@ export interface IssueTracker {
   blockOnIfOpen(ticket: Ticket, prerequisite: IssueReference): Promise<boolean>;
 
   /**
+   * Whether `ticket` is open and carries `ready-for-human`: still waiting on
+   * the developer. `false` for a closed ticket and for one that does not
+   * exist, as `blockOnIfOpen`'s own read of a prerequisite is; a read that
+   * fails any other way throws, since it says nothing about the ticket.
+   */
+  isWaitingOnDeveloper(ticket: IssueReference): Promise<boolean>;
+
+  /**
    * Closes `ticket`, once its review has been posted, and takes
    * ready-for-agent off it. One of the two tickets the loop ever closes
    * itself, both pull request tickets: a review that finished needs nobody
