@@ -1,6 +1,7 @@
 import type { Register } from 'claude-code'
 
 import { avoidedTermsIn, avoidedUses, issueTextOf, proseOf, type AvoidedTerm } from './terms'
+import { termsForCommand } from './vocabulary'
 
 /**
  * Issue and pull request text a `gh` command writes, checked as a whole: its `--title` and `--body` values.
@@ -29,6 +30,20 @@ async function termsOf($: { session: { cwd(): Promise<string> }; fs: { read(path
   return typeof context === 'string' ? avoidedTermsIn(context) : []
 }
 
+/** Where the manager clones projects, resolved as `src/adapters/manager-home.ts` resolves it; null when neither it nor `HOME` is set. */
+async function managedLocation($: { process: { run(argv: string[]): Promise<{ stdout: string }> } }): Promise<string | null> {
+  const { stdout } = await $.process.run(['sh', '-c', 'printf "%s\\n%s" "$SIDE_PROJECTS_MANAGED_LOCATION" "$HOME"'])
+  const [managed, home] = stdout.split('\n')
+  return managed || (home ? `${home}/side-projects` : null)
+}
+
+/** The repo of the session's working directory, as lower-case `owner/repo`. */
+async function sessionRepo($: { process: { run(argv: string[]): Promise<{ exitCode: number; stdout: string }> } }): Promise<string> {
+  const { exitCode, stdout } = await $.process.run(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
+  if (exitCode !== 0) throw new Error('gh repo view failed')
+  return stdout.trim().toLowerCase()
+}
+
 // A note rides on the result and never blocks the write. A session whose repo has no CONTEXT.md is untouched.
 export const register: Register = on => {
   for (const tool of ['Edit', 'Write'] as const) {
@@ -48,7 +63,15 @@ export const register: Register = on => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const result = await next(e)
     if (!wrote(result) || !ISSUE_TEXT.test(e.command)) return result
-    const terms = await termsOf($)
+    const terms = await termsForCommand(e.command, {
+      cwd: () => $.session.cwd(),
+      managed: () => managedLocation($),
+      sessionRepo: () => sessionRepo($),
+      read: async path => {
+        const text = await $.fs.read(path)
+        return typeof text === 'string' ? text : null
+      },
+    })
     return withNote(result, $.plugin.name, 'The issue text', avoidedUses(issueTextOf(e.command), terms))
   })
 }
