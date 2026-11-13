@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { READY_FOR_HUMAN_LABEL, issueNumber, repoSlug } from "./ports/index.ts";
-import type { RecordedDiscovery } from "./ports/index.ts";
+import type { IssueReference, RecordedDiscovery } from "./ports/index.ts";
 import { recordedDiscoverySweep } from "./recorded-discovery-sweep.ts";
 import { FakeIssueTracker, FakeStore } from "./testing/index.ts";
 
@@ -58,7 +58,7 @@ describe("recordedDiscoverySweep", () => {
     const { store, tracker, closed } = await arranged();
     tracker.closeOutOfBand(closed);
     const read = tracker.isWaitingOnDeveloper.bind(tracker);
-    t.mock.method(tracker, "isWaitingOnDeveloper", async (ticket) => {
+    t.mock.method(tracker, "isWaitingOnDeveloper", async (ticket: IssueReference) => {
       if (ticket.number === 7) {
         throw new Error("offline");
       }
