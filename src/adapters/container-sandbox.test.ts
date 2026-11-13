@@ -5917,7 +5917,8 @@ fi`;
           mount,
         );
 
-        assert.equal(variant(result, "finished")?.output, "Done.");
+        // A spec review's findings travel in the answer's `report`, which this run gave none of.
+        assert.equal(variant(result, "finished")?.output, name === "spec review" ? "" : "Done.");
         assertReportedTool(reported, "Read");
       });
     }
@@ -6313,6 +6314,70 @@ fi`;
       );
 
       assert.equal(variant(result, "finished")?.output, "done");
+    });
+
+    /**
+     * With `--json-schema` the envelope's `result` is the answer itself, so
+     * a spec review's findings travel in the answer's `report` instead.
+     */
+    it("hands a spec review's report back as its output, not the envelope's result", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(structuredStdout('{"gaveUp":false}', { report: "Four drifts found." })),
+        (sandbox, directory) =>
+          sandbox.specReview({
+            image: TEST_IMAGE,
+            ticket: SPEC_REVIEW_TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+          }),
+        "ro",
+      );
+
+      assert.equal(variant(result, "finished")?.output, "Four drifts found.");
+    });
+
+    it("hands a spec review that gave no report back with an empty output, whatever stderr adds", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(structuredStdout('{"gaveUp":false}'), "Do you trust this folder?"),
+        (sandbox, directory) =>
+          sandbox.specReview({
+            image: TEST_IMAGE,
+            ticket: SPEC_REVIEW_TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+          }),
+        "ro",
+      );
+
+      assert.equal(variant(result, "finished")?.output, "");
+    });
+
+    it("keeps the tools a spec review was refused beside its report", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            result: '{"gaveUp":false}',
+            structured_output: { gaveUp: false, report: "Four drifts found." },
+            permission_denials: [{ tool_name: "WebFetch", tool_input: {} }],
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.specReview({
+            image: TEST_IMAGE,
+            ticket: SPEC_REVIEW_TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+          }),
+        "ro",
+      );
+
+      assert.equal(
+        variant(result, "finished")?.output,
+        "Four drifts found.\nThe agent was refused these tools and could not use them: WebFetch.",
+      );
     });
 
     /**

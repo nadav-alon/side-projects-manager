@@ -554,6 +554,15 @@ function findingsComment(
   kind: "spec review" | "ux review",
   ending: { output: string; transcript?: TranscriptPath },
 ): string {
+  if (ending.output.trim() === "") {
+    return [
+      `The morning loop ran this ${kind} ticket, but its output could not be read as a report: it was empty.`,
+      ending.transcript === undefined
+        ? "This run left no transcript to find the findings in."
+        : `Whatever it found is in the transcript, \`${ending.transcript}\`.`,
+      notRetried(),
+    ].join("\n\n");
+  }
   return [
     `The morning loop ran this ${kind} ticket. What it found:\n\n${quote(ending.output)}`,
     ...truncationNote(ending.output, ending.transcript),
@@ -591,7 +600,9 @@ function discoveryBlockedComment(
       : [`Also filed against the ${targetNoun(ticket)}, ${ticketReference(ending.crossTarget)}.`]),
     ...(ending.output === undefined
       ? []
-      : [
+      : ending.output.trim() === ""
+        ? ["The review left no further findings: its output was empty."]
+        : [
           `The rest of what the review found:\n\n${quote(ending.output)}`,
           ...truncationNote(ending.output, ending.transcript),
         ]),

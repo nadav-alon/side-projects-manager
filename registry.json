@@ -31,7 +31,8 @@
       ]
     },
     {
-      "repo": "nadav-alon/smart-home"
+      "repo": "nadav-alon/smart-home",
+      "turbo": true
     }
   ]
 }

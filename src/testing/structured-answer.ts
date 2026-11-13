@@ -10,6 +10,7 @@ export interface StructuredAnswerFixture {
   gaveUp?: boolean;
   reason?: string;
   branchMoved?: string;
+  report?: string;
 }
 
 /**
