@@ -68,6 +68,24 @@ test('the pane shows the in-flight invocation, its iterations, its spend and its
   expect(lines).toContain("5h window: 1.2K / 5.0K spendable tokens (24%)")
 })
 
+test('the pane lists the recorded discoveries, newest first, and says when there are none', async ($, on) => {
+  const files = {
+    ...home,
+    [`${HOME}/recorded-discoveries.json`]: JSON.stringify({
+      discoveries: [
+        { repo: 'o/a', number: 3, kind: 'suggestion', title: 'Older', filedAt: iso(9000) },
+        { repo: 'o/b', number: 5, kind: 'correction', title: 'Newer', filedAt: iso(1000) },
+      ],
+    }),
+  }
+  engine(on, files)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  const rows = (await ui.findAll({ type: 'Box' })).filter(box => (box.props as { gap?: number }).gap === 1 && box.text.includes('[') && !box.text.startsWith('Run:'))
+  expect(rows.map(row => row.text.trim())).toEqual(['o/b#5[correction]Newer', 'o/a#3[suggestion]Older'])
+  expect(await texts(ui)).not.toContain('No discovery is waiting on you.')
+})
+
 test('the spend line uses compact units and a share, small shares included', async ($, on) => {
   const files = {
     ...home,
@@ -97,14 +115,14 @@ test('the pane says an invocation whose process is gone has died, and lists none
 test('the pane says none is running when the journal has no open invocation', async ($, on) => {
   engine(on, { [`${HOME}/journal.json`]: JSON.stringify({ records: [] }) })
   await $.command.run({ command: 'loop-pane', args: '' })
-  expect(await texts(await mount($))).toEqual(['Status', 'No invocation is running.', 'Controls'])
+  expect(await texts(await mount($))).toEqual(['Status', 'No invocation is running.', 'Discoveries waiting on you', 'No discovery is waiting on you.', 'Controls'])
 })
 
 test('a missing manager home draws an empty pane, not an error', async ($, on) => {
   engine(on, {})
   const out = await $.command.run({ command: 'loop-pane', args: '' })
   expect(out.text).toBe('Loop pane opened.')
-  expect(await texts(await mount($))).toEqual(['Status', 'No invocation is running.', 'Controls'])
+  expect(await texts(await mount($))).toEqual(['Status', 'No invocation is running.', 'Discoveries waiting on you', 'No discovery is waiting on you.', 'Controls'])
 })
 
 test('the pane redraws when the journal changes', async ($, on) => {
