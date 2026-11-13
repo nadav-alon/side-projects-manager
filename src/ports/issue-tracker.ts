@@ -1,6 +1,6 @@
 import type { IssueNumber } from "./issue-number.ts";
 import { isModelName, type ModelName } from "./model-name.ts";
-import type { PullRequestUrl } from "./pull-request-url.ts";
+import { pullRequestNumber, type PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import { isSize, largerSize, type Size } from "./size.ts";
 import {
@@ -1236,7 +1236,7 @@ export function reviewTitle(ticket: Ticket): string {
  * writes it: the pull request's number, read off its URL.
  */
 export function applyReviewTitle(pullRequest: PullRequestUrl): string {
-  return `Apply the review on #${/\d+$/.exec(pullRequest)?.[0] ?? ""}`;
+  return `Apply the review on #${pullRequestNumber(pullRequest)}`;
 }
 
 /**

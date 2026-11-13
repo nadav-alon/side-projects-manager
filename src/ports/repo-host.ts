@@ -447,12 +447,16 @@ export const NEEDS_REBASE_LABEL = "needs-rebase";
 export const NEEDS_REBASE = pullRequestLabel(NEEDS_REBASE_LABEL);
 
 /**
- * The label the loop adds to a pull request when it queues that pull
+ * The name of {@link APPLY_REVIEW_RETRIED}, the label the loop adds to a pull
+ * request when it queues that pull
  * request's one automatic apply-review retry. It stays on for the pull
  * request's life, which is what makes the limit one per pull request rather
  * than one per run.
  */
-export const APPLY_REVIEW_RETRIED = pullRequestLabel("apply-review-retried");
+export const APPLY_REVIEW_RETRIED_LABEL = "apply-review-retried";
+
+/** {@link APPLY_REVIEW_RETRIED_LABEL}, branded once as {@link NEEDS_REBASE} is. */
+export const APPLY_REVIEW_RETRIED = pullRequestLabel(APPLY_REVIEW_RETRIED_LABEL);
 
 /**
  * Whether a pull request needs a rebase, read repeatedly through `read` until
