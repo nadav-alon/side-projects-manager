@@ -965,9 +965,9 @@ function checksStatusFrom(checks: RawCheck[]): ChecksStatus {
   return checks.some(isPending) ? "pending" : "green";
 }
 
-/** Whether `check` is still running: a legacy status context not yet `SUCCESS`, or a check run not yet completed. */
+/** Whether `check` is still running: a legacy status context neither `SUCCESS` nor red, or a check run not yet completed. */
 function isPending(check: RawCheck): boolean {
-  return check.state !== undefined ? check.state !== "SUCCESS" : check.status !== "COMPLETED";
+  return check.state !== undefined ? check.state !== "SUCCESS" && !isRed(check) : check.status !== "COMPLETED";
 }
 
 /** How many of a failed run's error lines a review thread quotes. */
