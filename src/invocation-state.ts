@@ -5,6 +5,7 @@ import type {
   Journal,
   OpenInvocation,
   PendingMerge,
+  PendingReady,
   ProjectState,
   PullRequestUrl,
   RepoSlug,
@@ -20,6 +21,9 @@ import type {
 import {
   inFlight,
   hasPendingMerge,
+  hasPendingReady,
+  recordPendingReady,
+  withoutPendingReady,
   recordPendingMerge,
   recordRun,
   recordRunSpanEnded,
@@ -237,6 +241,19 @@ export interface InvocationState {
    */
   deferMerge(ticket: WorkedTicket, pullRequest: PullRequestUrl, at: Date): Promise<void>;
 
+  /** The draft pull requests waiting on running checks to be marked ready for review, live. */
+  pendingReadies(): readonly PendingReady[];
+
+  /**
+   * Records that `pullRequest` was left a draft because its checks were
+   * still running, and saves: a later pass reads them again. Replaces any
+   * record it already carried.
+   */
+  deferReady(pullRequest: PullRequestUrl, at: Date): Promise<void>;
+
+  /** Drops `pullRequest`'s pending ready, whatever it came to, and saves. Not an error when none stands. */
+  settleReady(pullRequest: PullRequestUrl): Promise<void>;
+
   /** Drops `ticket`'s pending merge, whatever it came to, and saves. Not an error when none stands. */
   settleMerge(ticket: WorkedTicket): Promise<void>;
 
@@ -290,6 +307,7 @@ export function invocationState(
   const projects = new Map(stored.projects);
   let runSpans = stored.runSpans;
   let pendingMerges = stored.pendingMerges;
+  let pendingReadies = stored.pendingReadies;
   const storedToday =
     stored.workedToday?.day === today ? stored.workedToday : undefined;
   const { kept, freed } = freeDeadInvocations(storedToday, current);
@@ -327,6 +345,7 @@ export function invocationState(
     ...(record !== undefined && { workedToday: record }),
     ...(runSpans !== undefined && { runSpans }),
     ...(pendingMerges !== undefined && { pendingMerges }),
+    ...(pendingReadies !== undefined && { pendingReadies }),
     ...foreignFields(),
   });
 
@@ -429,6 +448,18 @@ export function invocationState(
     pendingMerges: () => pendingMerges ?? [],
     deferMerge: (ticket, pullRequest, at) => {
       pendingMerges = recordPendingMerge(pendingMerges, ticket, pullRequest, at);
+      return doSave(buildState());
+    },
+    pendingReadies: () => pendingReadies ?? [],
+    deferReady: (pullRequest, at) => {
+      pendingReadies = recordPendingReady(pendingReadies, pullRequest, at);
+      return doSave(buildState());
+    },
+    settleReady: (pullRequest) => {
+      if (!hasPendingReady(pendingReadies, pullRequest)) {
+        return Promise.resolve();
+      }
+      pendingReadies = withoutPendingReady(pendingReadies, pullRequest);
       return doSave(buildState());
     },
     settleMerge: (ticket) => {

@@ -539,7 +539,10 @@ _Avoid_: feature ticket, build ticket
 How a run's work reaches the developer: the branch it committed to, pushed, with a draft pull
 request open against the ticket it implemented. The manager opens one and merges it only for a
 turboable ticket — see Turboable. It promotes one — marks it ready for review — when an
-apply-review ticket on it finishes, or when its review comes back clean (see **Clean review**).
+apply-review ticket on it finishes, or when its review comes back clean (see **Clean review**) —
+only on green checks (ADR 0016): no checks at all reads green, checks still running after 3 minutes
+leave it a draft, recorded in `state.json` for a later sweep to mark ready once green, or to leave
+for the developer after 24 hours, and failing checks leave it a draft, unmarked.
 _Avoid_: PR (say pull request), submission, patch
 
 **Ticket gist**:

@@ -37,6 +37,8 @@ import {
   type IterationOutcome,
   type MergeGate,
   type SettledMerge,
+  type SettledReady,
+  type ReadyHold,
   type NotClosed,
   type NotCommented,
   type NotLabelled,
@@ -451,6 +453,8 @@ export interface SummaryFacts {
   uniformSyncSweeps: UniformSyncSweepOutcome[];
   /** Every merge an earlier iteration left pending on checks that this invocation settled. */
   settledMerges: SettledMerge[];
+  /** Every draft pull request left waiting on running checks that this invocation settled. */
+  settledReadies: SettledReady[];
   /** Every ticket freed because a dead in-flight invocation had recorded it. */
   freedFromDeadInvocation: FreedWorkedTicket[];
 }
@@ -579,6 +583,7 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
     specReviewSweepSection(facts.specReviewSweeps),
     uniformSyncSweepSection(facts.uniformSyncSweeps),
     settledMergesSection(facts.settledMerges),
+    settledReadiesSection(facts.settledReadies),
     freedFromDeadInvocationSection(facts.freedFromDeadInvocation),
   ]
     .filter((section): section is string => section !== undefined)
@@ -1241,6 +1246,24 @@ function settledMergesSection(settledMerges: SettledMerge[]): string | undefined
   return ["## Merges settled", ...lines].join("\n");
 }
 
+/** One bullet per draft pull request left waiting on running checks that this invocation settled. */
+function settledReadiesSection(settledReadies: SettledReady[]): string | undefined {
+  if (settledReadies.length === 0) {
+    return undefined;
+  }
+  const lines = settledReadies.map(({ pullRequest, outcome }) => {
+    switch (outcome) {
+      case "ready-for-review":
+        return `- ${pullRequest}: marked ready for review, its checks having finished green.`;
+      case "left-for-you":
+        return `- ${pullRequest}: left for you: checks still running after a day.`;
+      case "checks-failing":
+        return `- ${pullRequest}: left draft: checks failing.`;
+    }
+  });
+  return ["## Ready for review settled", ...lines].join("\n");
+}
+
 /**
  * One bullet per attempt this invocation made, its outcome, its cost beside
  * its run estimate, and the model it was started on. An attempt that started
@@ -1599,7 +1622,11 @@ function handoverLines(
   }
   return [
     `- ${repo}: ${handover.pullRequest} — reviewed, found nothing to flag${
-      reviewOutcome.notReadied === undefined ? ", marked ready for review" : ""
+      reviewOutcome.notReadied !== undefined
+        ? ""
+        : reviewOutcome.readyHeld === undefined
+          ? ", marked ready for review"
+          : `, ${readyPhrase(undefined, reviewOutcome.readyHeld)}`
     }`,
   ];
 }
@@ -1831,7 +1858,7 @@ function reviewSummary(
     case undefined: {
       const posted = clean
         ? `Reviewed ${repo}#${ticket.number}: found nothing to flag on ${pullRequest}${
-            notReadied === undefined ? `, ${readyPhrase(merge)}` : ""
+            notReadied === undefined ? `, ${readyPhrase(merge, iteration.readyHeld)}` : ""
           }.`
         : `Reviewed ${repo}#${ticket.number}: posted findings on ${pullRequest}.`;
       const labelNote =
@@ -1973,7 +2000,13 @@ function answered({ ticket, answers }: AppliedReviewIteration): string {
  * implementation ticket it closed, beside the pull request itself, so the
  * developer can't mistake the ticket number for a second pull request.
  */
-function readyPhrase(merge: MergeGate | undefined): string {
+function readyPhrase(merge: MergeGate | undefined, held?: ReadyHold): string {
+  if (held?.kind === "checks-running") {
+    return "left draft: checks still running; a later run marks it ready for review once green";
+  }
+  if (held?.kind === "checks-failing") {
+    return "left draft: checks failing";
+  }
   return merge?.kind === "merged"
     ? `merged, closing ${ticketReference(merge.implementationTicket)}, its branch deleted`
     : "now ready for review";
@@ -2094,7 +2127,7 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
   const applied = `Applied review on ${repo}#${ticket.number}`;
   switch (notClosed?.kind) {
     case undefined: {
-      const ready = `${applied}: ${answered(iteration)}, ${readyPhrase(merge)}.`;
+      const ready = `${applied}: ${answered(iteration)}, ${readyPhrase(merge, iteration.readyHeld)}.`;
       const labelled = notLabelled === undefined
         ? ready
         : `${ready} ${notLabelledNote(pullRequest, APPLIED_REVIEW_LABEL, notLabelled)}.`;
@@ -2126,6 +2159,12 @@ function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string | u
     case undefined:
       if (merge?.kind === "merged") {
         return undefined;
+      }
+      if (iteration.readyHeld?.kind === "checks-running") {
+        return undefined;
+      }
+      if (iteration.readyHeld?.kind === "checks-failing") {
+        return `- ${repo}: ${pullRequest} — left draft: checks failing`;
       }
       return mergeGateWaitingLine(repo, pullRequest, merge) ?? `- ${repo}: ${pullRequest} — ready for review`;
     case "check-failed":

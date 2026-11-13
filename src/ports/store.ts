@@ -512,6 +512,50 @@ export function withoutPendingMerge(
 }
 
 /**
+ * A draft pull request left unmarked because its checks were still running
+ * when the wait ended; a later pass reads them again and marks it ready for
+ * review once green. Keyed by the pull request, as no ticket stands behind
+ * every one. Written only by the manager.
+ */
+export interface PendingReady {
+  pullRequest: PullRequestUrl;
+  /** When the wait ended: the age `PENDING_READY_LIMIT` is counted from. */
+  deferredAt: Date;
+}
+
+/**
+ * How long a pull request may wait on running checks to be marked ready for
+ * review. Older than this and still running, it is left for the developer.
+ */
+export const PENDING_READY_LIMIT: Milliseconds = PENDING_MERGE_LIMIT;
+
+/** `previous` with `pullRequest` recorded as pending ready, in place of any record it already carried. */
+export function recordPendingReady(
+  previous: readonly PendingReady[] | undefined,
+  pullRequest: PullRequestUrl,
+  deferredAt: Date,
+): PendingReady[] {
+  return [...(withoutPendingReady(previous, pullRequest) ?? []), { pullRequest, deferredAt }];
+}
+
+/** Whether `previous` carries a pending ready for `pullRequest`. */
+export function hasPendingReady(
+  previous: readonly PendingReady[] | undefined,
+  pullRequest: PullRequestUrl,
+): boolean {
+  return (previous ?? []).some((pending) => pending.pullRequest === pullRequest);
+}
+
+/** `previous` without `pullRequest`'s pending ready; undefined once none is left. */
+export function withoutPendingReady(
+  previous: readonly PendingReady[] | undefined,
+  pullRequest: PullRequestUrl,
+): PendingReady[] | undefined {
+  const kept = (previous ?? []).filter((pending) => pending.pullRequest !== pullRequest);
+  return kept.length === 0 ? undefined : kept;
+}
+
+/**
  * The tickets the loop worked on one local calendar day, kept so a later
  * invocation the same day does not select them again. A record for any day
  * but today reads as nothing worked today.
@@ -557,6 +601,11 @@ export interface State {
    * when none is.
    */
   pendingMerges?: PendingMerge[];
+  /**
+   * Every draft pull request waiting on running checks to be marked ready
+   * for review. Absent when none is.
+   */
+  pendingReadies?: PendingReady[];
 }
 
 /**

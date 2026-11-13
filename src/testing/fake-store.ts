@@ -21,6 +21,7 @@ import type {
   GrantLabel,
   GrantRecord,
   PendingMerge,
+  PendingReady,
   PullRequestUrl,
   RunSpan,
   Salvage,
@@ -37,6 +38,7 @@ import {
   keptSummaryPath,
   recordGrant,
   recordPendingMerge,
+  recordPendingReady,
   recordRunSpanEnded,
   recordRunSpanStarted,
   recordStopShortSalvage,
@@ -71,6 +73,7 @@ export class FakeStore implements Store {
   #runSpans: RunSpan[] | undefined = undefined;
   #grants: GrantRecord[] | undefined = undefined;
   #pendingMerges: PendingMerge[] | undefined = undefined;
+  #pendingReadies: PendingReady[] | undefined = undefined;
   #journal: InvocationRecord[] = [];
   #keptSummaries: { at: KeptSummaryPath; body: string }[] = [];
   /** What the developer declared they are willing to spend. */
@@ -159,6 +162,16 @@ export class FakeStore implements Store {
     this.#pendingMerges = recordPendingMerge(this.#pendingMerges, ticket, pullRequest, deferredAt);
   }
 
+  /** Records `pullRequest` as left draft on running checks, as an earlier invocation would have left it. */
+  markReadyPending(pullRequest: PullRequestUrl, deferredAt: Date): void {
+    this.#pendingReadies = recordPendingReady(this.#pendingReadies, pullRequest, deferredAt);
+  }
+
+  /** The pending readies now recorded. */
+  pendingReadies(): PendingReady[] {
+    return (this.#pendingReadies ?? []).map((pending) => ({ ...pending }));
+  }
+
   /** The pending merges now recorded. */
   pendingMerges(): PendingMerge[] {
     return (this.#pendingMerges ?? []).map((pending) => ({ ...pending }));
@@ -211,6 +224,9 @@ export class FakeStore implements Store {
       ...(this.#pendingMerges !== undefined && {
         pendingMerges: this.#pendingMerges.map((pending) => ({ ...pending })),
       }),
+      ...(this.#pendingReadies !== undefined && {
+        pendingReadies: this.#pendingReadies.map((pending) => ({ ...pending })),
+      }),
     };
   }
 
@@ -230,6 +246,7 @@ export class FakeStore implements Store {
     this.#runSpans = state.runSpans?.map((span) => ({ ...span }));
     this.#grants = state.grants?.map((grant) => ({ ...grant }));
     this.#pendingMerges = state.pendingMerges?.map((pending) => ({ ...pending }));
+    this.#pendingReadies = state.pendingReadies?.map((pending) => ({ ...pending }));
   }
 
   async openInvocation(opened: OpenInvocation): Promise<OpenInvocation> {
