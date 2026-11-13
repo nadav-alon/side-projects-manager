@@ -10,6 +10,7 @@ import type {
   Branch,
   Checkout,
   ChecksStatus,
+  FailingCheck,
   ClosingIssue,
   ClosingPullRequest,
   DraftPullRequestOpening,
@@ -580,6 +581,57 @@ export function githubRepoHost(
       return checksStatusFrom(stdout);
     },
 
+    async readFailingChecks(pullRequest: PullRequestUrl): Promise<FailingCheck[]> {
+      const { owner, repo } = pullRequestParts(pullRequest);
+      const { stdout } = await run("gh", [
+        "pr",
+        "view",
+        pullRequest,
+        "--json",
+        "statusCheckRollup",
+        "--jq",
+        ".statusCheckRollup",
+      ]);
+      const failing: FailingCheck[] = [];
+      for (const check of failingRawChecks(stdout)) {
+        const runUrl = check.detailsUrl ?? check.targetUrl ?? pullRequest;
+        failing.push({
+          name: check.name ?? check.context ?? "unnamed check",
+          errorLines: await errorLinesOf(`${owner}/${repo}`, runUrl),
+          runUrl,
+        });
+      }
+      return failing;
+    },
+
+    async postReviewThread(pullRequest: PullRequestUrl, body: string): Promise<void> {
+      const { owner, repo, number } = pullRequestParts(pullRequest);
+      const endpoint = `repos/${owner}/${repo}/pulls/${number}`;
+      const { stdout: files } = await run("gh", [
+        "api",
+        `${endpoint}/files`,
+        "--jq",
+        ".[0].filename // empty",
+      ]);
+      const path = files.trim();
+      if (path === "") {
+        throw new Error(`${pullRequest} changes no file to anchor a review thread to.`);
+      }
+      const { stdout: head } = await run("gh", ["api", endpoint, "--jq", ".head.sha"]);
+      await run("gh", [
+        "api",
+        `${endpoint}/comments`,
+        "-f",
+        `body=${body}`,
+        "-f",
+        `commit_id=${head.trim()}`,
+        "-f",
+        `path=${path}`,
+        "-f",
+        "subject_type=file",
+      ]);
+    },
+
     async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {
       // Checked first, so a pull request that never carried the label — one
       // opened before the workflow labelled it, or in a project whose
@@ -842,6 +894,10 @@ interface RawCheck {
   status?: string;
   conclusion?: string | null;
   state?: string;
+  name?: string;
+  context?: string;
+  detailsUrl?: string;
+  targetUrl?: string;
 }
 
 /** {@link RawCheck} conclusions and states that read a check as {@link ChecksStatus}'s `"red"`. */
@@ -875,6 +931,43 @@ function checksStatusFrom(stdout: string): ChecksStatus {
     }
   }
   return pending ? "pending" : "green";
+}
+
+/** `stdout`, `.statusCheckRollup`'s own JSON, read down to the checks {@link checksStatusFrom} reads as red. */
+function failingRawChecks(stdout: string): RawCheck[] {
+  return (JSON.parse(stdout) as RawCheck[]).filter((check) =>
+    check.state !== undefined
+      ? RED_STATES.has(check.state)
+      : check.status === "COMPLETED" &&
+        check.conclusion !== undefined &&
+        check.conclusion !== null &&
+        RED_CONCLUSIONS.has(check.conclusion),
+  );
+}
+
+/** How many of a failed run's error lines a review thread quotes. */
+const ERROR_LINE_LIMIT = 20;
+
+/**
+ * The error lines of the failed run `runUrl` links to, the last
+ * {@link ERROR_LINE_LIMIT} of them; none when the link is not a GitHub
+ * Actions run or its log cannot be read, since the thread still names the
+ * check and links the run.
+ */
+async function errorLinesOf(repo: string, runUrl: string): Promise<string[]> {
+  const id = /\/actions\/runs\/(\d+)/.exec(runUrl)?.[1];
+  if (id === undefined) {
+    return [];
+  }
+  try {
+    const { stdout } = await run("gh", ["run", "view", id, "--repo", repo, "--log-failed"]);
+    return stdout
+      .split("\n")
+      .filter((line) => /error|fail/i.test(line))
+      .slice(-ERROR_LINE_LIMIT);
+  } catch {
+    return [];
+  }
 }
 
 /**

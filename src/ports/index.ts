@@ -205,6 +205,7 @@ export type {
   ApplyReviewComment,
   ApplyReviewThread,
   ChecksStatus,
+  FailingCheck,
   ClosingIssue,
   ClosingPullRequest,
   DraftPullRequestOpening,
