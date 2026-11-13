@@ -86,6 +86,8 @@ export {
   openRebaseTicketFor,
   parentTicketIn,
   reviewTitle,
+  applyReviewTitle,
+  applyReviewBody,
   sizeLabelOf,
   specReviewTitle,
   targetNoun,

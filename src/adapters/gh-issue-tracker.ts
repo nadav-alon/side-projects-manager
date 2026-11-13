@@ -53,6 +53,8 @@ import {
   isTicketPriority,
   modelLabelOf,
   reviewTitle,
+  applyReviewTitle,
+  applyReviewBody,
   sameRepo,
   sizeLabelOf,
   specReviewTitle,
@@ -239,6 +241,44 @@ export function ghIssueTracker(
         `Opened #${review.number} in ${review.repo} to review ${pullRequest}, the draft pull request for #${ticket.number}`,
       );
       return review;
+    },
+
+    async createApplyReviewTicket(
+      ticket: Ticket,
+      pullRequest: PullRequestUrl,
+    ): Promise<Ticket> {
+      const title = applyReviewTitle(pullRequest);
+      await ensureLabel(ticket.repo, READY_FOR_AGENT_LABEL);
+
+      const { stdout } = await execFileAsync("gh", [
+        "issue",
+        "create",
+        "--repo",
+        ticket.repo,
+        "--title",
+        title,
+        "--label",
+        READY_FOR_AGENT_LABEL,
+        "--body",
+        applyReviewBody(ticket, pullRequest),
+      ]);
+
+      const applyReview: Ticket = {
+        repo: ticket.repo,
+        number: issueNumberIn(stdout, ticket.repo),
+        title,
+        pullRequest: { kind: "apply-review", url: pullRequest },
+      };
+
+      // As `createReviewTicket`: the ticket exists and is eligible, so a
+      // refused link is explained rather than failed on.
+      await linkOrExplain(
+        applyReview,
+        ticket,
+        async () => applyReviewBody(ticket, pullRequest),
+        `Opened #${applyReview.number} in ${applyReview.repo} to apply the review on ${pullRequest}, the draft pull request for #${ticket.number}`,
+      );
+      return applyReview;
     },
 
     async createSpecReviewTicket(ticket: Ticket, body: string): Promise<Ticket> {
