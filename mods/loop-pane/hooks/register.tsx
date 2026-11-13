@@ -4,7 +4,7 @@ import type { Register } from 'claude-code'
 import type { LoopSnapshot } from '../types'
 import { isProcessId, type ProcessId } from './manager-home/types.ts'
 import { compactCount, elapsed, localTime, percentOf } from './format'
-import { resolveManagerHome } from './manager-home/home'
+import { managerHomeOf, resolveManagerHome } from './manager-home/home'
 import { readSnapshot } from './snapshot'
 import { sessionLogsFolder } from './session-logs'
 
@@ -35,7 +35,7 @@ const BUTTONS = [
 ] as const
 
 /**
- * Starts an invocation as the schedule's cron line does — env file sourced, the checkout fast-forwarded, output appended to `trigger.log` — detached so closing the pane does not stop it. The manager home is `$1`.
+ * Starts an invocation as the schedule's cron line does — env file sourced, the checkout fast-forwarded, output appended to `trigger.log` — detached so closing the pane does not stop it. The checkout is `$1`: the manager home may lie outside it, and the log goes there.
  * What can fail (the env file, the directory, `node` missing) is checked in the foreground so the press sees a non-zero exit; the pull and the run go in the background.
  * The env file is the one `scripts/install-triggers.sh` writes as `ENV_FILE`: keep the two paths the same.
  */
@@ -201,7 +201,7 @@ export const register: Register = on => {
                   await update($, notice, () => ({ text: 'An invocation is already running.', failure: false }))
                   return
                 }
-                if (await runReporting('Start now', ['bash', '-c', START_SCRIPT, 'start', home])) {
+                if (await runReporting('Start now', ['bash', '-c', START_SCRIPT, 'start', managerHomeOf('', $.plugin.root)])) {
                   await update($, notice, () => ({ text: 'Started an invocation.', failure: false }))
                 }
               }}

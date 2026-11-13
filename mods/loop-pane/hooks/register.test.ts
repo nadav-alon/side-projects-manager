@@ -195,6 +195,16 @@ test('start now runs the start script from the manager home, passing the home to
   expect(script).toContain('morning-run.ts')
 })
 
+test('start now runs the start script from the checkout when the manager home lies elsewhere', async ($, on) => {
+  const ran: Ran[] = []
+  engine(on, {}, { ran, managerHome: '/elsewhere/home' })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(ran.length).toBe(1)
+  expect([ran[0].argv[4], ran[0].cwd]).toEqual([HOME, '/elsewhere/home'])
+})
+
 test('start now says why when the start script exits non-zero', async ($, on) => {
   engine(on, {}, { outcome: { exitCode: 1, stderr: 'node is not on PATH' } })
   await $.command.run({ command: 'loop-pane', args: '' })
