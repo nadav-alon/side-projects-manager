@@ -38,6 +38,10 @@ export function verdicts(projects: ProjectOutcome[]): [string, string][] {
  * character the way an unescaped one would.
  */
 export function endsWithTranscript(path: string): RegExp {
-  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`Transcript: \`${escaped}\`\\.$`);
+  return new RegExp(`Transcript: \`${escapedPattern(path)}\`\\.$`);
+}
+
+/** `text`, escaped to match itself literally inside a `RegExp`. */
+export function escapedPattern(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
