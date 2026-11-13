@@ -4,6 +4,7 @@ import type {
   Branch,
   Checkout,
   ChecksStatus,
+  FailingCheck,
   ClosingPullRequest,
   DraftPullRequestOpening,
   MergeStatus,
@@ -161,6 +162,12 @@ export class FakeRepoHost implements RepoHost {
 
   /** What `readChecksStatus` answers for a pull request. Green, unless a test says otherwise. */
   checksStatus: (pullRequest: PullRequestUrl) => ChecksStatus = () => "green";
+
+  /** What `readFailingChecks` answers for a pull request. None, unless a test says otherwise. */
+  failingChecks: (pullRequest: PullRequestUrl) => FailingCheck[] = () => [];
+
+  /** Every review thread opened on a pull request, in the order `postReviewThread` was called. */
+  readonly reviewThreads: { pullRequest: PullRequestUrl; body: string }[] = [];
 
   readonly #pullRequestStates = new Map<PullRequestUrl, PullRequestState>();
 
@@ -478,6 +485,20 @@ export class FakeRepoHost implements RepoHost {
 
   async readChecksStatus(pullRequest: PullRequestUrl): Promise<ChecksStatus> {
     return this.checksStatus(pullRequest);
+  }
+
+  async readFailingChecks(pullRequest: PullRequestUrl): Promise<FailingCheck[]> {
+    return this.failingChecks(pullRequest);
+  }
+
+  async postReviewThread(pullRequest: PullRequestUrl, body: string): Promise<void> {
+    this.reviewThreads.push({ pullRequest, body });
+    // A review thread is a finding, as it is on GitHub.
+    this.postReviewFinding(pullRequest, { path: "src/thing.ts", line: 1, body });
+  }
+
+  async readOpenReviewThreadBodies(pullRequest: PullRequestUrl): Promise<string[]> {
+    return this.reviewThreads.filter((thread) => thread.pullRequest === pullRequest).map((thread) => thread.body);
   }
 
   async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {

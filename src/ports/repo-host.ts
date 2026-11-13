@@ -1,4 +1,5 @@
 import type { Branch } from "./branch.ts";
+import type { CheckRunUrl } from "./check-run-url.ts";
 import type { Checkout } from "./checkout.ts";
 import { isIssueNumber, type IssueNumber } from "./issue-number.ts";
 import type { Ticket } from "./issue-tracker.ts";
@@ -231,6 +232,18 @@ export type MergeStatus = "conflicting" | "behind" | "clean" | "unknown";
  * checks never passed.
  */
 export type ChecksStatus = "green" | "pending" | "red";
+
+/**
+ * One check that failed on a pull request: its `name`, the `errorLines` its
+ * run printed (empty when the run's log could not be read), and `runUrl`, a
+ * link to the failing run, absent when the check reported none. What {@link RepoHost.readFailingChecks} reads and
+ * `failingCheckThreadBody` renders as a review thread.
+ */
+export interface FailingCheck {
+  name: string;
+  errorLines: string[];
+  runUrl?: CheckRunUrl;
+}
 
 /**
  * Whether a pull request is still open, merged, or closed without merging —
@@ -761,6 +774,19 @@ export interface RepoHost {
    * ChecksStatus}.
    */
   readChecksStatus(pullRequest: PullRequestUrl): Promise<ChecksStatus>;
+  /**
+   * Reads each of `pullRequest`'s checks that has failed, once: see {@link
+   * FailingCheck}. None when no check failed, whatever else is pending.
+   */
+  readFailingChecks(pullRequest: PullRequestUrl): Promise<FailingCheck[]>;
+  /**
+   * Opens a review thread on `pullRequest` carrying `body`, so an
+   * apply-review run works it like any finding. A check has no line of its
+   * own, so the thread is anchored to the pull request's first changed file.
+   */
+  postReviewThread(pullRequest: PullRequestUrl, body: string): Promise<void>;
+  /** The opening comment's body of each of `pullRequest`'s unresolved review threads. */
+  readOpenReviewThreadBodies(pullRequest: PullRequestUrl): Promise<string[]>;
   /**
    * Removes {@link NEEDS_REBASE_LABEL} from `pullRequest`, once a rebase
    * ticket closes because it no longer needs one.

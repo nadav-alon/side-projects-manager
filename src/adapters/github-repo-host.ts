@@ -10,6 +10,8 @@ import type {
   Branch,
   Checkout,
   ChecksStatus,
+  CheckRunUrl,
+  FailingCheck,
   ClosingIssue,
   ClosingPullRequest,
   DraftPullRequestOpening,
@@ -33,9 +35,11 @@ import type {
 import {
   branch,
   checkout,
+  commitSha,
   CLOSING_PULL_REQUEST_LIMIT,
   closedTicketIn,
   isBranch,
+  isCheckRunUrl,
   isIssueNumber,
   isMarkedReply,
   isPullRequestLabel,
@@ -45,6 +49,7 @@ import {
   NIT_SECTION_HEADING,
   OPEN_PULL_REQUEST_LIMIT,
   pullRequestUrl,
+  repoSlug,
   resolveNeedsRebase,
   summarizeApplyReviewThreads,
 } from "../ports/index.ts";
@@ -568,16 +573,74 @@ export function githubRepoHost(
     },
 
     async readChecksStatus(pullRequest: PullRequestUrl): Promise<ChecksStatus> {
-      const { stdout } = await run("gh", [
-        "pr",
-        "view",
-        pullRequest,
-        "--json",
-        "statusCheckRollup",
+      return checksStatusFrom(await readRawChecks(pullRequest));
+    },
+
+    async readFailingChecks(pullRequest: PullRequestUrl): Promise<FailingCheck[]> {
+      const { owner, repo } = pullRequestParts(pullRequest);
+      const failing: FailingCheck[] = [];
+      for (const check of (await readRawChecks(pullRequest)).filter(isRed)) {
+        const link = check.detailsUrl ?? check.targetUrl;
+        const runUrl = link !== undefined && isCheckRunUrl(link) ? link : undefined;
+        failing.push({
+          name: check.name ?? check.context ?? "unnamed check",
+          errorLines: await errorLinesOf(repoSlug(`${owner}/${repo}`), runUrl),
+          ...(runUrl !== undefined && { runUrl }),
+        });
+      }
+      return failing;
+    },
+
+    async postReviewThread(pullRequest: PullRequestUrl, body: string): Promise<void> {
+      const { owner, repo, number } = pullRequestParts(pullRequest);
+      const endpoint = `repos/${owner}/${repo}/pulls/${number}`;
+      const { stdout: files } = await run("gh", [
+        "api",
+        `${endpoint}/files`,
         "--jq",
-        ".statusCheckRollup",
+        ".[0].filename // empty",
       ]);
-      return checksStatusFrom(stdout);
+      const path = files.trim();
+      if (path === "") {
+        throw new Error(`${pullRequest} changes no file to anchor a review thread to.`);
+      }
+      const { stdout: head } = await run("gh", ["api", endpoint, "--jq", ".head.sha"]);
+      await run("gh", [
+        "api",
+        `${endpoint}/comments`,
+        "-f",
+        `body=${body}`,
+        "-f",
+        `commit_id=${commitSha(head.trim())}`,
+        "-f",
+        `path=${path}`,
+        "-f",
+        "subject_type=file",
+      ]);
+    },
+
+    async readOpenReviewThreadBodies(pullRequest: PullRequestUrl): Promise<string[]> {
+      const { owner, repo, number } = pullRequestParts(pullRequest);
+      const { stdout } = await run("gh", [
+        "api",
+        "graphql",
+        "-F",
+        `owner=${owner}`,
+        "-F",
+        `repo=${repo}`,
+        "-F",
+        `pr=${number}`,
+        "-f",
+        `query=${OPEN_REVIEW_THREADS_QUERY}`,
+      ]);
+      const threads = (
+        JSON.parse(stdout) as {
+          data: { repository: { pullRequest: { reviewThreads: { nodes: OpenThread[] } } } };
+        }
+      ).data.repository.pullRequest.reviewThreads.nodes;
+      return threads
+        .filter((thread) => !thread.isResolved)
+        .flatMap((thread) => thread.comments.nodes.slice(0, 1).map((comment) => comment.body));
     },
 
     async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {
@@ -842,39 +905,112 @@ interface RawCheck {
   status?: string;
   conclusion?: string | null;
   state?: string;
+  name?: string;
+  context?: string;
+  detailsUrl?: string;
+  targetUrl?: string;
 }
 
 /** {@link RawCheck} conclusions and states that read a check as {@link ChecksStatus}'s `"red"`. */
 const RED_CONCLUSIONS = new Set(["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"]);
 const RED_STATES = new Set(["ERROR", "FAILURE"]);
 
+/** `pullRequest`'s `statusCheckRollup`: each check, a check run or a legacy status context. */
+async function readRawChecks(pullRequest: PullRequestUrl): Promise<RawCheck[]> {
+  const { stdout } = await run("gh", [
+    "pr",
+    "view",
+    pullRequest,
+    "--json",
+    "statusCheckRollup",
+    "--jq",
+    ".statusCheckRollup",
+  ]);
+  return JSON.parse(stdout) as RawCheck[];
+}
+
 /**
- * `stdout`, `.statusCheckRollup`'s own JSON, read down to {@link ChecksStatus}:
+ * Whether `check` reads as red: a legacy status context's `state` is one of
+ * {@link RED_STATES}, or a check run has completed with one of
+ * {@link RED_CONCLUSIONS}. The one test the merge gate and the failing-check
+ * review threads share, so they agree on what is red.
+ */
+function isRed(check: RawCheck): boolean {
+  if (check.state !== undefined) {
+    return RED_STATES.has(check.state);
+  }
+  return (
+    check.status === "COMPLETED" &&
+    check.conclusion !== undefined &&
+    check.conclusion !== null &&
+    RED_CONCLUSIONS.has(check.conclusion)
+  );
+}
+
+/**
+ * `checks`, `.statusCheckRollup`'s, read down to {@link ChecksStatus}:
  * a check run (`status`/`conclusion`) or a legacy status context (`state`),
  * mixed freely since a pull request may carry either kind. Red beats pending,
  * which beats green, and no checks at all reads green — there is nothing to
  * wait on.
  */
-function checksStatusFrom(stdout: string): ChecksStatus {
-  const checks = JSON.parse(stdout) as RawCheck[];
-  let pending = false;
-  for (const check of checks) {
-    if (check.state !== undefined) {
-      if (RED_STATES.has(check.state)) {
-        return "red";
-      }
-      pending ||= check.state !== "SUCCESS";
-      continue;
-    }
-    if (check.status !== "COMPLETED") {
-      pending = true;
-      continue;
-    }
-    if (check.conclusion !== undefined && check.conclusion !== null && RED_CONCLUSIONS.has(check.conclusion)) {
-      return "red";
-    }
+function checksStatusFrom(checks: RawCheck[]): ChecksStatus {
+  if (checks.some(isRed)) {
+    return "red";
   }
+  const pending = checks.some((check) =>
+    check.state !== undefined ? check.state !== "SUCCESS" : check.status !== "COMPLETED",
+  );
   return pending ? "pending" : "green";
+}
+
+/** How many of a failed run's error lines a review thread quotes. */
+const ERROR_LINE_LIMIT = 20;
+
+/**
+ * The tail of the failed log `runUrl` links to, the last
+ * {@link ERROR_LINE_LIMIT} non-blank lines of it, unfiltered: an assertion
+ * diff or a stack frame is as much the error as the line that says "error".
+ * The log is the one job's when the link names a job
+ * (`/actions/runs/<id>/job/<id>`), else every failed job's in the run. None
+ * when there is no link, it is not a GitHub Actions run, or its log cannot be
+ * read, since the thread still names the check and links the run.
+ */
+async function errorLinesOf(repo: RepoSlug, runUrl: CheckRunUrl | undefined): Promise<string[]> {
+  const match = runUrl === undefined ? null : /\/actions\/runs\/(\d+)(?:\/jobs?\/(\d+))?/.exec(runUrl);
+  if (match === null) {
+    return [];
+  }
+  const [, id, job] = match;
+  try {
+    const { stdout } = await run("gh", [
+      "run",
+      "view",
+      id!,
+      "--repo",
+      repo,
+      ...(job === undefined ? [] : ["--job", job]),
+      "--log-failed",
+    ]);
+    return stdout
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .slice(-ERROR_LINE_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+/** Each review thread's resolved state and opening comment, for {@link RepoHost.readOpenReviewThreadBodies}. */
+const OPEN_REVIEW_THREADS_QUERY = `
+query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){
+  reviewThreads(first:100){nodes{isResolved comments(first:1){nodes{body}}}}
+}}}`;
+
+/** One review thread as {@link OPEN_REVIEW_THREADS_QUERY} asks for it. */
+interface OpenThread {
+  isResolved: boolean;
+  comments: { nodes: { body: string }[] };
 }
 
 /**

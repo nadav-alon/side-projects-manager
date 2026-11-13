@@ -174,6 +174,7 @@ import {
 } from "./summary.ts";
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
 import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
+import { postFailingCheckThreads } from "./failing-check-threads.ts";
 import { settledChecks } from "./settled-checks.ts";
 import { grantSweep } from "./grant-sweep.ts";
 import { recordedDiscoverySweep } from "./recorded-discovery-sweep.ts";
@@ -2008,12 +2009,24 @@ async function runReview(
     return resolved;
   }
 
+  // Taken before the failing-check threads are posted, so they count as
+  // findings: a red check on an otherwise clean review still needs an
+  // apply-review run to work its thread.
+  const startedAt = ports.clock.now();
+
+  // Before the reviewer starts, so the apply-review run that follows works a
+  // red check like any finding; the reviewing agent itself never reads checks.
+  try {
+    await postFailingCheckThreads(ports.repoHost, ports.clock, ticket.pullRequest.url);
+  } catch (error: unknown) {
+    return infrastructureFailure(error);
+  }
+
   // Used only if the review turns out clean; a review with findings never
   // reads it, but the lookup runs all the same, the same waste
   // `runApplyReview` already accepts for the identical reason.
   const mergeGateContext = await mergeGateContextFor(ports, ticket, invocation, turbo);
 
-  const startedAt = ports.clock.now();
   const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts, onProgress) =>
     // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
     // overload that actually matches, rather than one call TypeScript could

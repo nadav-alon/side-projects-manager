@@ -11,6 +11,7 @@ import type { InvocationReport } from "./summary.ts";
 import {
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
+  checkRunUrl,
   DEFAULT_BUDGET,
   MergeabilityUnknown,
   NEEDS_REBASE,
@@ -2805,6 +2806,62 @@ describe("morningLoop", () => {
       });
     });
 
+    describe("a failing check", () => {
+      it("is posted as a review thread before the reviewer runs, once the checks settle", async () => {
+        const ports = fakePorts();
+        queued(ports);
+        postedAFinding(ports);
+        ports.repoHost.checksStatus = () => "red";
+        ports.repoHost.failingChecks = () => [
+          { name: "test", errorLines: ["Error: boom"], runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1") },
+        ];
+
+        await morningLoop(ports);
+
+        assert.equal(ports.repoHost.reviewThreads.length, 1);
+        assert.equal(ports.repoHost.reviewThreads[0]?.pullRequest, PULL_REQUEST);
+        assert.match(ports.repoHost.reviewThreads[0]?.body ?? "", /Failing check: test/);
+      });
+
+      it("counts as a finding, so a clean-looking review is not marked ready", async () => {
+        const ports = fakePorts();
+        const ticket = queued(ports);
+        postedACleanReview(ports);
+        ports.repoHost.checksStatus = () => "red";
+        ports.repoHost.failingChecks = () => [
+          { name: "test", errorLines: [], runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1") },
+        ];
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+      });
+
+      it("is an infrastructure failure, leaving the ticket as it was, when posting throws", async () => {
+        const ports = fakePorts();
+        queued(ports);
+        ports.repoHost.checksStatus = () => {
+          throw new Error("gh down");
+        };
+
+        const report = await morningLoop(ports);
+
+        assert.equal(report.iterations[0]?.kind, "failed");
+        assert.deepEqual(ports.tracker.closedReviewTickets, []);
+      });
+
+      it("posts no thread when the checks are green", async () => {
+        const ports = fakePorts();
+        queued(ports);
+        postedAFinding(ports);
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.reviewThreads, []);
+      });
+    });
+
     describe("a clean review", () => {
       it("closes the ticket, labels the pull request reviewed, and marks it ready for review", async () => {
         const ports = fakePorts();
@@ -2857,7 +2914,8 @@ describe("morningLoop", () => {
           assert.deepEqual(ports.repoHost.readyMarked, []);
           assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
           assert.deepEqual(ports.store.pendingReadies(), [
-            { pullRequest: PULL_REQUEST, deferredAt: new Date(FROZEN_NOW.getTime() + CHECKS_WAIT) },
+            // Once the pre-review wait and the ready-mark's own wait have both run out.
+            { pullRequest: PULL_REQUEST, deferredAt: new Date(FROZEN_NOW.getTime() + 2 * CHECKS_WAIT) },
           ]);
           assert.match(
             ports.tracker.summaries[0]?.body ?? "",
@@ -3011,8 +3069,8 @@ describe("morningLoop", () => {
 
           const report = await morningLoop(ports);
 
-          // One read to mark it ready for review, once settled, and one for the gate.
-          assert.equal(checks.reads(), 3);
+          // The pre-review wait reads pending then green, the ready-mark reads once, and the gate once more.
+          assert.equal(checks.reads(), 4);
           assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
           const outcome = report.iterations[0];
           assert.deepEqual(
@@ -3381,7 +3439,7 @@ describe("morningLoop", () => {
             repo: implementation.repo,
             number: implementation.number,
             pullRequest: PULL_REQUEST,
-            deferredAt: new Date(FROZEN_NOW.getTime() + CHECKS_WAIT),
+            deferredAt: new Date(FROZEN_NOW.getTime() + 2 * CHECKS_WAIT),
           },
           ]);
           const outcome = report.iterations[0];
