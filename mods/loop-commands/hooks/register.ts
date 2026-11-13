@@ -1,10 +1,6 @@
 import type { Register } from 'claude-code'
+import { resolveManagerHome } from './manager-home/home'
 import { parseTicketReference } from './ticket-reference'
-
-/** The manager home: the plugin sits at `<home>/mods/<name>`, so the commands run from two levels up. */
-function managerHome(pluginRoot: string): string {
-  return pluginRoot.replace(/\/+$/, '').split('/').slice(0, -2).join('/')
-}
 
 const YES = 'Yes'
 const NO = 'No'
@@ -44,6 +40,8 @@ const COMMANDS: Record<string, LoopCommand> = {
 }
 
 export const register: Register = on => {
+  // The manager home cannot change during a session, so the shell is asked once.
+  let homeOf: ReturnType<typeof resolveManagerHome> | undefined
   on('session.start', async ($, e, next) => {
     for (const [name, { description }] of Object.entries(COMMANDS)) await $.command.register({ name, description })
     return next(e)
@@ -59,7 +57,7 @@ export const register: Register = on => {
       }
       let result
       try {
-        result = await $.process.run(['npm', 'run', '--silent', command.script, ...scriptArgs], { cwd: managerHome($.plugin.root) })
+        result = await $.process.run(['npm', 'run', '--silent', command.script, ...scriptArgs], { cwd: await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root)) })
       } catch (error) {
         return { text: `/${name} failed: ${error instanceof Error ? error.message : String(error)}` }
       }

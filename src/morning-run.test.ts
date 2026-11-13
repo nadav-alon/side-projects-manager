@@ -2821,6 +2821,65 @@ describe("morningLoop", () => {
         assert.deepEqual(ports.repoHost.comments, []);
       });
 
+      describe("its checks", () => {
+        it("marks it ready for review when none are reported, as green", async () => {
+          const ports = fakePorts();
+          queued(ports);
+          postedACleanReview(ports);
+          ports.repoHost.checksStatus = () => "green";
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+          assert.deepEqual(ports.store.pendingReadies(), []);
+        });
+
+        it("marks it ready for review once checks that read pending settle green within the wait", async () => {
+          const ports = fakePorts();
+          queued(ports);
+          postedACleanReview(ports);
+          ports.repoHost.checksStatus = readsInTurn("pending", "pending", "green").checksStatus;
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+          assert.deepEqual(ports.store.pendingReadies(), []);
+        });
+
+        it("leaves it a draft, recorded for a later sweep, while they are still running after the wait", async () => {
+          const ports = fakePorts();
+          const ticket = queued(ports);
+          postedACleanReview(ports);
+          ports.repoHost.checksStatus = () => "pending";
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.readyMarked, []);
+          assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
+          assert.deepEqual(ports.store.pendingReadies(), [
+            { pullRequest: PULL_REQUEST, deferredAt: new Date(FROZEN_NOW.getTime() + CHECKS_WAIT) },
+          ]);
+          assert.match(
+            ports.tracker.summaries[0]?.body ?? "",
+            /left draft: checks still running; a later run marks it ready for review once green/,
+          );
+          assert.equal(report.iterations[0]?.kind, "reviewed");
+        });
+
+        it("leaves it a draft, unrecorded, when they are red", async () => {
+          const ports = fakePorts();
+          queued(ports);
+          postedACleanReview(ports);
+          ports.repoHost.checksStatus = () => "red";
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.readyMarked, []);
+          assert.deepEqual(ports.store.pendingReadies(), []);
+          assert.match(ports.tracker.summaries[0]?.body ?? "", /left draft: checks failing/);
+        });
+      });
+
       it("checks the pull request for a posted review, having found no finding on it", async () => {
         const ports = fakePorts();
         queued(ports);
@@ -2952,7 +3011,8 @@ describe("morningLoop", () => {
 
           const report = await morningLoop(ports);
 
-          assert.equal(checks.reads(), 2);
+          // One read to mark it ready for review, once settled, and one for the gate.
+          assert.equal(checks.reads(), 3);
           assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
           const outcome = report.iterations[0];
           assert.deepEqual(
@@ -3110,7 +3170,8 @@ describe("morningLoop", () => {
             grantInsideAnotherRunSpan(ports);
             ports.store.markGranted(GRANT_RECORDED, GRANTED_IN_TIME);
             postedACleanReview(ports);
-            ports.repoHost.checksStatus = () => "red";
+            // Green to mark it ready for review, then red for the gate.
+            ports.repoHost.checksStatus = readsInTurn("green", "red").checksStatus;
 
             const report = await morningLoop(ports);
 
@@ -4658,6 +4719,125 @@ describe("morningLoop", () => {
       assert.match(report.message, /nothing left to apply/i);
     });
 
+    describe("its checks", () => {
+      it("marks the pull request ready once they read green", async () => {
+        const ports = fakePorts();
+        queued(ports, 0);
+        ports.repoHost.checksStatus = readsInTurn("pending", "green").checksStatus;
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+        assert.deepEqual(ports.store.pendingReadies(), []);
+      });
+
+      it("leaves the pull request a draft, recorded for a later sweep, while they are still running after the wait", async () => {
+        const ports = fakePorts();
+        const ticket = queued(ports, 0);
+        ports.repoHost.checksStatus = () => "pending";
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(
+          ports.tracker.closedApplyReviewTickets.map((closed) => closed.ticket),
+          [ticket],
+        );
+        assert.deepEqual(ports.store.pendingReadies(), [
+          { pullRequest: PULL_REQUEST, deferredAt: new Date(FROZEN_NOW.getTime() + CHECKS_WAIT) },
+        ]);
+        assert.match(
+          ports.tracker.summaries[0]?.body ?? "",
+          /left draft: checks still running; a later run marks it ready for review once green/,
+        );
+      });
+
+      it("leaves the pull request a draft, unrecorded, when they are red", async () => {
+        const ports = fakePorts();
+        queued(ports, 0);
+        ports.repoHost.checksStatus = () => "red";
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.store.pendingReadies(), []);
+        assert.match(ports.tracker.summaries[0]?.body ?? "", /left draft: checks failing/);
+      });
+
+    });
+
+    describe("a draft pull request left waiting on running checks", () => {
+      function queuedPendingReady(ports: FakePorts, deferredAt: Date = FROZEN_NOW): void {
+        ports.store.register(PILOT, {});
+        ports.repoHost.setPullRequestDraft(PULL_REQUEST, true);
+        ports.store.markReadyPending(PULL_REQUEST, deferredAt);
+      }
+
+      it("is marked ready for review by a later sweep once its checks are green", async () => {
+        const ports = fakePorts();
+        queuedPendingReady(ports);
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+        assert.deepEqual(ports.store.pendingReadies(), []);
+        assert.match(
+          ports.tracker.summaries[0]?.body ?? "",
+          new RegExp(`## Ready for review settled\\n- ${PULL_REQUEST}: marked ready for review`),
+        );
+      });
+
+      it("stays pending, read once with no wait, while its checks are still running", async () => {
+        const ports = fakePorts();
+        queuedPendingReady(ports);
+        const checks = readsInTurn("pending");
+        ports.repoHost.checksStatus = checks.checksStatus;
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.equal(ports.store.pendingReadies().length, 1);
+        assert.equal(checks.reads(), 1);
+      });
+
+      it("is left for the developer once still running after a day", async () => {
+        const ports = fakePorts();
+        queuedPendingReady(ports, new Date(FROZEN_NOW.getTime() - 24 * 60 * 60 * 1000));
+        ports.repoHost.checksStatus = () => "pending";
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.store.pendingReadies(), []);
+        assert.match(
+          ports.tracker.summaries[0]?.body ?? "",
+          /left for you: checks still running after a day/,
+        );
+      });
+
+      it("is left a draft, dropped, when its checks have gone red", async () => {
+        const ports = fakePorts();
+        queuedPendingReady(ports);
+        ports.repoHost.checksStatus = () => "red";
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.store.pendingReadies(), []);
+      });
+
+      it("settles quietly once the developer marked it ready themselves", async () => {
+        const ports = fakePorts();
+        queuedPendingReady(ports);
+        ports.repoHost.setPullRequestDraft(PULL_REQUEST, false);
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.store.pendingReadies(), []);
+      });
+    });
+
     it("labels the pull request applied-review when no thread was open, so nothing ran", async () => {
       const ports = fakePorts();
       queued(ports, 0);
@@ -5371,7 +5551,8 @@ describe("morningLoop", () => {
 
         const report = await morningLoop(ports);
 
-        assert.equal(checks.reads(), 3);
+        // Three to mark it ready for review, once settled, and one for the gate.
+        assert.equal(checks.reads(), 4);
         assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
         const outcome = report.iterations[0];
         assert.equal(outcome?.kind === "applied-review" ? outcome.merge?.kind : undefined, "merged");
@@ -5380,12 +5561,13 @@ describe("morningLoop", () => {
       it("leaves the pull request ready-for-human when checks that read pending settle failing", async () => {
         const ports = fakePorts();
         queuedTurboable(ports);
-        const checks = readsInTurn("pending", "red");
+        // Green to mark it ready for review, then the gate's own wait.
+        const checks = readsInTurn("green", "pending", "red");
         ports.repoHost.checksStatus = checks.checksStatus;
 
         const report = await morningLoop(ports);
 
-        assert.equal(checks.reads(), 2);
+        assert.equal(checks.reads(), 3);
         assert.deepEqual(ports.repoHost.merged, []);
         const outcome = report.iterations[0];
         assert.deepEqual(
@@ -5534,16 +5716,76 @@ describe("morningLoop", () => {
         });
       });
 
+      it("leaves a pull request with failing checks a draft, never merged, labelled ready-for-human as the gate always did", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        ports.repoHost.checksStatus = () => "red";
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.repoHost.merged, []);
+        assert.deepEqual(
+          readyForHumanLabels(ports),
+          [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+        );
+        assert.deepEqual(ports.store.pendingMerges(), []);
+      });
+
+      it("marks a pull request ready, then merges it, on a later invocation once checks that outlasted the wait are green", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        ports.repoHost.setPullRequestDraft(PULL_REQUEST, true);
+        ports.repoHost.checksStatus = () => "pending";
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.repoHost.merged, []);
+        assert.equal(ports.store.pendingMerges().length, 1);
+        assert.equal(ports.store.pendingReadies().length, 1);
+
+        ports.repoHost.checksStatus = () => "green";
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+        assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+        assert.deepEqual(ports.store.pendingReadies(), []);
+        assert.deepEqual(ports.store.pendingMerges(), []);
+      });
+
+      it("leaves a turboable pull request for the developer, labelled, when its pending checks go red on a later invocation, rather than reading it withdrawn", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        ports.repoHost.setPullRequestDraft(PULL_REQUEST, true);
+        ports.repoHost.checksStatus = () => "pending";
+
+        await morningLoop(ports);
+
+        ports.repoHost.checksStatus = () => "red";
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.repoHost.merged, []);
+        assert.deepEqual(
+          readyForHumanLabels(ports),
+          [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+        );
+        assert.deepEqual(ports.store.pendingReadies(), []);
+        assert.deepEqual(ports.store.pendingMerges(), []);
+      });
+
       it("leaves the pull request unlabelled, reading checks for three minutes from the first pending read, and once more on the next iteration, posting no rebase or apply-review", async () => {
         const ports = fakePorts();
         queuedTurboable(ports);
-        const checks = readsInTurn("pending");
+        // Green to mark it ready for review; the gate's wait follows.
+        const checks = readsInTurn("green", "pending");
         ports.repoHost.checksStatus = checks.checksStatus;
 
         const report = await morningLoop(ports);
 
         assert.ok(report.iterations.length >= 2);
-        assert.equal(checks.reads(), 1 + CHECKS_WAIT / CHECKS_POLL_INTERVAL + 1);
+        assert.equal(checks.reads(), 1 + 1 + CHECKS_WAIT / CHECKS_POLL_INTERVAL + 1);
         assert.deepEqual(ports.repoHost.merged, []);
         assert.deepEqual(ports.repoHost.comments, []);
         assert.deepEqual(
@@ -5562,10 +5804,13 @@ describe("morningLoop", () => {
         queuedTurboable(ports);
         let read = 0;
         ports.repoHost.checksStatus = () => {
-          if (read++ > 0) {
-            throw new Error("checks unavailable");
+          if (read++ === 0) {
+            return "green";
           }
-          return "pending";
+          if (read === 2) {
+            return "pending";
+          }
+          throw new Error("checks unavailable");
         };
 
         const report = await morningLoop(ports);
@@ -5581,12 +5826,12 @@ describe("morningLoop", () => {
       it("reads checks once, with no wait, when the first read is already red", async () => {
         const ports = fakePorts();
         queuedTurboable(ports);
-        const checks = readsInTurn("red");
+        const checks = readsInTurn("green", "red");
         ports.repoHost.checksStatus = checks.checksStatus;
 
         await morningLoop(ports);
 
-        assert.equal(checks.reads(), 1);
+        assert.equal(checks.reads(), 2);
       });
 
       it("merges after one read, with no wait, when the first read is already green", async () => {
@@ -5597,20 +5842,21 @@ describe("morningLoop", () => {
 
         await morningLoop(ports);
 
-        assert.equal(checks.reads(), 1);
+        assert.equal(checks.reads(), 2);
         assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
       });
 
       it("reads checks zero times and never sleeps when the grant came too late", async (t) => {
         const ports = fakePorts();
         queuedTurboable(ports, { grantedAt: new Date(RUN_STARTED.getTime() + 60_000) });
-        const checks = readsInTurn("pending");
+        const checks = readsInTurn("green");
         ports.repoHost.checksStatus = checks.checksStatus;
         const sleep = t.mock.method(ports.clock, "sleep");
 
         await morningLoop(ports);
 
-        assert.equal(checks.reads(), 0);
+        // Only the one read that marks it ready for review.
+        assert.equal(checks.reads(), 1);
         assert.equal(sleep.mock.callCount(), 0);
       });
 
@@ -5622,20 +5868,21 @@ describe("morningLoop", () => {
           new Date(GRANTED_IN_TIME.getTime() - 60_000),
           new Date(GRANTED_IN_TIME.getTime() + 60_000),
         );
-        const checks = readsInTurn("pending");
+        const checks = readsInTurn("green");
         ports.repoHost.checksStatus = checks.checksStatus;
         const sleep = t.mock.method(ports.clock, "sleep");
 
         await morningLoop(ports);
 
-        assert.equal(checks.reads(), 0);
+        assert.equal(checks.reads(), 1);
         assert.equal(sleep.mock.callCount(), 0);
       });
 
       it("labels the pull request ready-for-human instead of merging when its checks are red", async () => {
         const ports = fakePorts();
         queuedTurboable(ports);
-        ports.repoHost.checksStatus = () => "red";
+        // Green to mark it ready for review, then red for the gate.
+        ports.repoHost.checksStatus = readsInTurn("green", "red").checksStatus;
 
         const report = await morningLoop(ports);
 

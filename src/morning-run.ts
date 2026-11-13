@@ -56,6 +56,8 @@ import type {
 import {
   LIVE_WRITE_LABEL,
   PENDING_MERGE_LIMIT,
+  PENDING_READY_LIMIT,
+  hasPendingReady,
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
   MergeabilityUnknown,
@@ -148,6 +150,8 @@ import {
   type LimitRefused,
   type MergeGate,
   type SettledMerge,
+  type SettledReady,
+  type ReadyHold,
   type NotCommented,
   type NotLabelled,
   type NotReadied,
@@ -211,6 +215,7 @@ type RunRecording = Pick<
   | "grants"
   | "consumeGrant"
   | "deferMerge"
+  | "deferReady"
 >;
 
 /**
@@ -340,6 +345,8 @@ export async function morningLoop(
   let uniformSyncSweepOutcomes: UniformSyncSweepOutcome[] = [];
   // What the pending-merge sweep settled, in the order it did.
   const settledMerges: SettledMerge[] = [];
+  // What the pending-ready sweep settled, in the order it did.
+  const settledReadies: SettledReady[] = [];
   // Populated from `worked.freed()` once `worked` exists: every ticket a dead
   // in-flight invocation had recorded, freed for this invocation to select.
   let freedTickets: FreedWorkedTicket[] = [];
@@ -407,6 +414,7 @@ export async function morningLoop(
     const inProgress = new Map<Promise<void>, Ticket>();
     // Asked once per turn of the loop below, ahead of selection.
     const sweepPendingMerges = pendingMergeSweep(ports, state, settledMerges);
+    const sweepPendingReadies = pendingReadySweep(ports, state, settledReadies, settledMerges);
     // What an iteration in progress threw, rethrown once the others finish:
     // only a port breaking its own contract gets here.
     const thrown: unknown[] = [];
@@ -438,6 +446,7 @@ export async function morningLoop(
           break;
         }
 
+        await sweepPendingReadies();
         await sweepPendingMerges();
         const chosen = await selecting.next(
           new Set(
@@ -640,6 +649,7 @@ export async function morningLoop(
     specReviewSweeps: specReviewSweepOutcomes,
     uniformSyncSweeps: uniformSyncSweepOutcomes,
     settledMerges,
+    settledReadies,
     freedFromDeadInvocation: freedTickets,
   };
 
@@ -1913,17 +1923,21 @@ async function postTurboComment(
  * straight into `Reviewed`: empty on success, `notReadied` naming the error
  * otherwise.
  *
+ * Only on green checks (`readyOnGreen`): `readyHeld` says the pull request
+ * was left a draft instead.
+ *
  * Never throws, same as `labelClosedPullRequest`: best effort, since the
  * ticket having closed is what matters. `summary.ts` renders `notReadied` to
  * the developer.
  */
 async function markCleanReviewReady(
   ports: MorningLoopPorts,
+  invocation: Pick<RunRecording, "deferReady">,
   pullRequest: PullRequestUrl,
-): Promise<{ notReadied?: NotReadied }> {
+): Promise<{ notReadied?: NotReadied; readyHeld?: ReadyHold }> {
   try {
-    await ports.repoHost.markPullRequestReady(pullRequest);
-    return {};
+    const held = await readyOnGreen(ports, invocation, pullRequest);
+    return held === undefined ? {} : { readyHeld: held };
   } catch (error: unknown) {
     return { notReadied: { error: errorMessage(error) } };
   }
@@ -2096,7 +2110,7 @@ async function runReview(
   // not — CONTEXT.md's "Clean review" — so it is marked ready for review
   // instead of getting `APPLY_REVIEW_COMMENT`.
   const readied = clean
-    ? await markCleanReviewReady(ports, ticket.pullRequest.url)
+    ? await markCleanReviewReady(ports, invocation, ticket.pullRequest.url)
     : {};
   const commented = turbo && !clean
     ? await postTurboComment(ports, ticket.pullRequest.url)
@@ -2109,9 +2123,11 @@ async function runReview(
   // by then, so nothing will come back to run the gate later, and the pull
   // request is left a draft, without `ready-for-human` — `notReadied`'s own
   // note is what tells the developer to mark it ready and take it from
-  // there by hand.
+  // there by hand. A draft held on its checks asks the gate with the checks
+  // the ready-mark read: failing ones are left for the developer, running
+  // ones recorded pending beside the ready-mark, never attempted on a draft.
   const merge = mergeGateContext !== undefined && clean && readied.notReadied === undefined
-    ? await mergeGate(ports, ticket, mergeGateContext)
+    ? await mergeGate(ports, ticket, mergeGateContext, heldChecks(readied.readyHeld))
     : undefined;
   const reviewed: Reviewed = {
     kind: "reviewed",
@@ -2420,6 +2436,7 @@ async function runApplyReview(
     );
     return finishApplyReview(
       ports,
+      invocation,
       ticket,
       { kind: "applied-review" },
       mergeGateContext,
@@ -2513,6 +2530,7 @@ async function runApplyReview(
 
   const finished = await finishApplyReview(
     ports,
+    invocation,
     ticket,
     {
       kind: "applied-review",
@@ -2552,6 +2570,7 @@ async function runApplyReview(
  */
 async function finishApplyReview(
   ports: MorningLoopPorts,
+  invocation: Pick<RunRecording, "deferReady">,
   ticket: ApplyReviewTicket,
   applied: AppliedReview,
   mergeGateContext: MergeGateContext | undefined,
@@ -2568,8 +2587,9 @@ async function finishApplyReview(
       };
     }
   }
+  let readyHeld: ReadyHold | undefined;
   try {
-    await ports.repoHost.markPullRequestReady(pullRequest);
+    readyHeld = await readyOnGreen(ports, invocation, pullRequest);
   } catch (error: unknown) {
     return {
       ...applied,
@@ -2596,12 +2616,120 @@ async function finishApplyReview(
     ...applied,
     ...labelled,
     ...(stillBlocked !== undefined && { demoted: stillBlocked }),
+    ...(readyHeld !== undefined && { readyHeld }),
   };
+  // A pull request left a draft is never merged: the gate is given the checks
+  // the ready-mark already read, so failing ones are left for the developer
+  // as before and running ones are recorded pending beside the ready-mark.
   if (mergeGateContext === undefined) {
     return closed;
   }
-  const merge = await mergeGate(ports, ticket, mergeGateContext);
+  const merge = await mergeGate(ports, ticket, mergeGateContext, heldChecks(readyHeld));
   return { ...closed, merge };
+}
+
+/**
+ * Marks `pullRequest` ready for review only on green checks, read through
+ * `settledChecks` — no checks at all reads green, as the merge gate does
+ * (ADR 0016). Checks still running when the wait ends leave it a draft,
+ * recorded in `invocation` for `pendingReadySweep`; failing checks leave it
+ * a draft, unmarked. Comes back with why it was held, or undefined once
+ * marked. Throws what a check read or the ready-mark throws; a record that
+ * could not be written is warned of rather than raised, since the pull
+ * request is simply left for the developer.
+ */
+async function readyOnGreen(
+  ports: MorningLoopPorts,
+  invocation: Pick<RunRecording, "deferReady">,
+  pullRequest: PullRequestUrl,
+): Promise<ReadyHold | undefined> {
+  const checks = await settledChecks(ports.repoHost, ports.clock, pullRequest);
+  if (checks === "red") {
+    return { kind: "checks-failing" };
+  }
+  if (checks === "pending") {
+    await invocation.deferReady(pullRequest, ports.clock.now()).catch((error: unknown) => {
+      console.warn(`Could not record the pending ready of ${pullRequest}: ${errorMessage(error)}`);
+    });
+    return { kind: "checks-running" };
+  }
+  await ports.repoHost.markPullRequestReady(pullRequest);
+  return undefined;
+}
+
+/** The checks a draft's ready-mark read, as `mergeGate` is given them; undefined once it was marked. */
+function heldChecks(held: ReadyHold | undefined): ChecksStatus | undefined {
+  return held === undefined ? undefined : held.kind === "checks-failing" ? "red" : "pending";
+}
+
+/**
+ * A sweep over the draft pull requests whose ready-mark waited on checks
+ * still running (`State.pendingReadies`), built and called as
+ * `pendingMergeSweep` is. Each call reads the checks of every one once
+ * more, with no wait: green marks it ready for review, still running stays
+ * pending until `PENDING_READY_LIMIT` and then is left for the developer, and
+ * failing checks leave it a draft, unmarked. A pull request closed, merged or
+ * already marked ready by hand settles quietly. Never throws: a failure
+ * leaves it pending for the next call.
+ */
+function pendingReadySweep(
+  ports: MorningLoopPorts,
+  state: Pick<InvocationState, "pendingReadies" | "settleReady" | "pendingMerges" | "settleMerge">,
+  settled: SettledReady[],
+  settledMerges: SettledMerge[],
+): () => Promise<void> {
+  const seen = new Set(state.pendingReadies().map((pending) => pending.pullRequest));
+  return async () => {
+    const due = state.pendingReadies().filter((pending) => seen.has(pending.pullRequest));
+    for (const pending of state.pendingReadies()) {
+      seen.add(pending.pullRequest);
+    }
+    for (const { pullRequest, deferredAt } of due) {
+      try {
+        if (
+          (await ports.repoHost.pullRequestState(pullRequest)) !== "open" ||
+          !(await ports.repoHost.isPullRequestDraft(pullRequest))
+        ) {
+          await state.settleReady(pullRequest);
+          continue;
+        }
+        const checks = await ports.repoHost.readChecksStatus(pullRequest);
+        let held: string | undefined;
+        if (checks === "green") {
+          await ports.repoHost.markPullRequestReady(pullRequest);
+          settled.push({ pullRequest, outcome: "ready-for-review" });
+        } else if (checks === "red") {
+          held = "checks failing";
+        } else if (ports.clock.now().getTime() - deferredAt.getTime() >= PENDING_READY_LIMIT) {
+          held = "checks still running after a day";
+        } else {
+          continue;
+        }
+        if (held !== undefined) {
+          // A turboable pull request's merge is pending beside this ready
+          // record, and `pendingMergeSweep` would read the draft left here as
+          // withdrawn consent: the merge is left for the developer now, as
+          // the gate would have, and the one line says so.
+          const merge = state.pendingMerges().find((record) => record.pullRequest === pullRequest);
+          if (merge === undefined) {
+            settled.push({
+              pullRequest,
+              outcome: checks === "red" ? { kind: "checks-failing" } : "left-for-you",
+            });
+          } else {
+            const verdict = await leftForHuman(ports, pullRequest, held);
+            if (verdict.kind === "left-for-human") {
+              settledMerges.push({ pullRequest, merge: verdict });
+            }
+            await state.settleMerge(merge);
+          }
+        }
+        await state.settleReady(pullRequest);
+      } catch (error: unknown) {
+        console.warn(`Could not settle the pending ready of ${pullRequest}: ${errorMessage(error)}`);
+      }
+    }
+  };
 }
 
 /**
@@ -2614,7 +2742,9 @@ async function finishApplyReview(
  * the one apply-review run, or the one clean review, already in the loop: no
  * `/rebase`, whatever it finds. Checks still pending when that wait ends
  * leave the pull request unlabelled, its merge recorded pending for
- * `pendingMergeSweep`, which reads them again. Never throws:
+ * `pendingMergeSweep`, which reads them again. `readChecks`, given where
+ * the ready-mark already read those checks and left the draft, stands in for
+ * the wait: the gate takes that result as the checks. Never throws:
  * every read this makes past `implementation` and `span` is guarded, so a
  * tracker or repo host failure comes back as a verdict rather than sinking a
  * ticket that has already closed.
@@ -2629,11 +2759,12 @@ async function mergeGate(
   ports: MorningLoopPorts,
   ticket: PullRequestTicket,
   context: MergeGateContext,
+  readChecks?: ChecksStatus,
 ): Promise<MergeGate> {
   // Read before the verdict and used up after it, whatever it is: a record
   // vouches for one firing of the gate (ADR 0012).
   const grants = await context.invocation.grants().catch(() => []);
-  let verdict = await decideMerge(ports, ticket, context, grants);
+  let verdict = await decideMerge(ports, ticket, context, grants, readChecks);
   const { implementation } = context;
   if (verdict.kind === "checks-pending" && implementation !== undefined) {
     // Recorded before the grant is used up: a record the gate could not write
@@ -2681,7 +2812,7 @@ async function mergeGate(
  */
 function pendingMergeSweep(
   ports: MorningLoopPorts,
-  state: Pick<InvocationState, "pendingMerges" | "settleMerge">,
+  state: Pick<InvocationState, "pendingMerges" | "pendingReadies" | "settleMerge">,
   settled: SettledMerge[],
 ): () => Promise<void> {
   const seen = new Set(state.pendingMerges().map(ticketKey));
@@ -2702,6 +2833,11 @@ function pendingMergeSweep(
           if (!open.truncated) {
             await state.settleMerge(pending);
           }
+          continue;
+        }
+        // Still a draft only because its ready-mark waits on those checks too:
+        // the ready sweep, run first, decides it, not the developer.
+        if (hasPendingReady(state.pendingReadies(), pending.pullRequest)) {
           continue;
         }
         if (await ports.repoHost.isPullRequestDraft(pending.pullRequest)) {
@@ -2743,6 +2879,7 @@ async function decideMerge(
   ticket: PullRequestTicket,
   context: MergeGateContext,
   grants: readonly GrantRecord[],
+  readChecks: ChecksStatus | undefined,
 ): Promise<MergeGate> {
   const { implementation } = context;
   if (implementation === undefined) {
@@ -2792,8 +2929,11 @@ async function decideMerge(
     }
   }
 
+  // Checks the caller's ready-mark already read are not waited on again.
   return mergeWhenGreen(ports, ticket.pullRequest.url, implementation, () =>
-    settledChecks(ports.repoHost, ports.clock, ticket.pullRequest.url),
+    readChecks !== undefined
+      ? Promise.resolve(readChecks)
+      : settledChecks(ports.repoHost, ports.clock, ticket.pullRequest.url),
   );
 }
 

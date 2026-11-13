@@ -9,11 +9,11 @@ const HOME = import.meta.dir.split('/').slice(0, -3).join('/')
 const now = Date.parse('2026-06-15T17:30:00Z')
 const iso = (ago: number) => new Date(now - ago).toISOString()
 
-/** Stands for the engine beneath the mod: the manager home's files are `files`, and the pane's process runs are recorded; `configDir` is the Claude config directory the shell reports. */
+/** Stands for the engine beneath the mod: the manager home's files are `files`, and the pane's process runs are recorded; `configDir` is the Claude config directory the shell reports and `managerHome` the `SIDE_PROJECTS_MANAGER_HOME` it reports, empty when unset. */
 function engine(
   on: On,
   files: Record<string, string>,
-  { ran = [], reads = [], outcome = { exitCode: 0, stderr: '' }, alive = true, killStderr = '', configDir = '' }: { ran?: Ran[]; reads?: string[]; outcome?: { exitCode: number; stderr: string }; alive?: boolean; killStderr?: string; configDir?: string } = {},
+  { ran = [], reads = [], outcome = { exitCode: 0, stderr: '' }, alive = true, killStderr = '', configDir = '', managerHome = '' }: { ran?: Ran[]; reads?: string[]; outcome?: { exitCode: number; stderr: string }; alive?: boolean; killStderr?: string; configDir?: string; managerHome?: string } = {},
 ) {
   const clock = mock.clock(on, { now })
   on('fs.read', (_$, e) => {
@@ -24,6 +24,7 @@ function engine(
   })
   on('process.run', (_$, { argv, init }) => {
     if (argv[0] === 'kill') return { value: { exitCode: alive ? 0 : 1, stdout: '', stderr: alive ? '' : killStderr } } as never
+    if (argv[0] === 'sh' && argv[2]?.includes('SIDE_PROJECTS_MANAGER_HOME')) return { value: { exitCode: 0, stdout: managerHome, stderr: '' } } as never
     if (argv[0] === 'sh') return { value: { exitCode: 0, stdout: configDir, stderr: '' } } as never
     ran.push({ argv, cwd: init?.cwd })
     return { value: { exitCode: outcome.exitCode, stdout: '', stderr: outcome.stderr } } as never
@@ -227,6 +228,16 @@ test('start now runs the start script from the manager home, passing the home to
   expect(script).toContain('morning-run.ts')
 })
 
+test('start now runs the start script from the checkout when the manager home lies elsewhere', async ($, on) => {
+  const ran: Ran[] = []
+  engine(on, {}, { ran, managerHome: '/elsewhere/home' })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'start' })
+  expect(ran.length).toBe(1)
+  expect([ran[0].argv[4], ran[0].cwd]).toEqual([HOME, '/elsewhere/home'])
+})
+
 test('start now says why when the start script exits non-zero', async ($, on) => {
   engine(on, {}, { outcome: { exitCode: 1, stderr: 'node is not on PATH' } })
   await $.command.run({ command: 'loop-pane', args: '' })
@@ -332,4 +343,25 @@ test("the spend line counts the developer's own use from the session logs under 
   })
   await $.command.run({ command: 'loop-pane', args: '' })
   expect(await texts(await mount($))).toContain("5h window: 4.2K / 5.0K spendable tokens (84%)")
+})
+
+test('the pane reads the manager home from SIDE_PROJECTS_MANAGER_HOME when it is set', async ($, on) => {
+  const elsewhere = '/elsewhere/home'
+  engine(on, { [`${elsewhere}/journal.json`]: JSON.stringify(running), [`${elsewhere}/state.json`]: JSON.stringify(state), [`${elsewhere}/budget.json`]: JSON.stringify({ fiveHourAllowance: 5000 }) }, { managerHome: elsewhere })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  expect(await texts(await mount($))).toContain('o/d#9')
+})
+
+test('halt and resume run the manager command from SIDE_PROJECTS_MANAGER_HOME when it is set', async ($, on) => {
+  const ran: Ran[] = []
+  const elsewhere = '/elsewhere/home'
+  engine(on, { [`${elsewhere}/journal.json`]: JSON.stringify(running) }, { ran, managerHome: elsewhere })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'halt' })
+  await ui.press({ key: 'resume' })
+  expect(ran).toEqual([
+    { argv: ['npm', 'run', '--silent', 'halt'], cwd: elsewhere },
+    { argv: ['npm', 'run', '--silent', 'resume'], cwd: elsewhere },
+  ])
 })

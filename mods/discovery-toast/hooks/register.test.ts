@@ -14,16 +14,20 @@ function engine(
     unreadable = { isSo: false },
     contents = {},
     isHome = true,
-  }: { unreadable?: { isSo: boolean }; contents?: Record<string, string>; isHome?: boolean } = {},
+    home = '',
+  }: { unreadable?: { isSo: boolean }; contents?: Record<string, string>; isHome?: boolean; home?: string } = {},
 ) {
   const seen = { statuses: [] as (string | undefined)[], toasts: [] as string[] }
+  const listed: string[] = []
   let release = () => {}
   let polled = () => {}
   let ticked = new Promise<void>(resolve => (release = resolve))
 
   on('session.start', () => ({ cwd: '/session' }))
   on('command.register', () => ({ value: undefined }) as never)
+  on('process.run', () => ({ value: { exitCode: 0, stdout: home, stderr: '' } }) as never)
   on('fs.list', (_$, e) => {
+    listed.push(e.path)
     const parts = e.path.split('/')
     const inside = parts.at(-2) === 'discoveries' ? files[parts.at(-1)!] : parts.at(-1) === 'discoveries' ? Object.keys(files) : undefined
     if (inside === undefined || unreadable.isSo) throw new Error('missing')
@@ -51,6 +55,7 @@ function engine(
   })
   return {
     seen,
+    listed,
     tick: () => {
       const done = new Promise<void>(resolve => (polled = resolve))
       release()
@@ -291,4 +296,11 @@ test('/discoveries says none are pending in a manager home with no discoveries f
 
   const out = await $.command.run({ command: 'discoveries' })
   expect(out.text).toBe('No pending discoveries.')
+})
+
+test('the discoveries folder is read from SIDE_PROJECTS_MANAGER_HOME when it is set', async ($, on) => {
+  const { listed } = engine(on, { 'run-a': ['1.json'] }, { home: '/elsewhere/home' })
+  await $.session.start({ cwd: '/session' } as never)
+
+  expect(listed).toContain('/elsewhere/home/discoveries')
 })

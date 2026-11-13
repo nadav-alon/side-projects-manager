@@ -440,6 +440,7 @@ export class FakeRepoHost implements RepoHost {
 
   async markPullRequestReady(pullRequest: PullRequestUrl): Promise<void> {
     this.readyMarked.push(pullRequest);
+    this.#draftPullRequests.delete(pullRequest);
   }
 
   async demoteClosingReference(

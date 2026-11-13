@@ -1,11 +1,7 @@
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
+import { resolveManagerHome } from './manager-home/home'
 import { managerHomeReader, type HomeFs } from './manager-home/reader'
-
-/** The manager home: the plugin sits at `<home>/mods/<name>`, so the home is two levels up. */
-function managerHome(pluginRoot: string): string {
-  return pluginRoot.replace(/\/+$/, '').split('/').slice(0, -2).join('/')
-}
 
 /** How often the discoveries folder is read, in milliseconds. */
 const POLL_MS = 5000
@@ -111,8 +107,8 @@ function inFilingOrder(pending: string[]): string[] {
 }
 
 /** The manager home the mod sits in, the file reading it goes through and its reader. */
-function readerFor($: { plugin: { root: string }; fs: HomeFs }) {
-  const home = managerHome($.plugin.root)
+async function readerFor($: Pick<EngineInterface, 'plugin' | 'process'> & { fs: HomeFs }) {
+  const home = await resolveManagerHome(argv => $.process.run(argv), $.plugin.root)
   const read: Read = path => $.fs.read(path)
   return { home, read, reader: managerHomeReader({ read, list: path => $.fs.list(path) }, home) }
 }
@@ -132,7 +128,7 @@ async function isManagerHome(read: Read, home: string): Promise<boolean> {
 
 export const register: Register = on => {
   on('command.run', { command: 'discoveries' }, async $ => {
-    const { home, read, reader } = readerFor($)
+    const { home, read, reader } = await readerFor($)
     const pending = await reader.discoveries()
     // No discoveries folder in a real home is none pending; outside a home there is no home to read.
     if (pending === undefined && !(await isManagerHome(read, home))) {
@@ -148,7 +144,7 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'discoveries', description: 'List the pending discoveries in full' })
-    const { home, read, reader } = readerFor($)
+    const { home, read, reader } = await readerFor($)
 
     // Every discovery the session has seen, in the order first seen: the ones present at start are
     // never toasted, and one that goes and comes back is not toasted twice.

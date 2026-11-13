@@ -805,6 +805,19 @@ describe("containerSandbox", () => {
     assert.match(asked, /do not push, and do\s+not open a pull request/);
   });
 
+  it("asks an implementation run to run the repo's typecheck and tests and leave the branch green", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.match(asked, /run the repo's typecheck and its tests and leave the branch green/);
+  });
+
   it("asks for a self-caused nit fixed in its own commit, and any other nit listed under the fixed heading in the pull request body", async () => {
     const directory = await project();
     let asked = "";
@@ -3938,6 +3951,21 @@ describe("containerSandbox.applyReview", () => {
       asked,
     );
     assert.match(asked, /unattended/);
+  });
+
+  it("asks an apply-review run to leave the branch green, and allows one re-run of a failed job when no defect is found", async () => {
+    const { directory } = await hostedProject();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.match(asked, /run the repo's typecheck and its tests and leave the branch green/);
+    assert.match(asked, /re-running the failed job once instead of changing code/);
+    assert.match(asked, /if it\s+is still red, say so in your reply to that thread/);
   });
 
   it("asks the agent to push after each commit rather than once at the end", async () => {
