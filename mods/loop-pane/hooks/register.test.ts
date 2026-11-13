@@ -371,7 +371,7 @@ test('halt and resume run the manager command from SIDE_PROJECTS_MANAGER_HOME wh
 // this only checks the pane still draws after a clear, and passes without the restart in `register.tsx`.
 test('the pane shows the invocation again after a /clear', async ($, on) => {
   const clock = engine(on, home)
-  on('session.end', () => ({ value: {} }) as never)
+  on('session.end', (_$, e) => ({ value: { sessionId: e.sessionId } }) as never)
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
   await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } } as never)
