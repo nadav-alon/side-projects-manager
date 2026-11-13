@@ -163,8 +163,8 @@ export class FakeRepoHost implements RepoHost {
   /** What `readChecksStatus` answers for a pull request. Green, unless a test says otherwise. */
   checksStatus: (pullRequest: PullRequestUrl) => ChecksStatus = () => "green";
 
-  /** What `readChecksPending` answers for a pull request. Pending when `checksStatus` reads pending, unless a test says otherwise. */
-  checksPending: (pullRequest: PullRequestUrl) => boolean = (pullRequest) => this.checksStatus(pullRequest) === "pending";
+  /** What `readChecksPending` answers for a pull request. Not pending, unless a test says otherwise; scripted apart from `checksStatus`, as the two are separate reads. */
+  checksPending: (pullRequest: PullRequestUrl) => boolean = () => false;
 
   /** What `readFailingChecks` answers for a pull request. None, unless a test says otherwise. */
   failingChecks: (pullRequest: PullRequestUrl) => FailingCheck[] = () => [];

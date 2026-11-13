@@ -320,8 +320,11 @@ describe("FakeRepoHost listPullRequestsClosingIssues", () => {
 });
 
 describe("FakeRepoHost readChecksPending", () => {
-  it("answers whether checksStatus is pending by default, and with what checksPending is scripted to say", async () => {
+  it("answers not pending by default even when checksStatus is scripted pending, and with what checksPending is scripted to say", async () => {
     const host = new FakeRepoHost();
+    assert.equal(await host.readChecksPending(PULL_REQUEST), false);
+
+    host.checksStatus = () => "pending";
     assert.equal(await host.readChecksPending(PULL_REQUEST), false);
 
     host.checksPending = () => true;
