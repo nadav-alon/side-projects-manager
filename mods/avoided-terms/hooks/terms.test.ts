@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
-import { avoidedTermsIn, avoidedUses, issueTextOf, proseOf } from './terms.ts'
+import { avoidedTermsIn, avoidedUses, proseOf } from './terms.ts'
 
 const CONTEXT = `# Glossary
 
@@ -96,12 +96,5 @@ describe('proseOf', () => {
 
   it('leaves out CONTEXT.md, which lists the avoided terms', () => {
     assert.equal(proseOf('/repo/CONTEXT.md', '_Avoid_: run'), '')
-  })
-})
-
-describe('issueTextOf', () => {
-  it('keeps the title and body values, not the other flags', () => {
-    const command = 'gh issue edit 12 --add-label ready --title "Each run" -b \'a session\' --repo o/run'
-    assert.equal(issueTextOf(command), 'Each run\na session')
   })
 })

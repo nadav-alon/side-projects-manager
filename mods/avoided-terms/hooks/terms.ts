@@ -70,9 +70,3 @@ export function proseOf(path: string, content: string): string {
   }
   return ''
 }
-
-/** The values of the `--title`/`-t` and `--body`/`-b` flags in a shell command: the prose of an issue or pull request, without its flags and arguments. */
-export function issueTextOf(command: string): string {
-  const values = command.matchAll(/(?:^|\s)(?:--title|--body|-t|-b)(?:\s+|=)("(?:[^"\\]|\\[\s\S])*"|'[^']*'|\S+)/g)
-  return [...values].map(m => (m[1] ?? '').replace(/^["']|["']$/g, '')).join('\n').replace(/`[^`\n]*`/g, '')
-}
