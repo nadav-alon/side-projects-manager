@@ -5094,7 +5094,7 @@ describe("morningLoop", () => {
           const ports = fakePorts();
           redUnderImplementation(ports);
           const implementation = ports.tracker.addIneligibleTicket(PILOT, {
-            number: IMPLEMENTATION + 1,
+            number: issueNumber(8),
             title: "Another",
           });
           ports.store.markMergePending(implementation, PULL_REQUEST, FROZEN_NOW);
@@ -5115,7 +5115,7 @@ describe("morningLoop", () => {
           redUnderImplementation(ports);
           ports.repoHost.labelled.push({ pullRequest: PULL_REQUEST, label: APPLY_REVIEW_RETRIED });
           const implementation = ports.tracker.addIneligibleTicket(PILOT, {
-            number: IMPLEMENTATION + 1,
+            number: issueNumber(8),
             title: "Another",
           });
           ports.store.markMergePending(implementation, PULL_REQUEST, FROZEN_NOW);
