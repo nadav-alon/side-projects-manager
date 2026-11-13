@@ -748,6 +748,12 @@ export interface AppliedReview {
    */
   readyHeld?: ReadyHold;
   /**
+   * Set when `readyHeld` is `checks-failing`: what became of the red checks.
+   * No merge gate runs either way — the retry's own finish fires it once the
+   * checks are green.
+   */
+  checksRetry?: ChecksRetry;
+  /**
    * What the merge gate did, per `CONTEXT.md`'s "Turboable" and ADR 0009.
    * Present only on a turbo project, once the ticket has closed
    * (`notClosed` absent): a project that is not turbo never asks, so `merge`
@@ -831,6 +837,17 @@ export interface SettledReady {
 }
 
 /**
+ * What an apply-review run's red checks came to. `queued`: the failing
+ * checks were posted as review threads and `ticket`, the pull request's one
+ * automatic retry, opened to fix them; `checks` names the failing ones.
+ * `exhausted`: that retry was already spent, so this iteration's ticket was
+ * handed back, open, and the pull request stays a draft.
+ */
+export type ChecksRetry =
+  | { kind: "queued"; ticket: Ticket; checks: string[] }
+  | { kind: "exhausted" };
+
+/**
  * Why an apply-review iteration left its ticket open, and the error that
  * stopped it. `demote-failed` alone names `ticket`, the implementation
  * ticket whose `Closes #N.` the run could not rewrite to `Part of #N.`: the
@@ -841,6 +858,7 @@ export type ApplyReviewNotClosed =
   | { kind: "check-failed"; error: string }
   | { kind: "demote-failed"; error: string; ticket: Ticket }
   | { kind: "ready-failed"; error: string }
+  | { kind: "retry-failed"; error: string }
   | { kind: "close-failed"; error: string };
 
 /**

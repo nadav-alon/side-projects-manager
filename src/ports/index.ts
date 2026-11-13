@@ -193,6 +193,7 @@ export {
   isMarkedReply,
   MergeabilityUnknown,
   NEEDS_REBASE,
+  APPLY_REVIEW_RETRIED,
   NEEDS_REBASE_LABEL,
   NIT_SECTION_HEADING,
   OPEN_PULL_REQUEST_LIMIT,

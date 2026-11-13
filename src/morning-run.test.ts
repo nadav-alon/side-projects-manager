@@ -4602,6 +4602,7 @@ describe("morningLoop", () => {
     const PULL_REQUEST = pullRequestUrl(
       "https://github.com/nadav-alon/pilot/pull/12",
     );
+    const IMPLEMENTATION = issueNumber(7);
     /** When the run's replies land: after it started, as every real one does. */
     const DURING_THE_RUN = new Date(FROZEN_NOW.getTime() + 60_000);
 
@@ -4810,18 +4811,102 @@ describe("morningLoop", () => {
         );
       });
 
-      it("leaves the pull request a draft, unrecorded, when they are red", async () => {
-        const ports = fakePorts();
-        queued(ports, 0);
-        ports.repoHost.checksStatus = () => "red";
+      describe("when they are red", () => {
+        const TEST_CHECK = {
+          name: "test",
+          errorLines: ["Error: boom"],
+          runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/1"),
+        };
 
-        await morningLoop(ports);
+        /** An apply-review ticket under the implementation ticket it is for, as the workflow opens one. */
+        function queuedUnderImplementation(ports: FakePorts, number = 43): ApplyReviewTicket {
+          ports.store.register(PILOT, {});
+          if (number === 43) {
+            ports.tracker.addIneligibleTicket(PILOT, { number: IMPLEMENTATION, title: "Add the thing" });
+          }
+          return ports.tracker.addEligibleTicket(PILOT, {
+            number: issueNumber(number),
+            title: "Apply the review on the draft pull request for #7",
+            pullRequest: { kind: "apply-review", url: PULL_REQUEST },
+            parent: IMPLEMENTATION,
+          }) as ApplyReviewTicket;
+        }
 
-        assert.deepEqual(ports.repoHost.readyMarked, []);
-        assert.deepEqual(ports.store.pendingReadies(), []);
-        assert.match(ports.tracker.summaries[0]?.body ?? "", /left draft: checks failing/);
+        /**
+         * Red, with `TEST_CHECK` failing, until a run answers the check's
+         * thread; `fixes` says whether that run also turns the checks green.
+         */
+        function redUntilRun(ports: FakePorts, { fixes }: { fixes: boolean }): void {
+          let green = false;
+          ports.repoHost.checksStatus = () => (green ? "green" : "red");
+          ports.repoHost.failingChecks = () => (green ? [] : [TEST_CHECK]);
+          ports.sandbox.applyReviewResult = () => {
+            ports.repoHost.answerApplyReviewThread(PULL_REQUEST, 0, "applied", "fixed it", DURING_THE_RUN);
+            green = fixes;
+            return { kind: "finished", output: "", tokensUsed: tokenCount(0) };
+          };
+        }
+
+        it("posts each failing check as a thread, queues one apply-review ticket, and marks the pull request ready once its run leaves them green", async () => {
+          const ports = fakePorts();
+          const ticket = queuedUnderImplementation(ports);
+          redUntilRun(ports, { fixes: true });
+
+          await morningLoop(ports);
+
+          assert.match(ports.repoHost.reviewThreads[0]?.body ?? "", /Failing check: test/);
+          assert.equal(ports.repoHost.reviewThreads.length, 1);
+          assert.equal(ports.tracker.applyReviewTickets.length, 1);
+          const [retry] = ports.tracker.applyReviewTickets;
+          assert.equal(retry?.parent.number, IMPLEMENTATION);
+          assert.equal(retry?.pullRequest, PULL_REQUEST);
+          assert.deepEqual(
+            ports.tracker.closedApplyReviewTickets.map((closed) => closed.ticket.number),
+            [ticket.number, retry?.ticket.number],
+          );
+          assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+          assert.equal(ports.tracker.handbacks.length, 0);
+          assert.match(
+            ports.tracker.summaries[0]?.body ?? "",
+            new RegExp(`checks failing \\(test\\); queued apply-review #${retry?.ticket.number} to fix them`),
+          );
+        });
+
+        it("hands the retry's ticket back, the pull request still a draft, when it is red again", async () => {
+          const ports = fakePorts();
+          queuedUnderImplementation(ports);
+          redUntilRun(ports, { fixes: false });
+
+          await morningLoop(ports);
+
+          const [retry] = ports.tracker.applyReviewTickets;
+          assert.equal(ports.tracker.applyReviewTickets.length, 1);
+          assert.deepEqual(ports.repoHost.readyMarked, []);
+          assert.deepEqual(
+            ports.tracker.handbacks.map((handback) => handback.ticket.number),
+            [retry?.ticket.number],
+          );
+          assert.match(
+            ports.tracker.summaries[0]?.body ?? "",
+            /left for you: checks still failing after one fix attempt/,
+          );
+          assert.match(waitingOn(ports), /left for you: checks still failing after one fix attempt/);
+        });
+
+        it("does not count a developer's /apply-review toward the limit", async () => {
+          const ports = fakePorts();
+          queuedUnderImplementation(ports);
+          await morningLoop(ports);
+          queuedUnderImplementation(ports, 45);
+          redUntilRun(ports, { fixes: true });
+
+          await morningLoop(ports);
+
+          assert.equal(ports.tracker.applyReviewTickets.length, 1);
+          assert.equal(ports.tracker.handbacks.length, 0);
+          assert.deepEqual(ports.repoHost.readyMarked.length, 2);
+        });
       });
-
     });
 
     describe("a draft pull request left waiting on running checks", () => {
@@ -5774,19 +5859,41 @@ describe("morningLoop", () => {
         });
       });
 
-      it("leaves a pull request with failing checks a draft, never merged, labelled ready-for-human as the gate always did", async () => {
+      it("leaves a pull request with failing checks a draft, unmerged, and keeps the grant for the retry it queues", async () => {
         const ports = fakePorts();
-        queuedTurboable(ports);
+        queuedTurboable(ports, { handedBack: true });
+        let green = false;
+        ports.repoHost.checksStatus = () => (green ? "green" : "red");
+        ports.repoHost.failingChecks = () => [{ name: "test", errorLines: [] }];
+        ports.sandbox.applyReviewResult = () => {
+          ports.repoHost.answerApplyReviewThread(PULL_REQUEST, 0, "applied", "fixed it", new Date(FROZEN_NOW.getTime() + 60_000));
+          green = true;
+          return { kind: "finished", output: "", tokensUsed: tokenCount(0) };
+        };
+
+        await morningLoop(ports);
+
+        assert.equal(ports.tracker.applyReviewTickets.length, 1);
+        assert.deepEqual(readyForHumanLabels(ports), []);
+        assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+        assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+      });
+
+      it("leaves a pull request still failing after the retry a draft, unmerged, its ticket handed back", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports, { handedBack: true });
         ports.repoHost.checksStatus = () => "red";
+        ports.repoHost.failingChecks = () => [{ name: "test", errorLines: [] }];
+        ports.sandbox.applyReviewResult = () => {
+          ports.repoHost.answerApplyReviewThread(PULL_REQUEST, 0, "applied", "tried", new Date(FROZEN_NOW.getTime() + 60_000));
+          return { kind: "finished", output: "", tokensUsed: tokenCount(0) };
+        };
 
         await morningLoop(ports);
 
         assert.deepEqual(ports.repoHost.readyMarked, []);
         assert.deepEqual(ports.repoHost.merged, []);
-        assert.deepEqual(
-          readyForHumanLabels(ports),
-          [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
-        );
+        assert.equal(ports.tracker.handbacks.length, 1);
         assert.deepEqual(ports.store.pendingMerges(), []);
       });
 

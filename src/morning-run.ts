@@ -60,6 +60,7 @@ import {
   hasPendingReady,
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
+  APPLY_REVIEW_RETRIED,
   MergeabilityUnknown,
   READY_FOR_HUMAN_PULL_REQUEST_LABEL,
   REVIEWED_LABEL,
@@ -134,6 +135,7 @@ import {
   failureOf,
   type AheadOfGateFailure,
   type AppliedReview,
+  type ChecksRetry,
   type BlockedOnExisting,
   type BudgetExhausted,
   type CutOff,
@@ -2609,6 +2611,21 @@ async function finishApplyReview(
       notClosed: { kind: "ready-failed", error: errorMessage(error) },
     };
   }
+  let checksRetry: ChecksRetry | undefined;
+  if (readyHeld?.kind === "checks-failing") {
+    try {
+      checksRetry = await retryRedChecks(ports, ticket);
+      if (checksRetry.kind === "exhausted") {
+        await ports.tracker.handBack(ticket, CHECKS_STILL_FAILING_COMMENT(pullRequest));
+        return { ...applied, readyHeld, checksRetry };
+      }
+    } catch (error: unknown) {
+      return {
+        ...applied,
+        notClosed: { kind: "retry-failed", error: errorMessage(error) },
+      };
+    }
+  }
   try {
     await ports.tracker.closeApplyReviewTicket(
       ticket,
@@ -2630,15 +2647,50 @@ async function finishApplyReview(
     ...labelled,
     ...(stillBlocked !== undefined && { demoted: stillBlocked }),
     ...(readyHeld !== undefined && { readyHeld }),
+    ...(checksRetry !== undefined && { checksRetry }),
   };
   // A pull request left a draft is never merged: the gate is given the checks
-  // the ready-mark already read, so failing ones are left for the developer
-  // as before and running ones are recorded pending beside the ready-mark.
-  if (mergeGateContext === undefined) {
+  // the ready-mark already read, so running ones are recorded pending beside
+  // the ready-mark. A queued retry takes the gate's place: its own finish
+  // fires it, once the checks are green.
+  if (mergeGateContext === undefined || checksRetry !== undefined) {
     return closed;
   }
   const merge = await mergeGate(ports, ticket, mergeGateContext, heldChecks(readyHeld));
   return { ...closed, merge };
+}
+
+/** The comment an apply-review ticket is handed back with once its pull request is red after the one automatic retry. */
+const CHECKS_STILL_FAILING_COMMENT = (pullRequest: PullRequestUrl): string =>
+  `The checks on ${pullRequest} are still failing after one automatic fix attempt. It stays a draft: left for you.`;
+
+/**
+ * What a red apply-review finish comes to. A pull request carrying
+ * `APPLY_REVIEW_RETRIED` has spent its one automatic retry, so it is
+ * `exhausted`. Any other has each failing check posted as a review thread
+ * and a fresh apply-review ticket opened under the implementation ticket, and
+ * is marked retried only once that ticket exists, so a failure part way never
+ * spends a retry that was not queued. A `/apply-review` the developer
+ * posts never marks a pull request, so never counts. Throws what a read or
+ * write throws.
+ */
+async function retryRedChecks(
+  ports: MorningLoopPorts,
+  ticket: ApplyReviewTicket,
+): Promise<ChecksRetry> {
+  const pullRequest = ticket.pullRequest.url;
+  if ((await ports.repoHost.readPullRequestLabels(pullRequest)).includes(APPLY_REVIEW_RETRIED)) {
+    return { kind: "exhausted" };
+  }
+  const implementation = await implementationTicketFor(ports.tracker, ticket);
+  if (implementation === undefined) {
+    throw new Error(`the implementation ticket of ${ticketReference(ticket)} was not found`);
+  }
+  await postFailingCheckThreads(ports.repoHost, ports.clock, pullRequest);
+  const checks = (await ports.repoHost.readFailingChecks(pullRequest)).map((check) => check.name);
+  const queued = await ports.tracker.createApplyReviewTicket(implementation, pullRequest);
+  await ports.repoHost.labelPullRequest(pullRequest, APPLY_REVIEW_RETRIED);
+  return { kind: "queued", ticket: queued, checks };
 }
 
 /**

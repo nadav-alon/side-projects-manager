@@ -39,6 +39,7 @@ import {
   type MergeGate,
   type SettledMerge,
   type SettledReady,
+  type ChecksRetry,
   type ReadyHold,
   type NotClosed,
   type NotCommented,
@@ -2017,6 +2018,16 @@ function heldPhrase(held: ReadyHold): string {
   }
 }
 
+/**
+ * What an apply-review iteration's red checks came to, in the phrases the
+ * merge gate's own "left for you" lines use.
+ */
+function checksRetryPhrase(retry: ChecksRetry): string {
+  return retry.kind === "queued"
+    ? `checks failing (${retry.checks.join(", ")}); queued apply-review #${retry.ticket.number} to fix them`
+    : "left for you: checks still failing after one fix attempt";
+}
+
 /** `heldPhrase` where the ready-mark held, else `readyPhrase`: what the clean outcome says of the pull request. */
 function cleanPhrase(merge: MergeGate | undefined, held: ReadyHold | undefined): string {
   return held === undefined ? readyPhrase(merge) : heldPhrase(held);
@@ -2137,7 +2148,11 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
   const applied = `Applied review on ${repo}#${ticket.number}`;
   switch (notClosed?.kind) {
     case undefined: {
-      const ready = `${applied}: ${answered(iteration)}, ${cleanPhrase(merge, iteration.readyHeld)}.`;
+      const ready = `${applied}: ${answered(iteration)}, ${
+        iteration.checksRetry === undefined
+          ? cleanPhrase(merge, iteration.readyHeld)
+          : checksRetryPhrase(iteration.checksRetry)
+      }.`;
       const labelled = notLabelled === undefined
         ? ready
         : `${ready} ${notLabelledNote(pullRequest, APPLIED_REVIEW_LABEL, notLabelled)}.`;
@@ -2149,6 +2164,8 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
       return `${applied}: ${answered(iteration)}, but a still-open Blocked on: could not be taken off ${pullRequest}'s closing reference: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: change its "Closes #${notClosed.ticket.number}." to "Part of #${notClosed.ticket.number}.", then mark it ready and close the ticket yourself.`;
     case "ready-failed":
       return `${applied}: ${answered(iteration)}, but it could not be marked ready for review: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: mark ${pullRequest} ready and close the ticket yourself.`;
+    case "retry-failed":
+      return `${applied}: ${answered(iteration)}, but ${pullRequest}'s failing checks could not be retried: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: fix the checks yourself, mark it ready and close the ticket.`;
     case "close-failed":
       return `${applied}: ${answered(iteration)}, now ready for review, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
   }
@@ -2173,6 +2190,12 @@ function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string | u
       if (iteration.readyHeld?.kind === "checks-running") {
         return undefined;
       }
+      if (iteration.checksRetry?.kind === "queued") {
+        return undefined;
+      }
+      if (iteration.checksRetry?.kind === "exhausted") {
+        return `- ${repo}#${ticket.number}: ${checksRetryPhrase(iteration.checksRetry)} — ${pullRequest} stays a draft`;
+      }
       if (iteration.readyHeld?.kind === "checks-failing" && merge?.kind !== "left-for-human") {
         return `- ${repo}: ${pullRequest} — ${heldPhrase(iteration.readyHeld)}`;
       }
@@ -2183,6 +2206,8 @@ function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string | u
       return `${still} — a still-open Blocked on: could not be taken off ${pullRequest}'s closing reference: ${withoutTrailingStop(notClosed.error)}; change its "Closes #${notClosed.ticket.number}." to "Part of #${notClosed.ticket.number}.", then mark it ready and close the ticket yourself`;
     case "ready-failed":
       return `${still} — ${pullRequest} could not be marked ready for review: ${withoutTrailingStop(notClosed.error)}; mark it ready and close the ticket yourself`;
+    case "retry-failed":
+      return `${still} — ${pullRequest}'s failing checks could not be retried: ${withoutTrailingStop(notClosed.error)}; fix them yourself, mark it ready and close the ticket`;
     case "close-failed":
       return `${still} — ${pullRequest} is ready for review, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
   }

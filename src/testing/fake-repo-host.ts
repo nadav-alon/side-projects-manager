@@ -497,8 +497,10 @@ export class FakeRepoHost implements RepoHost {
 
   async postReviewThread(pullRequest: PullRequestUrl, body: string): Promise<void> {
     this.reviewThreads.push({ pullRequest, body });
-    // A review thread is a finding, as it is on GitHub.
+    // A review thread is a finding, as it is on GitHub, and an open one for
+    // an apply-review run to answer.
     this.postReviewFinding(pullRequest, { path: "src/thing.ts", line: 1, body });
+    this.openApplyReviewThread(pullRequest);
   }
 
   async readOpenReviewThreadBodies(pullRequest: PullRequestUrl): Promise<string[]> {
