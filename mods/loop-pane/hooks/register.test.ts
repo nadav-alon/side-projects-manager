@@ -19,7 +19,8 @@ function engine(
   on('fs.read', (_$, e) => {
     reads.push(e.path)
     const text = files[e.path]
-    if (text === undefined) throw new Error(`ENOENT: ${e.path}`)
+    // A hook that throws is skipped, leaving the read with no implementation; a deny rejects it, as an absent file does.
+    if (text === undefined) return { deny: `ENOENT: ${e.path}` } as never
     return { value: text } as never
   })
   on('process.run', (_$, { argv, init }) => {
@@ -69,6 +70,39 @@ test('the pane shows the in-flight invocation, its iterations, its spend and its
   expect(lines).toContain("5h window: 1.2K / 5.0K spendable tokens (24%)")
 })
 
+test('the pane lists the recorded discoveries, newest first', async ($, on) => {
+  const files = {
+    ...home,
+    [`${HOME}/recorded-discoveries.json`]: JSON.stringify({
+      discoveries: [
+        { repo: 'o/a', number: 3, kind: 'suggestion', title: 'Run: older', filedAt: iso(9000) },
+        { repo: 'o/b', number: 5, kind: 'correction', title: 'Newer', filedAt: iso(1000) },
+      ],
+    }),
+  }
+  engine(on, files)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  const expected = ['o/b#5[correction]Newer', 'o/a#3[suggestion]Run: older']
+  const rows = (await ui.findAll({ type: 'Box' })).map(box => box.text.trim()).filter(text => expected.includes(text))
+  expect(rows).toEqual(expected)
+  expect(await texts(ui)).not.toContain('No discovery is waiting on you.')
+})
+
+test('the pane says none is waiting when the recorded discoveries are an empty list', async ($, on) => {
+  engine(on, { ...home, [`${HOME}/recorded-discoveries.json`]: JSON.stringify({ discoveries: [] }) })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  expect(await texts(await mount($))).toContain('No discovery is waiting on you.')
+})
+
+test('the pane says the recorded discoveries cannot be read, not that none is waiting, when the document is unreadable', async ($, on) => {
+  engine(on, { ...home, [`${HOME}/recorded-discoveries.json`]: JSON.stringify({ discoveries: [{ repo: 'o/a', number: 3, kind: 'idea', title: 'T', filedAt: iso(1000) }] }) })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const lines = await texts(await mount($))
+  expect(lines).toContain('Recorded discoveries cannot be read.')
+  expect(lines).not.toContain('No discovery is waiting on you.')
+})
+
 test('the spend line uses compact units and a share, small shares included', async ($, on) => {
   const files = {
     ...home,
@@ -98,14 +132,14 @@ test('the pane says an invocation whose process is gone has died, and lists none
 test('the pane says none is running when the journal has no open invocation', async ($, on) => {
   engine(on, { [`${HOME}/journal.json`]: JSON.stringify({ records: [] }) })
   await $.command.run({ command: 'loop-pane', args: '' })
-  expect(await texts(await mount($))).toEqual(['Status', 'No invocation is running.', 'Controls'])
+  expect(await texts(await mount($))).toEqual(['Status', 'No invocation is running.', 'Discoveries waiting on you', 'No discovery is waiting on you.', 'Controls'])
 })
 
 test('a missing manager home draws an empty pane, not an error', async ($, on) => {
   engine(on, {})
   const out = await $.command.run({ command: 'loop-pane', args: '' })
   expect(out.text).toBe('Loop pane opened.')
-  expect(await texts(await mount($))).toEqual(['Status', 'No invocation is running.', 'Controls'])
+  expect(await texts(await mount($))).toEqual(['Status', 'No invocation is running.', 'Discoveries waiting on you', 'No discovery is waiting on you.', 'Controls'])
 })
 
 test('the pane redraws when the journal changes', async ($, on) => {

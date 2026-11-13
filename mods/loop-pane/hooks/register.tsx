@@ -13,7 +13,7 @@ const REFRESH_MS = 2000
 const YES = 'Yes'
 const NO = 'No'
 
-const EMPTY: LoopSnapshot = { inFlight: null, usage: null }
+const EMPTY: LoopSnapshot = { inFlight: null, usage: null, discoveries: [] }
 const snapshot = atom({ plugin: 'loop-pane', key: 'snapshot' } as const, EMPTY)
 
 /** What the last button press has to say — a failure, or word that nothing was done or that a start went out — or `null` when it has nothing (or none was pressed). */
@@ -109,7 +109,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
-    const { inFlight, usage } = await read($, snapshot)
+    const { inFlight, usage, discoveries } = await read($, snapshot)
     const said = await read($, notice)
     const now = await $.clock.now()
     const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
@@ -174,6 +174,19 @@ export const register: Register = on => {
             </Text>
           </Section>
         )}
+        <Section {...parts} title="Discoveries waiting on you">
+          {discoveries === null && <Text dimColor>Recorded discoveries cannot be read.</Text>}
+          {discoveries?.length === 0 && <Text dimColor>No discovery is waiting on you.</Text>}
+          {discoveries?.map(discovery => (
+            <Box key={`${discovery.repo}#${discovery.number}:${discovery.kind}:${discovery.title}`} gap={1}>
+              <Text>
+                {discovery.repo}#{discovery.number}
+              </Text>
+              <Text color="cyan">[{discovery.kind}]</Text>
+              <Text>{discovery.title}</Text>
+            </Box>
+          ))}
+        </Section>
         <Section {...parts} title="Controls">
           {said !== null && (said.failure ? <Text color="red">{said.text}</Text> : <Text>{said.text}</Text>)}
           <Box gap={1}>

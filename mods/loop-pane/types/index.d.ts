@@ -1,7 +1,7 @@
-import type { JournaledTicket, RunInProgress } from '../hooks/manager-home/reader.ts'
+import type { JournaledTicket, RecordedDiscovery, RunInProgress } from '../hooks/manager-home/reader.ts'
 import type { ProcessId, TokenCount } from '../hooks/manager-home/types.ts'
 
-/** What the pane draws: the invocation in flight, and the 5-hour window's spend. Each is `null` when nothing is known. */
+/** What the pane draws: the invocation in flight, the 5-hour window's spend and the discoveries waiting on the developer. Each is `null` when nothing is known; no recorded discoveries is an empty list. */
 export type LoopSnapshot = {
   inFlight: {
     openedAt: string
@@ -13,6 +13,8 @@ export type LoopSnapshot = {
   } | null
   /** `spendable` is the allowance less the reserve: what the gate compares spend against. */
   usage: { tokensUsed: TokenCount; spendable: TokenCount } | null
+  /** The recorded discoveries, newest filed first; `null` when the document cannot be read. */
+  discoveries: Pick<RecordedDiscovery, 'repo' | 'number' | 'kind' | 'title'>[] | null
 }
 
 declare module 'claude-code' {

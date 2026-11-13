@@ -3,8 +3,9 @@ import { describe, it } from 'node:test'
 
 import { parseUsageWindows } from '../../src/adapters/usage-ledger/parse-usage-windows.ts'
 import { budgetStatus } from '../../src/budget-gate.ts'
-import { DEFAULT_BUDGET, reserveFraction, tokenCount, type ReserveFraction, type RunCost, type TokenCount } from '../../src/ports/index.ts'
+import { DEFAULT_BUDGET, DISCOVERY_KINDS, reserveFraction, tokenCount, type ReserveFraction, type RunCost, type TokenCount } from '../../src/ports/index.ts'
 import { managerHomeReader, type HomeFs } from './reader.ts'
+import { DISCOVERY_KINDS as MOD_DISCOVERY_KINDS } from './types.ts'
 
 // The reader carries its own copy of the gate's 5-hour arithmetic, because a mod cannot import
 // `src/`. These tests feed both the same session logs and state, so a change to the gate's weights,
@@ -124,5 +125,11 @@ describe("the reader's 5-hour figure", () => {
     const used = Object.values(OBSERVED_RESETS).map((reset) => gateSays(figures(DEFAULT_BUDGET.fiveHourAllowance, 0, reset)).tokensUsed)
 
     assert.equal(new Set(used).size, used.length)
+  })
+})
+
+describe("the reader's discovery kinds", () => {
+  it("are the kinds the manager files", () => {
+    assert.deepEqual([...MOD_DISCOVERY_KINDS], [...DISCOVERY_KINDS])
   })
 })

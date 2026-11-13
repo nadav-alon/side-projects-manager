@@ -10,12 +10,14 @@
 import {
   isIssueNumber,
   isProcessId,
+  isDiscoveryKind,
   isRepoSlug,
   isReserveFraction,
   isTicketKind,
   isTokenCount,
   reserveFraction,
   tokenCount,
+  type DiscoveryKind,
   type IssueNumber,
   type ProcessId,
   type RepoSlug,
@@ -39,6 +41,13 @@ export interface JournaledTicket {
 /** A run in progress, as the journal records one: its project, ticket and kind (`implementation`, `review`, …). */
 export interface RunInProgress extends JournaledTicket {
   kind: TicketKind
+}
+
+/** A discovery the manager filed that still waits on the developer, as `recorded-discoveries.json` keeps it. */
+export interface RecordedDiscovery extends JournaledTicket {
+  kind: DiscoveryKind
+  title: string
+  filedAt: Date
 }
 
 /** The invocation the journal records as still open. */
@@ -129,6 +138,8 @@ export interface ManagerHomeReader {
    * per run under it and removes it once the run's discoveries are read, so this is often empty.
    */
   discoveries(): Promise<string[] | undefined>
+  /** The recorded discoveries, newest filed first; an empty list when there is no document, `undefined` when it cannot be read as one. */
+  recordedDiscoveries(): Promise<RecordedDiscovery[] | undefined>
 }
 
 /**
@@ -217,6 +228,35 @@ export function managerHomeReader(fs: HomeFs, home: string, sessionLogs?: string
       }
       return files.sort()
     },
+
+    async recordedDiscoveries() {
+      let text: string | undefined
+      try {
+        text = await readIfPresent(fs, at('recorded-discoveries.json'))
+      } catch {
+        return undefined
+      }
+      // The manager writes the document once something is filed, so none yet is no file.
+      if (text === undefined) return []
+      let document: unknown
+      try {
+        document = JSON.parse(text)
+      } catch {
+        return undefined
+      }
+      const recorded = isRecord(document) ? document.discoveries : undefined
+      if (!Array.isArray(recorded)) return undefined
+      const found: RecordedDiscovery[] = []
+      for (const entry of recorded) {
+        if (!isRecord(entry)) return undefined
+        const ticket = journaledTicket(entry)[0]
+        const { kind, title } = entry
+        const filedAt = instant(entry.filedAt)
+        if (ticket === undefined || typeof kind !== 'string' || !isDiscoveryKind(kind) || typeof title !== 'string' || filedAt === undefined) return undefined
+        found.push({ ...ticket, kind, title, filedAt })
+      }
+      return found.sort((a, b) => b.filedAt.getTime() - a.filedAt.getTime())
+    },
   }
 }
 
@@ -282,7 +322,7 @@ async function readLogEntries(fs: HomeFs, sessionLogs: string): Promise<LogEntry
 
 /** Whether `error` says the path is not there, as Node's `ENOENT` does. */
 function isMissing(error: unknown): boolean {
-  return (error as { code?: unknown } | null)?.code === 'ENOENT' || String((error as Error | null)?.message ?? error).startsWith('ENOENT')
+  return (error as { code?: unknown } | null)?.code === 'ENOENT' || String((error as Error | null)?.message ?? error).includes('ENOENT')
 }
 
 async function listIfPresent(fs: HomeFs, path: string): Promise<readonly { name: string }[]> {

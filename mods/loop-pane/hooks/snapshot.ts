@@ -16,7 +16,7 @@ export async function readSnapshot(
   sessionLogs?: string,
 ): Promise<LoopSnapshot> {
   const reader = managerHomeReader(fs, home, sessionLogs)
-  const [invocation, usage] = await Promise.all([reader.inFlightInvocation(), reader.fiveHourUsage(now)])
+  const [invocation, usage, recorded] = await Promise.all([reader.inFlightInvocation(), reader.fiveHourUsage(now), reader.recordedDiscoveries()])
   return {
     inFlight:
       invocation === undefined
@@ -29,5 +29,6 @@ export async function readSnapshot(
             freed: invocation.freed,
           },
     usage: usage === undefined ? null : { tokensUsed: usage.tokensUsed, spendable: spendableOf(usage.allowance, usage.reserveFraction) },
+    discoveries: recorded === undefined ? null : recorded.map(({ repo, number, kind, title }) => ({ repo, number, kind, title })),
   }
 }

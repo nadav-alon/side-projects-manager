@@ -211,6 +211,47 @@ describe('the discoveries folder', () => {
   })
 })
 
+describe('the recorded discoveries', () => {
+  const file = `${HOME}/recorded-discoveries.json`
+  const entry = (number: number, filedAt: string) => ({ repo: 'o/a', number, kind: 'suggestion', title: `T${number}`, filedAt })
+
+  it('lists them newest filed first', async () => {
+    const document = { discoveries: [entry(1, '2026-01-01T00:00:00.000Z'), entry(2, '2026-01-03T00:00:00.000Z')] }
+    const found = await reader({ [file]: JSON.stringify(document) }).recordedDiscoveries()
+    assert.deepEqual(found?.map((discovery) => discovery.number), [2, 1])
+    assert.equal(found?.[0]?.title, 'T2')
+  })
+
+  it('lists none as empty, not as nothing known', async () => {
+    assert.deepEqual(await reader({ [file]: JSON.stringify({ discoveries: [] }) }).recordedDiscoveries(), [])
+  })
+
+  it('lists none as empty when there is no document yet', async () => {
+    assert.deepEqual(await reader().recordedDiscoveries(), [])
+  })
+
+  it('lists none as empty when the engine names the absent file after its own prefix', async () => {
+    const fs: HomeFs = {
+      read: async (path) => Promise.reject(new Error(`loop-pane: $.fs.read: ENOENT: ${path}`)),
+      list: async () => [],
+    }
+    assert.deepEqual(await managerHomeReader(fs, HOME).recordedDiscoveries(), [])
+  })
+
+  it('is nothing known when the document cannot be read for another reason', async () => {
+    const fs: HomeFs = {
+      read: async (path) => Promise.reject(new Error(`loop-pane: $.fs.read: EACCES: ${path}`)),
+      list: async () => [],
+    }
+    assert.equal(await managerHomeReader(fs, HOME).recordedDiscoveries(), undefined)
+  })
+
+  it('is nothing known when the document is not one', async () => {
+    assert.equal(await reader({ [file]: '{' }).recordedDiscoveries(), undefined)
+    assert.equal(await reader({ [file]: JSON.stringify({ discoveries: [{ ...entry(1, '2026-01-01T00:00:00.000Z'), kind: 'idea' }] }) }).recordedDiscoveries(), undefined)
+  })
+})
+
 describe('a home given with trailing slashes', () => {
   it('is read the same', async () => {
     const files = { [`${HOME}/trigger.log`]: 'one\n' }
