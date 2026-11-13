@@ -221,8 +221,8 @@ _Avoid_: unworked, new, cold
 
 **Manager home**:
 The manager's own checkout, holding the committed registry; the gitignored state document and
-journal, which the loop writes; the gitignored budget document; the gitignored recorded discoveries; and a gitignored `transcripts/`
-directory of session transcripts. Distinct from the managed location, which is where projects are
+journal, which the loop writes; the gitignored budget document; the gitignored recorded discoveries; a gitignored `transcripts/`
+directory of session transcripts; and a gitignored `discoveries/` directory the runs write theirs to. Distinct from the managed location, which is where projects are
 cloned to.
 _Avoid_: config directory, data directory, root
 
