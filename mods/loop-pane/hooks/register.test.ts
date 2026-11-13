@@ -366,3 +366,14 @@ test('halt and resume run the manager command from SIDE_PROJECTS_MANAGER_HOME wh
     { argv: ['npm', 'run', '--silent', 'resume'], cwd: elsewhere },
   ])
 })
+
+test('the pane shows the invocation again after a /clear', async ($, on) => {
+  const clock = engine(on, home)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } } as never)
+  await clock.advance(2500)
+  const lines = await texts(ui)
+  expect(lines).toContain('o/a#7')
+  expect(lines).toContain("5h window: 1.2K / 5.0K spendable tokens (24%)")
+})

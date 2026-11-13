@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { Hook, Register } from 'claude-code'
 
 import type { LoopSnapshot } from '../types'
 import { isProcessId, type ProcessId } from './manager-home/types.ts'
@@ -70,9 +70,12 @@ export const register: Register = on => {
   // The manager home cannot change during a session, so the shell is asked once.
   let homeOf: ReturnType<typeof resolveManagerHome> | undefined
   let tick: { cancel(): void } | undefined
+  /** Whether the session the polling runs in has ended in a /clear, leaving the process in a new one. */
+  let pollingEnded = false
   const stopPolling = () => {
     tick?.cancel()
     tick = undefined
+    pollingEnded = false
   }
 
   on('session.start', async ($, e, next) => {
@@ -80,7 +83,8 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'loop-pane' }, async $ => {
+  /** Reads the manager home into the pane's state through `$`, then keeps doing so every `REFRESH_MS`. */
+  const poll = async ($: Parameters<Hook<'command.run'>>[0]) => {
     const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
     // The config directory cannot change during a session, so the shell is asked once.
     const logs = sessionLogsFolder(argv => $.process.run(argv))
@@ -95,10 +99,20 @@ export const register: Register = on => {
       await update($, snapshot, () => next)
     }
     await refresh()
-    await $.ui.open({ id: PANE, title: 'Morning loop' })
     stopPolling()
     tick = $.clock.every(REFRESH_MS, () => refresh())
+  }
+
+  on('command.run', { command: 'loop-pane' }, async $ => {
+    await poll($)
+    await $.ui.open({ id: PANE, title: 'Morning loop' })
     return { text: 'Loop pane opened.' }
+  })
+
+  // A /clear ends the session whose `$` the polling writes through, and the state goes with it; the next draw holds the new session's `$`.
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear' && tick !== undefined) pollingEnded = true
+    return next(e)
   })
 
   on('ui.close', async ($, e, next) => {
@@ -109,6 +123,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
+    if (pollingEnded) await poll($)
     const { inFlight, usage, discoveries } = await read($, snapshot)
     const said = await read($, notice)
     const now = await $.clock.now()
