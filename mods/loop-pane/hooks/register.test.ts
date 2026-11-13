@@ -68,12 +68,12 @@ test('the pane shows the in-flight invocation, its iterations, its spend and its
   expect(lines).toContain("5h window: 1.2K / 5.0K spendable tokens (24%)")
 })
 
-test('the pane lists the recorded discoveries, newest first, and says when there are none', async ($, on) => {
+test('the pane lists the recorded discoveries, newest first', async ($, on) => {
   const files = {
     ...home,
     [`${HOME}/recorded-discoveries.json`]: JSON.stringify({
       discoveries: [
-        { repo: 'o/a', number: 3, kind: 'suggestion', title: 'Older', filedAt: iso(9000) },
+        { repo: 'o/a', number: 3, kind: 'suggestion', title: 'Run: older', filedAt: iso(9000) },
         { repo: 'o/b', number: 5, kind: 'correction', title: 'Newer', filedAt: iso(1000) },
       ],
     }),
@@ -81,9 +81,24 @@ test('the pane lists the recorded discoveries, newest first, and says when there
   engine(on, files)
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
-  const rows = (await ui.findAll({ type: 'Box' })).filter(box => (box.props as { gap?: number }).gap === 1 && box.text.includes('[') && !box.text.startsWith('Run:'))
-  expect(rows.map(row => row.text.trim())).toEqual(['o/b#5[correction]Newer', 'o/a#3[suggestion]Older'])
+  const expected = ['o/b#5[correction]Newer', 'o/a#3[suggestion]Run: older']
+  const rows = (await ui.findAll({ type: 'Box' })).map(box => box.text.trim()).filter(text => expected.includes(text))
+  expect(rows).toEqual(expected)
   expect(await texts(ui)).not.toContain('No discovery is waiting on you.')
+})
+
+test('the pane says none is waiting when the recorded discoveries are an empty list', async ($, on) => {
+  engine(on, { ...home, [`${HOME}/recorded-discoveries.json`]: JSON.stringify({ discoveries: [] }) })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  expect(await texts(await mount($))).toContain('No discovery is waiting on you.')
+})
+
+test('the pane says the recorded discoveries cannot be read, not that none is waiting, when the document is unreadable', async ($, on) => {
+  engine(on, { ...home, [`${HOME}/recorded-discoveries.json`]: JSON.stringify({ discoveries: [{ repo: 'o/a', number: 3, kind: 'idea', title: 'T', filedAt: iso(1000) }] }) })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const lines = await texts(await mount($))
+  expect(lines).toContain('Recorded discoveries cannot be read.')
+  expect(lines).not.toContain('No discovery is waiting on you.')
 })
 
 test('the spend line uses compact units and a share, small shares included', async ($, on) => {
