@@ -30,6 +30,7 @@
     "grant": "node src/bin/grant.ts",
     "halt": "node src/bin/halt.ts",
     "resume": "node src/bin/resume.ts",
+    "drop-discovery": "node src/bin/drop-discovery.ts",
     "stop": "node src/bin/stop.ts",
     "triggers:install": "bash scripts/install-triggers.sh",
     "hooks:install": "git config core.hooksPath .githooks",
