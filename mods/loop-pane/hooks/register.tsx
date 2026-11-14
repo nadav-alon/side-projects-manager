@@ -3,7 +3,7 @@ import type { Hook, Register } from 'claude-code'
 
 import type { LoopSnapshot } from '../types'
 import { isProcessId, type ProcessId } from './manager-home/types.ts'
-import { compactCount, elapsed, localTime, percentOf } from './format'
+import { compactCount, elapsed, issueUrlOf, localTime, percentOf } from './format'
 import { managerHomeOf, resolveManagerHome } from './manager-home/home'
 import { readSnapshot } from './snapshot'
 import { sessionLogsFolder } from './session-logs'
@@ -204,13 +204,15 @@ export const register: Register = on => {
           {discoveries === null && <Text dimColor>Recorded discoveries cannot be read.</Text>}
           {discoveries?.length === 0 && <Text dimColor>No discovery is waiting on you.</Text>}
           {discoveries?.map(discovery => (
-            <Box key={`${discovery.repo}#${discovery.number}:${discovery.kind}:${discovery.title}`} gap={1}>
-              <Text>
-                {discovery.repo}#{discovery.number}
-              </Text>
-              <Text color="cyan">[{discovery.kind}]</Text>
-              <Text>{discovery.title}</Text>
-              <Text>{`https://github.com/${discovery.repo}/issues/${discovery.number}`}</Text>
+            <Box key={`${discovery.repo}#${discovery.number}:${discovery.kind}:${discovery.title}`} flexDirection="column">
+              <Box gap={1}>
+                <Text>
+                  {discovery.repo}#{discovery.number}
+                </Text>
+                <Text color="cyan">[{discovery.kind}]</Text>
+                <Text>{discovery.title}</Text>
+              </Box>
+              <Text>{issueUrlOf(discovery.repo, discovery.number)}</Text>
             </Box>
           ))}
         </Section>

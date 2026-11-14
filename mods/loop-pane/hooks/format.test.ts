@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { compactCount, elapsed, localTime, percentOf } from './format'
+import { compactCount, elapsed, issueUrlOf, localTime, percentOf } from './format'
+import { isIssueNumber, isRepoSlug } from './manager-home/types.ts'
 
 test('a count that rounds up to a thousand moves to the next unit', () => {
   expect(compactCount(999_950)).toBe('1.0M')
@@ -27,4 +28,11 @@ test('a span is written in minutes, then hours and minutes, and never negative',
 test('a time is written in the local zone as hours and minutes', () => {
   expect(localTime(new Date(2026, 5, 15, 19, 30))).toBe('19:30')
   expect(localTime(new Date(2026, 5, 15, 7, 5))).toBe('07:05')
+})
+
+test('an issue URL is the github.com address of the repo and number', () => {
+  const repo = 'o/b'
+  const number = 5
+  if (!isRepoSlug(repo) || !isIssueNumber(number)) throw new Error('fixture is not a slug and a number')
+  expect(issueUrlOf(repo, number)).toBe('https://github.com/o/b/issues/5')
 })

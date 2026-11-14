@@ -1,3 +1,5 @@
+import { issueUrl, type IssueNumber, type IssueUrl, type RepoSlug } from './manager-home/types.ts'
+
 const UNITS = [
   { at: 1e12, suffix: 'T' },
   { at: 1e9, suffix: 'B' },
@@ -40,4 +42,9 @@ export function localTime(at: Date): string {
 export function elapsed(from: Date, to: Date): string {
   const minutes = Math.max(0, Math.floor((to.getTime() - from.getTime()) / 60_000))
   return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${pad(minutes % 60)}m`
+}
+
+/** The github.com address of issue `number` in `repo`. */
+export function issueUrlOf(repo: RepoSlug, number: IssueNumber): IssueUrl {
+  return issueUrl(`https://github.com/${repo}/issues/${number}`)
 }
