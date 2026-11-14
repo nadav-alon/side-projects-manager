@@ -30,6 +30,7 @@ function engine(
     ran.push({ argv, cwd: init?.cwd })
     return { value: { exitCode: outcome.exitCode, stdout: '', stderr: outcome.stderr } } as never
   })
+  on('session.id', () => ({ value: 's1' }) as never)
   on('ui.open', () => ({ value: {} }) as never)
   on('ui.close', () => ({ value: {} }) as never)
   on('ui.render', ($, e) => {
@@ -365,4 +366,50 @@ test('halt and resume run the manager command from SIDE_PROJECTS_MANAGER_HOME wh
     { argv: ['npm', 'run', '--silent', 'halt'], cwd: elsewhere },
     { argv: ['npm', 'run', '--silent', 'resume'], cwd: elsewhere },
   ])
+})
+
+/** Stands for the session switch a /clear makes, which the kit's one `$` does not: after a `session.end` with reason `clear`, `$.session.id()` answers another id, `$.state` reads as the new session's, holding only what is written after it, and an interval started before it never fires again, as the ended session's `$` writes nowhere the pane reads. */
+const clearing = {
+  name: 'clearing',
+  register(on: On) {
+    let session = 0
+    const written = new Set<string>()
+    const keyOf = (ref: { plugin: string; key: string; id?: string }) => `${session}:${ref.plugin}/${ref.key}/${ref.id ?? ''}`
+    on('session.end', (_$, e, next) => {
+      if (e.reason === 'clear') session += 1
+      return next(e)
+    })
+    on('session.id', () => ({ value: `s${session}` }) as never)
+    on('state.set', (_$, e, next) => {
+      written.add(keyOf(e))
+      return next(e as never)
+    })
+    // Asked beneath all the same, so a draw that reads a value still follows its writes.
+    on('state.get', async (_$, e, next) => {
+      const held = await next(e)
+      return written.has(keyOf(e)) ? held : ({ value: { value: undefined, version: 0 } } as never)
+    })
+    on('clock.every', async (_$, e, next) => {
+      const asked = session
+      const done = await next(e)
+      if (asked !== session) await new Promise(() => {})
+      return done
+    })
+  },
+}
+
+test('the pane shows the invocation again after a /clear', { plugins: [clearing] }, async ($, on) => {
+  const clock = engine(on, home)
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  expect(await texts(ui)).toContain('o/a#7')
+  await $.session.end({ reason: 'clear', sessionId: 's0', resume: { id: 's0' } } as never)
+  await clock.advance(2500)
+  // The host draws the open pane in the new session, as it did when the pane went blank: by then, one
+  // refresh period after the clear, the pane must have drawn itself again and refreshed.
+  await ui.redraw()
+  const lines = await texts(ui)
+  expect(lines).toContain('o/a#7')
+  expect(lines).toContain("5h window: 1.2K / 5.0K spendable tokens (24%)")
 })
