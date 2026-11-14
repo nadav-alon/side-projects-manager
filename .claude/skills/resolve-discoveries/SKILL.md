@@ -34,6 +34,6 @@ Apply each answer where a later run reads it: the `Decision (developer, <date>)`
 
 ## 4. Drop
 
-A discovery is done once its answer is applied. Drop it from the pane with `npm run drop-discovery -- owner/repo#n`, which drops every discovery on that ticket, so run it once all of that ticket's are answered. TODO[#1858]: until that command lands, a discovery leaves the pane only when its ticket closes or leaves `ready-for-human`; name the ones that will stay listed.
+A discovery is done once its answer is applied. Drop it from the pane with `npm run drop-discovery -- owner/repo#n`, which drops every discovery on that ticket, so run it once all of that ticket's are answered.
 
 Finish when every recorded discovery is answered and applied, or left with the developer by their choice. Re-read `recorded-discoveries.json` and tell the developer what is still listed and why.

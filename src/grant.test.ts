@@ -1,24 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { grantLiveWrite, grantTurboable, parseGrantLabel, parseTicketReference } from "./grant.ts";
+import { grantLiveWrite, grantTurboable, parseGrantLabel } from "./grant.ts";
 import { day, issueNumber, LIVE_WRITE_LABEL, repoSlug, TURBOABLE_LABEL } from "./ports/index.ts";
 import { FakeClock, FakeIssueTracker, FakeStore, FROZEN_NOW } from "./testing/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 const TICKET = { repo: PILOT, number: issueNumber(7) };
-
-describe("parseTicketReference", () => {
-  it("reads owner/repo#n", () => {
-    assert.deepEqual(parseTicketReference("nadav-alon/pilot#7"), TICKET);
-  });
-
-  for (const text of ["pilot#7", "nadav-alon/pilot", "nadav-alon/pilot#0", "nadav-alon/pilot#7x", "#7", ""]) {
-    it(`refuses ${JSON.stringify(text)}`, () => {
-      assert.throws(() => parseTicketReference(text), /Not a ticket reference/);
-    });
-  }
-});
 
 describe("grantTurboable", () => {
   function arranged(registration?: { turbo: boolean }) {

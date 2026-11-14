@@ -141,10 +141,12 @@ export function documentStore(home: string = MANAGER_HOME): Store {
   let recordingDiscoveries: Promise<unknown> = Promise.resolve();
   const changeRecordedDiscoveries = (
     change: (kept: RecordedDiscovery[]) => readonly RecordedDiscovery[],
-  ): Promise<void> => {
-    const write = async (): Promise<void> => {
+  ): Promise<number> => {
+    const write = async (): Promise<number> => {
       const kept = await readRecordedDiscoveries();
-      await writeDocument(home, recordedDiscoveriesFile, formatRecordedDiscoveries(change(kept)));
+      const changed = change(kept);
+      await writeDocument(home, recordedDiscoveriesFile, formatRecordedDiscoveries(changed));
+      return kept.length - changed.length;
     };
     const written = recordingDiscoveries.then(write, write);
     recordingDiscoveries = written.catch(() => undefined);
@@ -291,11 +293,11 @@ export function documentStore(home: string = MANAGER_HOME): Store {
       return readRecordedDiscoveries();
     },
 
-    recordDiscoveries(discoveries: readonly RecordedDiscovery[]): Promise<void> {
-      return changeRecordedDiscoveries((kept) => [...kept, ...discoveries]);
+    async recordDiscoveries(discoveries: readonly RecordedDiscovery[]): Promise<void> {
+      await changeRecordedDiscoveries((kept) => [...kept, ...discoveries]);
     },
 
-    dropDiscoveries(tickets: readonly IssueReference[]): Promise<void> {
+    dropDiscoveries(tickets: readonly IssueReference[]): Promise<number> {
       return changeRecordedDiscoveries((kept) =>
         kept.filter(
           (discovery) => !tickets.some((ticket) => ticketKey(ticket) === ticketKey(discovery)),

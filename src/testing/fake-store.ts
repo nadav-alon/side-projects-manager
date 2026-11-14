@@ -380,10 +380,12 @@ export class FakeStore implements Store {
     ];
   }
 
-  async dropDiscoveries(tickets: readonly IssueReference[]): Promise<void> {
+  async dropDiscoveries(tickets: readonly IssueReference[]): Promise<number> {
+    const before = this.#recordedDiscoveries.length;
     this.#recordedDiscoveries = this.#recordedDiscoveries.filter(
       (discovery) => !tickets.some((ticket) => ticketKey(ticket) === ticketKey(discovery)),
     );
+    return before - this.#recordedDiscoveries.length;
   }
 }
 

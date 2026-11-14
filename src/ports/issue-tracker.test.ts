@@ -13,6 +13,7 @@ import {
   LIVE_WRITE_LABEL,
   TURBOABLE_LABEL,
   carriesReadyDiscoveryLabel,
+  parseTicketReference,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
   carriesUxReviewLabel,
@@ -860,4 +861,16 @@ describe("grantConsentAt for live-write", () => {
       consented: true,
     });
   });
+});
+
+describe("parseTicketReference", () => {
+  it("reads owner/repo#n", () => {
+    assert.deepEqual(parseTicketReference("nadav-alon/pilot#7"), { repo: PILOT, number: issueNumber(7) });
+  });
+
+  for (const text of ["pilot#7", "nadav-alon/pilot", "nadav-alon/pilot#0", "nadav-alon/pilot#7x", "#7", ""]) {
+    it(`refuses ${JSON.stringify(text)}`, () => {
+      assert.throws(() => parseTicketReference(text), /Not a ticket reference/);
+    });
+  }
 });

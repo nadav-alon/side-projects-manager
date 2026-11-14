@@ -754,7 +754,8 @@ export interface Store {
   recordDiscoveries(discoveries: readonly RecordedDiscovery[]): Promise<void>;
   /**
    * Drops every recorded discovery filed against one of `tickets`. Applied to
-   * the document as it stands when called, as `recordDiscoveries` is.
+   * the document as it stands when called, as `recordDiscoveries` is, and
+   * returns how many it dropped.
    */
-  dropDiscoveries(tickets: readonly IssueReference[]): Promise<void>;
+  dropDiscoveries(tickets: readonly IssueReference[]): Promise<number>;
 }
