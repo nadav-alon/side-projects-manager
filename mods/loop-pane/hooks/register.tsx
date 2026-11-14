@@ -204,15 +204,19 @@ export const register: Register = on => {
           {discoveries === null && <Text dimColor>Recorded discoveries cannot be read.</Text>}
           {discoveries?.length === 0 && <Text dimColor>No discovery is waiting on you.</Text>}
           {discoveries?.map(discovery => (
+            // One block per discovery, stacked, never side-by-side columns: a narrow pane squeezes
+            // columns until `repo#n` and `[kind]` break mid-word, and a link split across lines is
+            // no longer clickable.
             <Box key={`${discovery.repo}#${discovery.number}:${discovery.kind}:${discovery.title}`} flexDirection="column">
-              <Box gap={1}>
-                <Text>
-                  {discovery.repo}#{discovery.number}
-                </Text>
-                <Text color="cyan">[{discovery.kind}]</Text>
+              <Text>
+                <Text bold>{`${discovery.repo}#${discovery.number}`}</Text>
+                {' '}
+                <Text color="cyan">{`[${discovery.kind}]`}</Text>
+              </Text>
+              <Box paddingLeft={2} flexDirection="column">
                 <Text>{discovery.title}</Text>
+                <Text dimColor>{issueUrlOf(discovery.repo, discovery.number)}</Text>
               </Box>
-              <Text>{issueUrlOf(discovery.repo, discovery.number)}</Text>
             </Box>
           ))}
         </Section>

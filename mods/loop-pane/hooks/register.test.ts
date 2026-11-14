@@ -84,13 +84,21 @@ test('the pane lists the recorded discoveries, newest first', async ($, on) => {
   engine(on, files)
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
+  const lines = await texts(ui)
+  // Each discovery is a stacked block: its heading, then its title and its URL as lines of their own,
+  // newest first. A heading or link on its own line is what keeps a narrow pane from breaking it.
   const expected = [
-    'o/b#5[correction]Newerhttps://github.com/o/b/issues/5',
-    'o/a#3[suggestion]Run: olderhttps://github.com/o/a/issues/3',
+    'o/b#5 [correction]',
+    'Newer',
+    'https://github.com/o/b/issues/5',
+    'o/a#3 [suggestion]',
+    'Run: older',
+    'https://github.com/o/a/issues/3',
   ]
-  const rows = (await ui.findAll({ type: 'Box' })).map(box => box.text.trim()).filter(text => expected.includes(text))
-  expect(rows).toEqual(expected)
-  expect(await texts(ui)).not.toContain('No discovery is waiting on you.')
+  expect(lines.filter(line => expected.includes(line))).toEqual(expected)
+  const blocks = (await ui.findAll({ type: 'Box' })).filter(box => (box.props as { flexDirection?: string }).flexDirection === 'column' && box.text.includes('o/b#5'))
+  expect(blocks.some(box => (box.props as { gap?: number }).gap === 1)).toBe(false)
+  expect(lines).not.toContain('No discovery is waiting on you.')
 })
 
 test('the pane says none is waiting when the recorded discoveries are an empty list', async ($, on) => {
