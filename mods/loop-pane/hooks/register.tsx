@@ -112,8 +112,9 @@ export const register: Register = on => {
     return { text: 'Loop pane opened.' }
   })
 
-  // A /clear ends the session whose `$` the polling writes through, and its state with it: the pane is drawn
-  // again, and that draw, holding the new session's `$`, restarts the polling there.
+  // A /clear ends the session whose `$` the polling writes through, and its state with it. The new session's
+  // `SessionStart` restarts the polling; this request is the fallback for a host that raises no such hook, as
+  // the draw it brings, holding the new session's `$`, restarts the polling there (see `ui.render`).
   on('session.end', async ($, e, next) => {
     const ended = await next(e)
     if (e.reason === 'clear' && polling.tick !== undefined) $.ui.invalidate('ui.render')
@@ -125,8 +126,11 @@ export const register: Register = on => {
   on('classic.SessionStart', async ($, e, next) => {
     const started = await next(e)
     if (e.source === 'clear' && polling.tick !== undefined) {
+      // Not awaited, so the session starts at once; `poll` cancels the tick it replaces, and a `ui.close` cancels this one.
       polling.tick.cancel()
-      await poll($, polling, await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root)))
+      polling.tick = $.clock.after(0, async () => {
+        await poll($, polling, await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root)))
+      })
       $.ui.invalidate('ui.render')
     }
     return started
@@ -142,6 +146,7 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const home = await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root))
     const sessionId = await $.session.id()
+    // Only a fallback for a host that raises no `SessionStart` after a /clear: that hook has restarted it already.
     if (polling.tick !== undefined && sessionId !== polling.sessionId) {
       // A draw may not write state, so the restart waits for the draw to end.
       polling.sessionId = sessionId
