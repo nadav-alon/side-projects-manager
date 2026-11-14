@@ -441,7 +441,8 @@ the ticket it was filed against (`owner/repo#n`), its kind, its title and when i
 discovery whose toast the developer missed is still found locally, not only on GitHub. One per filed
 discovery; a discovery the tracker refused was never filed and is not recorded. Kept only while its ticket
 waits on the developer — open and carrying `ready-for-human` — and dropped, checked at the start of
-each invocation, once the ticket closes or loses that label.
+each invocation, once the ticket closes or loses that label, or at once by `npm run drop-discovery -- owner/repo#n`,
+which drops every recorded discovery on a ticket without touching the ticket.
 _Avoid_: discovery log, discovery history
 
 **Infrastructure failure**:
