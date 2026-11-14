@@ -6,6 +6,7 @@ declare const tokenCountBrand: unique symbol
 declare const reserveFractionBrand: unique symbol
 declare const repoSlugBrand: unique symbol
 declare const issueNumberBrand: unique symbol
+declare const issueUrlBrand: unique symbol
 
 /** The OS process carrying out one invocation: a whole number above 0. */
 export type ProcessId = number & { readonly [processIdBrand]: true }
@@ -21,6 +22,9 @@ export type RepoSlug = string & { readonly [repoSlugBrand]: true }
 
 /** An issue's number: a whole number above 0. */
 export type IssueNumber = number & { readonly [issueNumberBrand]: true }
+
+/** An issue's web address: an `http(s)` URL whose path ends `/issues/<number>`. */
+export type IssueUrl = string & { readonly [issueUrlBrand]: true }
 
 /** The kinds of ticket the loop runs, as the manager's journal names them. */
 export const TICKET_KINDS = ['implementation', 'review', 'apply-review', 'rebase', 'spec-review', 'ux-review'] as const
@@ -59,6 +63,23 @@ export function isRepoSlug(value: string): value is RepoSlug {
 
 export function isIssueNumber(value: number): value is IssueNumber {
   return Number.isSafeInteger(value) && value > 0
+}
+
+/** Whether `value` is an issue's address: an `http(s)` URL whose path ends `/issues/<number>`. */
+export function isIssueUrl(value: string): value is IssueUrl {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return false
+  }
+  return (url.protocol === 'https:' || url.protocol === 'http:') && /\/issues\/\d+$/.test(url.pathname)
+}
+
+/** Narrows `value` to an `IssueUrl`, throwing if it is not one. */
+export function issueUrl(value: string): IssueUrl {
+  if (!isIssueUrl(value)) throw new TypeError(`Not an issue URL: ${value}`)
+  return value
 }
 
 export function isTicketKind(value: string): value is TicketKind {
