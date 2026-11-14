@@ -7,13 +7,9 @@ import { ticketReference } from "./ports/index.ts";
  * A ticket with no recorded discovery drops nothing.
  */
 export async function dropDiscoveryOf(
-  store: Pick<Store, "loadRecordedDiscoveries" | "dropDiscoveries">,
+  store: Pick<Store, "dropDiscoveries">,
   ticket: IssueReference,
 ): Promise<string> {
-  const before = await store.loadRecordedDiscoveries();
-  const dropped = before.filter(({ repo, number }) => repo === ticket.repo && number === ticket.number).length;
-  if (dropped > 0) {
-    await store.dropDiscoveries([ticket]);
-  }
+  const dropped = await store.dropDiscoveries([ticket]);
   return `Dropped ${dropped} recorded ${dropped === 1 ? "discovery" : "discoveries"} on ${ticketReference(ticket)}.`;
 }
