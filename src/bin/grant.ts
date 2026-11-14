@@ -3,8 +3,8 @@ import { documentStore } from "../adapters/document-store.ts";
 import { ghIssueTracker } from "../adapters/gh-issue-tracker.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import { errorMessage } from "../error-message.ts";
-import { LIVE_WRITE_LABEL, TURBOABLE_LABEL } from "../ports/index.ts";
-import { grantLiveWrite, grantTurboable, parseGrantLabel, parseTicketReference } from "../grant.ts";
+import { LIVE_WRITE_LABEL, TURBOABLE_LABEL, parseTicketReference } from "../ports/index.ts";
+import { grantLiveWrite, grantTurboable, parseGrantLabel } from "../grant.ts";
 
 /**
  * Grants `turboable` (the default) or `live-write` on `O/R#n` as the

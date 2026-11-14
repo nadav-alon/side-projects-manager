@@ -1,7 +1,7 @@
-import type { IssueNumber } from "./issue-number.ts";
+import { isIssueNumber, type IssueNumber } from "./issue-number.ts";
 import { isModelName, type ModelName } from "./model-name.ts";
 import { pullRequestNumber, type PullRequestUrl } from "./pull-request-url.ts";
-import type { RepoSlug } from "./repo-slug.ts";
+import { isRepoSlug, type RepoSlug } from "./repo-slug.ts";
 import { isSize, largerSize, type Size } from "./size.ts";
 import {
   type GrantLabel,
@@ -367,6 +367,20 @@ export interface Ticket {
  */
 export function ticketReference(ticket: Pick<Ticket, "repo" | "number">): string {
   return `${ticket.repo}#${ticket.number}`;
+}
+
+/**
+ * Reads `owner/repo#n` — the shape `ticketReference` writes — as the ticket
+ * it names. Throws naming `text` when it is not one.
+ */
+export function parseTicketReference(text: string): IssueReference {
+  const match = /^([^#\s]+)#(\d+)$/.exec(text);
+  const repo = match?.[1];
+  const number = Number(match?.[2]);
+  if (repo === undefined || !isRepoSlug(repo) || !isIssueNumber(number)) {
+    throw new Error(`Not a ticket reference, as owner/repo#n: ${JSON.stringify(text)}`);
+  }
+  return { repo, number };
 }
 
 /**

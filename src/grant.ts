@@ -4,8 +4,6 @@ import {
   LIVE_WRITE_LABEL,
   TURBOABLE_LABEL,
   isGrantLabel,
-  isIssueNumber,
-  isRepoSlug,
   recordGrant,
   ticketReference,
 } from "./ports/index.ts";
@@ -16,20 +14,6 @@ export function parseGrantLabel(text: string): GrantLabel {
     throw new Error(`Not a label to grant, ${TURBOABLE_LABEL} or ${LIVE_WRITE_LABEL}: ${JSON.stringify(text)}`);
   }
   return text;
-}
-
-/**
- * Reads `owner/repo#n` — the shape `ticketReference` writes — as the ticket
- * it names. Throws naming `text` when it is not one.
- */
-export function parseTicketReference(text: string): IssueReference {
-  const match = /^([^#\s]+)#(\d+)$/.exec(text);
-  const repo = match?.[1];
-  const number = Number(match?.[2]);
-  if (repo === undefined || !isRepoSlug(repo) || !isIssueNumber(number)) {
-    throw new Error(`Not a ticket reference, as owner/repo#n: ${JSON.stringify(text)}`);
-  }
-  return { repo, number };
 }
 
 /**

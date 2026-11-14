@@ -94,6 +94,7 @@ export {
   ticketKind,
   ticketPrioritiesIn,
   ticketReference,
+  parseTicketReference,
   grantConsentAt,
   turboableConsentAt,
 } from "./issue-tracker.ts";

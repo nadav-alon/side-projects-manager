@@ -2,7 +2,7 @@
 import { documentStore } from "../adapters/document-store.ts";
 import { dropDiscoveryOf } from "../drop-discovery.ts";
 import { errorMessage } from "../error-message.ts";
-import { parseTicketReference } from "../grant.ts";
+import { parseTicketReference } from "../ports/index.ts";
 
 /**
  * Drops every recorded discovery against `O/R#n` from the loop pane, leaving
