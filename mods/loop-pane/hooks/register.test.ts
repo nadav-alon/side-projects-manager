@@ -424,3 +424,18 @@ test('the pane shows the invocation again after a /clear', { plugins: [clearing]
   expect(lines).toContain('o/a#7')
   expect(lines).toContain("5h window: 1.2K / 5.0K spendable tokens (24%)")
 })
+
+test("the pane refreshes after a /clear from the new session's first hook, with no draw from the host", { plugins: [clearing] }, async ($, on) => {
+  const reads: string[] = []
+  engine(on, home, { reads })
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+  on('classic.SessionStart', () => ({}) as never)
+  // The host never redraws on its own: an invalidate request is not answered with a draw.
+  on('ui.invalidate', () => ({ value: {} }) as never)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  await mount($)
+  await $.session.end({ reason: 'clear', sessionId: 's0', resume: { id: 's0' } } as never)
+  reads.length = 0
+  await $.classic.SessionStart({ source: 'clear' } as never)
+  expect(reads).toContain(`${HOME}/journal.json`)
+})

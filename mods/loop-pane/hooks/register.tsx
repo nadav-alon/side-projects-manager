@@ -120,6 +120,18 @@ export const register: Register = on => {
     return ended
   })
 
+  // The new session's first hook is where its polling starts again: waiting for a draw would leave the pane
+  // stale if the host never redraws, so the pane asks for one itself.
+  on('classic.SessionStart', async ($, e, next) => {
+    const started = await next(e)
+    if (e.source === 'clear' && polling.tick !== undefined) {
+      polling.tick.cancel()
+      await poll($, polling, await (homeOf ??= resolveManagerHome(argv => $.process.run(argv), $.plugin.root)))
+      $.ui.invalidate('ui.render')
+    }
+    return started
+  })
+
   on('ui.close', async ($, e, next) => {
     const closed = await next(e)
     if (e.id === PANE) stopPolling()
