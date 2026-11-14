@@ -84,7 +84,10 @@ test('the pane lists the recorded discoveries, newest first', async ($, on) => {
   engine(on, files)
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
-  const expected = ['o/b#5[correction]Newer', 'o/a#3[suggestion]Run: older']
+  const expected = [
+    'o/b#5[correction]Newerhttps://github.com/o/b/issues/5',
+    'o/a#3[suggestion]Run: olderhttps://github.com/o/a/issues/3',
+  ]
   const rows = (await ui.findAll({ type: 'Box' })).map(box => box.text.trim()).filter(text => expected.includes(text))
   expect(rows).toEqual(expected)
   expect(await texts(ui)).not.toContain('No discovery is waiting on you.')

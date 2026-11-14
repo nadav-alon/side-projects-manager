@@ -210,6 +210,7 @@ export const register: Register = on => {
               </Text>
               <Text color="cyan">[{discovery.kind}]</Text>
               <Text>{discovery.title}</Text>
+              <Text>{`https://github.com/${discovery.repo}/issues/${discovery.number}`}</Text>
             </Box>
           ))}
         </Section>
