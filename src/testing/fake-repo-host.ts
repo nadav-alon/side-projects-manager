@@ -161,7 +161,7 @@ export class FakeRepoHost implements RepoHost {
   mergeStatus: (pullRequest: PullRequestUrl) => MergeStatus = () => "clean";
 
   /** What `readChecksStatus` answers for a pull request. Green, unless a test says otherwise. */
-  checksStatus: (pullRequest: PullRequestUrl) => ChecksStatus = () => "green";
+  checksStatus: (pullRequest: PullRequestUrl, head: string) => ChecksStatus = () => "green";
 
   /** What `readChecksPending` answers for a pull request. Not pending, unless a test says otherwise; scripted apart from `checksStatus`, as the two are separate reads. */
   checksPending: (pullRequest: PullRequestUrl) => boolean = () => false;
@@ -490,8 +490,8 @@ export class FakeRepoHost implements RepoHost {
     return this.mergeStatus(pullRequest);
   }
 
-  async readChecksStatus(pullRequest: PullRequestUrl): Promise<ChecksStatus> {
-    return this.checksStatus(pullRequest);
+  async readChecksStatus(pullRequest: PullRequestUrl, head: string): Promise<ChecksStatus> {
+    return this.checksStatus(pullRequest, head);
   }
 
   async readChecksPending(pullRequest: PullRequestUrl): Promise<boolean> {
@@ -553,8 +553,11 @@ export class FakeRepoHost implements RepoHost {
   /** What `readPullRequestHead` answers. */
   static readonly HEAD = "fake-head";
 
-  async readPullRequestHead(_pullRequest: PullRequestUrl): Promise<string> {
-    return FakeRepoHost.HEAD;
+  /** What `readPullRequestHead` answers for a pull request. {@link HEAD}, unless a test says otherwise. */
+  pullRequestHead: (pullRequest: PullRequestUrl) => string = () => FakeRepoHost.HEAD;
+
+  async readPullRequestHead(pullRequest: PullRequestUrl): Promise<string> {
+    return this.pullRequestHead(pullRequest);
   }
 
   readonly #closingPullRequests = new Map<RepoSlug, ClosingPullRequest[]>();

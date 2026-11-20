@@ -585,8 +585,8 @@ export function githubRepoHost(
       return mergeStatusOf(pullRequest);
     },
 
-    async readChecksStatus(pullRequest: PullRequestUrl): Promise<ChecksStatus> {
-      return checksStatusFrom(await readRawChecks(pullRequest));
+    async readChecksStatus(pullRequest: PullRequestUrl, head: string): Promise<ChecksStatus> {
+      return checksStatusFrom(await readRawChecksAt(pullRequest, head));
     },
 
     async readChecksPending(pullRequest: PullRequestUrl): Promise<boolean> {
@@ -942,6 +942,48 @@ async function readRawChecks(pullRequest: PullRequestUrl): Promise<RawCheck[]> {
     "statusCheckRollup",
     "--jq",
     ".statusCheckRollup",
+  ]);
+  return JSON.parse(stdout) as RawCheck[];
+}
+
+/** The query behind {@link readRawChecksAt}: a commit's own rollup, which no later push changes. */
+const COMMIT_CHECKS_QUERY = `query($owner: String!, $name: String!, $oid: GitObjectID!) {
+  repository(owner: $owner, name: $name) {
+    object(oid: $oid) {
+      ... on Commit {
+        statusCheckRollup {
+          contexts(first: 100) {
+            nodes {
+              __typename
+              ... on CheckRun { name status conclusion detailsUrl }
+              ... on StatusContext { context state targetUrl }
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+/**
+ * The `statusCheckRollup` of commit `head` itself, as {@link readRawChecks}
+ * reads a pull request's. A commit with no rollup has no checks at all.
+ */
+async function readRawChecksAt(pullRequest: PullRequestUrl, head: string): Promise<RawCheck[]> {
+  const { owner, repo } = pullRequestParts(pullRequest);
+  const { stdout } = await run("gh", [
+    "api",
+    "graphql",
+    "-f",
+    `query=${COMMIT_CHECKS_QUERY}`,
+    "-F",
+    `owner=${owner}`,
+    "-F",
+    `name=${repo}`,
+    "-F",
+    `oid=${head}`,
+    "--jq",
+    ".data.repository.object.statusCheckRollup.contexts.nodes // []",
   ]);
   return JSON.parse(stdout) as RawCheck[];
 }

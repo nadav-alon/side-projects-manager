@@ -217,7 +217,7 @@ async function mergeProposed(
       ? { kind: "outdated", url }
       : leftForHuman(ports, url, verdict.reason);
   }
-  const checks = await settledChecks(ports.repoHost, merge.clock, url);
+  const checks = await settledChecks(ports.repoHost, merge.clock, url, head);
   if (checks !== "green") {
     return leftForHuman(ports, url, checks === "pending" ? "checks still running" : "checks failing");
   }

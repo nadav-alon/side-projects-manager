@@ -35,7 +35,7 @@ export function failingCheckThreadBody(check: FailingCheck): string {
 export async function postFailingCheckThreads(
   repoHost: Pick<
     RepoHost,
-    "readChecksStatus" | "readChecksPending" | "readFailingChecks" | "postReviewThread" | "postComment" | "readOpenReviewThreadBodies"
+    "readChecksStatus" | "readPullRequestHead" | "readChecksPending" | "readFailingChecks" | "postReviewThread" | "postComment" | "readOpenReviewThreadBodies"
   >,
   clock: Clock,
   pullRequest: PullRequestUrl,
@@ -48,7 +48,7 @@ export async function postFailingCheckThreads(
   if (pending) {
     await repoHost.postComment(pullRequest, CHECKS_STILL_PENDING_NOTE);
   }
-  if ((await repoHost.readChecksStatus(pullRequest)) !== "red") {
+  if ((await repoHost.readChecksStatus(pullRequest, await repoHost.readPullRequestHead(pullRequest))) !== "red") {
     return 0;
   }
   const failing = await repoHost.readFailingChecks(pullRequest);

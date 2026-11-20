@@ -787,13 +787,16 @@ export interface RepoHost {
    */
   readMergeStatus(pullRequest: PullRequestUrl): Promise<MergeStatus>;
   /**
-   * Reads `pullRequest`'s own checks once: see {@link ChecksStatus}.
+   * Reads the checks of commit `head` of `pullRequest`'s branch once, as
+   * {@link readPullRequestHead} answered it: see {@link ChecksStatus}. Never
+   * the pull request's current rollup, so a commit pushed after `head` was
+   * read cannot lend its checks to it.
    *
    * What the merge gate reads before merging, since {@link mergePullRequest}
    * itself does not reliably refuse on a red or pending check — see {@link
    * ChecksStatus}.
    */
-  readChecksStatus(pullRequest: PullRequestUrl): Promise<ChecksStatus>;
+  readChecksStatus(pullRequest: PullRequestUrl, head: string): Promise<ChecksStatus>;
   /**
    * Whether any of `pullRequest`'s checks is still running, read once — even
    * when another has already failed, which {@link readChecksStatus} reads as
