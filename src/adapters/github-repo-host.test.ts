@@ -2244,6 +2244,18 @@ describe("reading whether a pull request's checks are pending", () => {
 
   const rollup = (checks: object[]) => `echo '${JSON.stringify(checks)}'`;
 
+  it("reads an empty rollup as pending, since CI has not created its check runs yet", async (t) => {
+    await recordingGh(t, rollup([]));
+
+    assert.equal(await githubRepoHost().readChecksStatus(PULL_REQUEST), "pending");
+  });
+
+  it("reads a rollup of only passed checks as green", async (t) => {
+    await recordingGh(t, rollup([{ name: "test", status: "COMPLETED", conclusion: "SUCCESS" }]));
+
+    assert.equal(await githubRepoHost().readChecksStatus(PULL_REQUEST), "green");
+  });
+
   it("reads a failed legacy status context as settled, not pending", async (t) => {
     await recordingGh(t, rollup([{ context: "ci/legacy", state: "FAILURE" }, { context: "ci/other", state: "ERROR" }]));
 

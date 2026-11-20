@@ -968,14 +968,14 @@ function isRed(check: RawCheck): boolean {
  * `checks`, `.statusCheckRollup`'s, read down to {@link ChecksStatus}:
  * a check run (`status`/`conclusion`) or a legacy status context (`state`),
  * mixed freely since a pull request may carry either kind. Red beats pending,
- * which beats green, and no checks at all reads green — there is nothing to
- * wait on.
+ * which beats green, and no checks at all reads pending — CI has not created
+ * its check runs yet (ADR 0017).
  */
 function checksStatusFrom(checks: RawCheck[]): ChecksStatus {
   if (checks.some(isRed)) {
     return "red";
   }
-  return checks.some(isPending) ? "pending" : "green";
+  return checks.length === 0 || checks.some(isPending) ? "pending" : "green";
 }
 
 /** Whether `check` is still running: a legacy status context neither `SUCCESS` nor red, or a check run not yet completed. */
