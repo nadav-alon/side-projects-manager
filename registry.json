@@ -34,6 +34,10 @@
     {
       "repo": "nadav-alon/smart-home",
       "turbo": true
+    },
+    {
+      "repo": "nadav-alon/recipes",
+      "turbo": true
     }
   ]
 }
