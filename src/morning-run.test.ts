@@ -5241,6 +5241,46 @@ describe("morningLoop", () => {
         });
       });
 
+      it("is left for the developer naming the head once its checks never started in a day", async () => {
+        const ports = fakePorts();
+        queuedPendingReady(ports, new Date(FROZEN_NOW.getTime() - 24 * 60 * 60 * 1000));
+        ports.repoHost.checksStatus = () => "none";
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.store.pendingReadies(), []);
+        assert.match(
+          ports.tracker.summaries[0]?.body ?? "",
+          new RegExp(`left for you: no checks ran on ${FakeRepoHost.HEAD}`),
+        );
+      });
+
+      it("leaves a turbo draft with no checks for the developer unmerged, naming the head, once both records are a day old", async () => {
+        const ports = fakePorts();
+        const dayOld = new Date(FROZEN_NOW.getTime() - 24 * 60 * 60 * 1000);
+        queuedPendingReady(ports, dayOld);
+        ports.store.register(PILOT, { turbo: true });
+        const implementation = ports.tracker.addIneligibleTicket(PILOT, {
+          number: issueNumber(8),
+          title: "Another",
+        });
+        ports.store.markMergePending(implementation, PULL_REQUEST, dayOld);
+        ports.repoHost.checksStatus = () => "none";
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.merged, []);
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.store.pendingReadies(), []);
+        assert.deepEqual(ports.store.pendingMerges(), []);
+        assert.equal(readyForHumanLabels(ports).length, 1);
+        assert.match(
+          ports.tracker.summaries.map((summary) => summary.body).join("\n"),
+          new RegExp(`no checks ran on ${FakeRepoHost.HEAD}`),
+        );
+      });
+
       it("settles quietly once the developer marked it ready themselves", async () => {
         const ports = fakePorts();
         queuedPendingReady(ports);
@@ -6112,6 +6152,32 @@ describe("morningLoop", () => {
           assert.deepEqual(readyForHumanLabels(ports), [
             { pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL },
           ]);
+        });
+
+        it("names the head it found no checks on when the pull request is left for the developer", async () => {
+          const ports = fakePorts();
+          queuedPendingMerge(ports, new Date(FROZEN_NOW.getTime() - PENDING_MERGE_LIMIT));
+          ports.repoHost.checksStatus = () => "none";
+
+          await morningLoop(ports);
+
+          assert.match(
+            ports.tracker.summaries.map((summary) => summary.body).join("\n"),
+            new RegExp(`no checks ran on ${FakeRepoHost.HEAD}`),
+          );
+        });
+
+        it("says its checks were still running when some are, once it is left for the developer", async () => {
+          const ports = fakePorts();
+          queuedPendingMerge(ports, new Date(FROZEN_NOW.getTime() - PENDING_MERGE_LIMIT));
+          ports.repoHost.checksStatus = () => "pending";
+
+          await morningLoop(ports);
+
+          assert.match(
+            ports.tracker.summaries.map((summary) => summary.body).join("\n"),
+            /checks still running after a day/,
+          );
         });
 
         it("labels the pull request ready-for-human when the repo host refuses the merge", async (t) => {
@@ -10567,7 +10633,7 @@ describe("morningLoop", () => {
       assert.match(report.message, /Uniform sync sweep:.*pilot\/pull\/3.*waiting on the developer/);
     });
 
-    it("merges a turbo project's sync pull request whose repo has no checks, which read as green", async () => {
+    it("merges a turbo project's sync pull request whose repo has checks that all passed", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT, { turbo: true });
       ports.harness.changed = ["docs/agents/coding-standards.md"];

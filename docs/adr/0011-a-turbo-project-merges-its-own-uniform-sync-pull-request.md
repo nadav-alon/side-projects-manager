@@ -34,6 +34,8 @@ else's work on the branch, and is labelled `ready-for-human`.
 first pending read; a project with no checks counts as green. A pull request still not green after
 that, or that the host refuses to merge, is labelled `ready-for-human` and the sweep stops.
 
+Clause superseded by ADR-0017: a project with no checks counts as green.
+
 **A labelled sync pull request is left alone.** Later sweeps push nothing to it and merge nothing,
 and name it in the summary each run until the developer has dealt with it.
 

@@ -1255,6 +1255,9 @@ function settledReadiesSection(settledReadies: SettledReady[]): string | undefin
     return undefined;
   }
   const lines = settledReadies.map(({ pullRequest, outcome }) => {
+    if (typeof outcome === "object" && outcome.kind === "no-checks") {
+      return `- ${pullRequest}: left for you: no checks ran on ${outcome.head}.`;
+    }
     switch (outcome) {
       case "ready-for-review":
         return `- ${pullRequest}: marked ready for review, its checks having finished green.`;
