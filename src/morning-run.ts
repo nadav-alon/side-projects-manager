@@ -2797,7 +2797,7 @@ async function implementationTicketClosedBy(
 
 /**
  * Marks `pullRequest` ready for review only on green checks, read through
- * `settledChecks` — no checks at all reads green, as the merge gate does
+ * `settledChecks` — no checks at all reads pending, as the merge gate does
  * (ADR 0016). Checks still running when the wait ends leave it a draft,
  * recorded in `invocation` for `pendingReadySweep`; failing checks leave it
  * a draft, unmarked. Comes back with why it was held, or undefined once
@@ -3030,7 +3030,11 @@ function pendingMergeSweep(
           verdict.kind === "checks-pending" &&
           ports.clock.now().getTime() - pending.deferredAt.getTime() >= PENDING_MERGE_LIMIT
         ) {
-          verdict = await leftForHuman(ports, pending.pullRequest, "checks still running after a day");
+          // Pending with nothing running is an empty rollup: CI never started (ADR 0017).
+          const reason = (await ports.repoHost.readChecksPending(pending.pullRequest))
+            ? "checks still running after a day"
+            : `no checks ran on ${await ports.repoHost.readPullRequestHead(pending.pullRequest)}`;
+          verdict = await leftForHuman(ports, pending.pullRequest, reason);
         }
         if (verdict.kind === "merged" || verdict.kind === "left-for-human") {
           settled.push({ pullRequest: pending.pullRequest, merge: verdict });

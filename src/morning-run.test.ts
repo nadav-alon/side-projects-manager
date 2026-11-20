@@ -6114,6 +6114,34 @@ describe("morningLoop", () => {
           ]);
         });
 
+        it("names the head it found no checks on when the pull request is left for the developer", async () => {
+          const ports = fakePorts();
+          queuedPendingMerge(ports, new Date(FROZEN_NOW.getTime() - PENDING_MERGE_LIMIT));
+          ports.repoHost.checksStatus = () => "pending";
+          ports.repoHost.checksPending = () => false;
+
+          await morningLoop(ports);
+
+          assert.match(
+            ports.tracker.summaries.map((summary) => summary.body).join("\n"),
+            new RegExp(`no checks ran on ${FakeRepoHost.HEAD}`),
+          );
+        });
+
+        it("says its checks were still running when some are, once it is left for the developer", async () => {
+          const ports = fakePorts();
+          queuedPendingMerge(ports, new Date(FROZEN_NOW.getTime() - PENDING_MERGE_LIMIT));
+          ports.repoHost.checksStatus = () => "pending";
+          ports.repoHost.checksPending = () => true;
+
+          await morningLoop(ports);
+
+          assert.match(
+            ports.tracker.summaries.map((summary) => summary.body).join("\n"),
+            /checks still running after a day/,
+          );
+        });
+
         it("labels the pull request ready-for-human when the repo host refuses the merge", async (t) => {
           const ports = fakePorts();
           queuedPendingMerge(ports);
@@ -10567,7 +10595,7 @@ describe("morningLoop", () => {
       assert.match(report.message, /Uniform sync sweep:.*pilot\/pull\/3.*waiting on the developer/);
     });
 
-    it("merges a turbo project's sync pull request whose repo has no checks, which read as green", async () => {
+    it("merges a turbo project's sync pull request whose repo has checks that all passed", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT, { turbo: true });
       ports.harness.changed = ["docs/agents/coding-standards.md"];
