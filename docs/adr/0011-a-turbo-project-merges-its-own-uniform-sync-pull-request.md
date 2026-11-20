@@ -31,7 +31,7 @@ difference — a file outside `UNIFORM_FILES`, a deletion, bytes the manager nev
 else's work on the branch, and is labelled `ready-for-human`.
 
 **Green means what ADR 0009's gate means.** Checks are waited out for at most 3 minutes after the
-first pending read; a project with no checks counts as green. A pull request still not green after
+first pending read; a project with no checks counts as green (clause superseded by ADR-0017). A pull request still not green after
 that, or that the host refuses to merge, is labelled `ready-for-human` and the sweep stops.
 
 **A labelled sync pull request is left alone.** Later sweeps push nothing to it and merge nothing,
