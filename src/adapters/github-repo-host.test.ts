@@ -2244,10 +2244,10 @@ describe("reading whether a pull request's checks are pending", () => {
 
   const rollup = (checks: object[]) => `echo '${JSON.stringify(checks)}'`;
 
-  it("reads an empty rollup as pending, since CI has not created its check runs yet", async (t) => {
+  it("reads an empty rollup as none, since CI has not created its check runs yet", async (t) => {
     await recordingGh(t, rollup([]));
 
-    assert.equal(await githubRepoHost().readChecksStatus(PULL_REQUEST), "pending");
+    assert.equal(await githubRepoHost().readChecksStatus(PULL_REQUEST), "none");
   });
 
   it("reads a rollup of only passed checks as green", async (t) => {

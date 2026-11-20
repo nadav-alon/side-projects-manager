@@ -5241,6 +5241,46 @@ describe("morningLoop", () => {
         });
       });
 
+      it("is left for the developer naming the head once its checks never started in a day", async () => {
+        const ports = fakePorts();
+        queuedPendingReady(ports, new Date(FROZEN_NOW.getTime() - 24 * 60 * 60 * 1000));
+        ports.repoHost.checksStatus = () => "none";
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.store.pendingReadies(), []);
+        assert.match(
+          ports.tracker.summaries[0]?.body ?? "",
+          new RegExp(`left for you: no checks ran on ${FakeRepoHost.HEAD}`),
+        );
+      });
+
+      it("leaves a turbo draft with no checks for the developer unmerged, naming the head, once both records are a day old", async () => {
+        const ports = fakePorts();
+        const dayOld = new Date(FROZEN_NOW.getTime() - 24 * 60 * 60 * 1000);
+        queuedPendingReady(ports, dayOld);
+        ports.store.register(PILOT, { turbo: true });
+        const implementation = ports.tracker.addIneligibleTicket(PILOT, {
+          number: issueNumber(8),
+          title: "Another",
+        });
+        ports.store.markMergePending(implementation, PULL_REQUEST, dayOld);
+        ports.repoHost.checksStatus = () => "none";
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.merged, []);
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.store.pendingReadies(), []);
+        assert.deepEqual(ports.store.pendingMerges(), []);
+        assert.equal(readyForHumanLabels(ports).length, 1);
+        assert.match(
+          ports.tracker.summaries.map((summary) => summary.body).join("\n"),
+          new RegExp(`no checks ran on ${FakeRepoHost.HEAD}`),
+        );
+      });
+
       it("settles quietly once the developer marked it ready themselves", async () => {
         const ports = fakePorts();
         queuedPendingReady(ports);
@@ -6117,8 +6157,7 @@ describe("morningLoop", () => {
         it("names the head it found no checks on when the pull request is left for the developer", async () => {
           const ports = fakePorts();
           queuedPendingMerge(ports, new Date(FROZEN_NOW.getTime() - PENDING_MERGE_LIMIT));
-          ports.repoHost.checksStatus = () => "pending";
-          ports.repoHost.checksPending = () => false;
+          ports.repoHost.checksStatus = () => "none";
 
           await morningLoop(ports);
 
@@ -6132,7 +6171,6 @@ describe("morningLoop", () => {
           const ports = fakePorts();
           queuedPendingMerge(ports, new Date(FROZEN_NOW.getTime() - PENDING_MERGE_LIMIT));
           ports.repoHost.checksStatus = () => "pending";
-          ports.repoHost.checksPending = () => true;
 
           await morningLoop(ports);
 

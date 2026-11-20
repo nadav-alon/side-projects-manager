@@ -11,12 +11,15 @@ started yet". Decided on #1857, built on #1892, under #1245.
 
 ## What changed
 
-An empty checks rollup reads `pending`, always, for the merge gate and the ready-mark alike.
+An empty checks rollup reads `none`, a fourth status the port answers in one read, always pending in
+every way but its name: the merge gate and the ready-mark wait on it and sweep it as they do
+`pending`.
 
 - Still empty after the 3-minute `settledChecks` wait, the pull request goes to the existing pending
   sweep like any other pending one.
-- After `PENDING_MERGE_LIMIT` a pending merge is left for the developer with the reason "no checks
-  ran on <sha>", where checks that are running read "checks still running after a day".
+- After `PENDING_MERGE_LIMIT` a pending merge, or the pending ready beside it, is left for the
+  developer with the reason "no checks ran on <sha>", where checks that are running read "checks
+  still running after a day".
 
 ## Consequences
 

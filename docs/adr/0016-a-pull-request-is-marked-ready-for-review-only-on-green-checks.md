@@ -11,7 +11,9 @@ a clean review, and four pull requests went out ready with red CI. Decided on #1
 ## What changed
 
 Both paths read the checks through `settledChecks` before marking the pull request ready for review,
-as the merge gate does: polling for up to 3 minutes, no checks at all reading green (clause superseded by ADR-0017).
+as the merge gate does: polling for up to 3 minutes, no checks at all reading green.
+
+Clause superseded by ADR-0017: no checks at all reading green.
 
 - **Green** marks it ready for review, as before.
 - **Failing** leaves it a draft, unmarked. What a red pull request gets beyond that is #1788's.

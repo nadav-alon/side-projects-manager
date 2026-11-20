@@ -2798,9 +2798,9 @@ async function implementationTicketClosedBy(
 /**
  * Marks `pullRequest` ready for review only on green checks, read through
  * `settledChecks` — no checks at all reads pending, as the merge gate does
- * (ADR 0016). Checks still running when the wait ends leave it a draft,
- * recorded in `invocation` for `pendingReadySweep`; failing checks leave it
- * a draft, unmarked. Comes back with why it was held, or undefined once
+ * (ADR 0016, ADR 0017). Checks still running when the wait ends leave it a
+ * draft, recorded in `invocation` for `pendingReadySweep`; failing checks
+ * leave it a draft, unmarked. Comes back with why it was held, or undefined once
  * marked. Throws what a check read or the ready-mark throws; a record that
  * could not be written is warned of rather than raised, since the pull
  * request is simply left for the developer.
@@ -2814,7 +2814,7 @@ async function readyOnGreen(
   if (checks === "red") {
     return { kind: "checks-failing" };
   }
-  if (checks === "pending") {
+  if (checks === "pending" || checks === "none") {
     await invocation.deferReady(pullRequest, ports.clock.now()).catch((error: unknown) => {
       console.warn(`Could not record the pending ready of ${pullRequest}: ${errorMessage(error)}`);
     });
@@ -2864,6 +2864,7 @@ function pendingReadySweep(
         }
         const checks = await ports.repoHost.readChecksStatus(pullRequest);
         let held: string | undefined;
+        let noChecksOn: string | undefined;
         let retry: ChecksRetry | undefined;
         if (checks === "green") {
           await ports.repoHost.markPullRequestReady(pullRequest);
@@ -2872,7 +2873,10 @@ function pendingReadySweep(
           held = "checks failing";
           retry = await queueChecksRetry(ports, pullRequest, () => implementationTicketClosedBy(ports, pullRequest));
         } else if (ports.clock.now().getTime() - deferredAt.getTime() >= PENDING_READY_LIMIT) {
-          held = "checks still running after a day";
+          if (checks === "none") {
+            noChecksOn = await ports.repoHost.readPullRequestHead(pullRequest);
+          }
+          held = noChecksOn === undefined ? "checks still running after a day" : `no checks ran on ${noChecksOn}`;
         } else {
           continue;
         }
@@ -2888,7 +2892,9 @@ function pendingReadySweep(
               outcome:
                 checks === "red"
                   ? { kind: "checks-failing", ...(retry !== undefined && { retry }) }
-                  : "left-for-you",
+                  : noChecksOn !== undefined
+                    ? { kind: "no-checks", head: noChecksOn }
+                    : "left-for-you",
             });
           } else if (retry?.kind === "queued") {
             // The queued retry's own finish fires the gate once green.
@@ -3030,10 +3036,11 @@ function pendingMergeSweep(
           verdict.kind === "checks-pending" &&
           ports.clock.now().getTime() - pending.deferredAt.getTime() >= PENDING_MERGE_LIMIT
         ) {
-          // Pending with nothing running is an empty rollup: CI never started (ADR 0017).
-          const reason = (await ports.repoHost.readChecksPending(pending.pullRequest))
-            ? "checks still running after a day"
-            : `no checks ran on ${await ports.repoHost.readPullRequestHead(pending.pullRequest)}`;
+          // An empty rollup is CI never having started (ADR 0017).
+          const reason =
+            verdict.noChecksOn === undefined
+              ? "checks still running after a day"
+              : `no checks ran on ${verdict.noChecksOn}`;
           verdict = await leftForHuman(ports, pending.pullRequest, reason);
         }
         if (verdict.kind === "merged" || verdict.kind === "left-for-human") {
@@ -3147,8 +3154,8 @@ async function mergeWhenGreen(
   } catch (error: unknown) {
     return leftForHuman(ports, pullRequest, errorMessage(error));
   }
-  if (checks === "pending") {
-    return { kind: "checks-pending" };
+  if (checks === "pending" || checks === "none") {
+    return checks === "none" ? { kind: "checks-pending", noChecksOn: head } : { kind: "checks-pending" };
   }
   if (checks !== "green") {
     return leftForHuman(ports, pullRequest, "checks failing");

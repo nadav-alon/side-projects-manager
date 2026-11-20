@@ -223,15 +223,17 @@ export type MergeStatus = "conflicting" | "behind" | "clean" | "unknown";
  * What a pull request's own checks read as, read once at whatever instant the
  * caller asks: `"red"` once any check has failed, `"pending"` while one is
  * still running and none has failed, `"green"` once every check that ran
- * passed; a pull request with no checks at all reads `"pending"`, since CI has
- * not created its check runs yet (ADR 0017).
+ * passed, and `"none"` for a pull request with no checks at all, since CI has
+ * not created its check runs yet (ADR 0017). `"none"` is pending in every way
+ * but its name: callers wait on it, hold on it and sweep it as they do
+ * `"pending"`, and only the reason they give the developer tells them apart.
  *
  * What the merge gate reads before merging: `gh pr merge` only refuses on a
  * red or pending check where the repo's branch protection requires it, so a
  * repo without that configured would otherwise merge a pull request whose
  * checks never passed.
  */
-export type ChecksStatus = "green" | "pending" | "red";
+export type ChecksStatus = "green" | "pending" | "red" | "none";
 
 /**
  * One check that failed on a pull request: its `name`, the `errorLines` its

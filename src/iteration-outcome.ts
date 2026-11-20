@@ -835,7 +835,7 @@ export type MergeGate =
    * is neither merged nor labelled, and a later pass reads the checks again
    * until they settle.
    */
-  | { kind: "checks-pending" };
+  | { kind: "checks-pending"; noChecksOn?: string };
 
 /**
  * A pending merge a later sweep settled: the pull request, and what came of
@@ -852,11 +852,15 @@ export interface SettledMerge {
 /**
  * A draft pull request left waiting on running checks that a later sweep
  * settled: marked `ready-for-review`, left for the developer after a day
- * still running, or left a draft because its checks went red.
+ * still running or never started (`no-checks`, naming the head), or left a draft because its checks went red.
  */
 export interface SettledReady {
   pullRequest: PullRequestUrl;
-  outcome: "ready-for-review" | "left-for-you" | Extract<ReadyHold, { kind: "checks-failing" }>;
+  outcome:
+    | "ready-for-review"
+    | "left-for-you"
+    | { kind: "no-checks"; head: string }
+    | Extract<ReadyHold, { kind: "checks-failing" }>;
 }
 
 /**
