@@ -5,6 +5,7 @@ import type {
   EstimateBasis,
   Branch,
   Checkout,
+  CommitSha,
   ModelName,
   ModelRefusal,
   PullRequestResolution,
@@ -715,14 +716,14 @@ export interface NotRetried {
  * `head` is the commit whose checks were read.
  */
 export type ReadyHold =
-  | { kind: "checks-running"; head: string }
+  | { kind: "checks-running"; head: CommitSha }
   /**
    * `retry` is set on an apply-review's own finish and on a clean review's:
    * what became of the red checks. An apply-review's finish runs no merge
    * gate either way; a clean review's runs it unless the retry was queued — a
    * queued retry's own finish fires it once the checks are green.
    */
-  | { kind: "checks-failing"; head: string; retry?: ChecksRetry };
+  | { kind: "checks-failing"; head: CommitSha; retry?: ChecksRetry };
 
 /** Whether `held` is red checks whose automatic retry was queued. */
 export function retryQueued(held: ReadyHold | undefined): boolean {

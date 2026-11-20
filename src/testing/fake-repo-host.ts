@@ -3,6 +3,7 @@ import type {
   ApplyReviewThread,
   Branch,
   Checkout,
+  CommitSha,
   ChecksStatus,
   FailingCheck,
   ClosingPullRequest,
@@ -27,6 +28,7 @@ import {
   APPLY_REVIEW_MARKER,
   DECLINED_REPLY_PREFIX,
   checkout,
+  commitSha,
   pullRequestUrl,
   resolveNeedsRebase,
   summarizeApplyReviewThreads,
@@ -161,7 +163,7 @@ export class FakeRepoHost implements RepoHost {
   mergeStatus: (pullRequest: PullRequestUrl) => MergeStatus = () => "clean";
 
   /** What `readChecksStatus` answers for a pull request. Green, unless a test says otherwise. */
-  checksStatus: (pullRequest: PullRequestUrl, head: string) => ChecksStatus = () => "green";
+  checksStatus: (pullRequest: PullRequestUrl, head: CommitSha) => ChecksStatus = () => "green";
 
   /** What `readChecksPending` answers for a pull request. Not pending, unless a test says otherwise; scripted apart from `checksStatus`, as the two are separate reads. */
   checksPending: (pullRequest: PullRequestUrl) => boolean = () => false;
@@ -490,7 +492,7 @@ export class FakeRepoHost implements RepoHost {
     return this.mergeStatus(pullRequest);
   }
 
-  async readChecksStatus(pullRequest: PullRequestUrl, head: string): Promise<ChecksStatus> {
+  async readChecksStatus(pullRequest: PullRequestUrl, head: CommitSha): Promise<ChecksStatus> {
     return this.checksStatus(pullRequest, head);
   }
 
@@ -551,12 +553,12 @@ export class FakeRepoHost implements RepoHost {
   }
 
   /** What `readPullRequestHead` answers. */
-  static readonly HEAD = "fake-head";
+  static readonly HEAD = commitSha("fa4e0000fa4e0000fa4e0000fa4e0000fa4e0000");
 
   /** What `readPullRequestHead` answers for a pull request. {@link HEAD}, unless a test says otherwise. */
-  pullRequestHead: (pullRequest: PullRequestUrl) => string = () => FakeRepoHost.HEAD;
+  pullRequestHead: (pullRequest: PullRequestUrl) => CommitSha = () => FakeRepoHost.HEAD;
 
-  async readPullRequestHead(pullRequest: PullRequestUrl): Promise<string> {
+  async readPullRequestHead(pullRequest: PullRequestUrl): Promise<CommitSha> {
     return this.pullRequestHead(pullRequest);
   }
 

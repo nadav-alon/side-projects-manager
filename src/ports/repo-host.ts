@@ -1,5 +1,6 @@
 import type { Branch } from "./branch.ts";
 import type { CheckRunUrl } from "./check-run-url.ts";
+import type { CommitSha } from "./commit-sha.ts";
 import type { Checkout } from "./checkout.ts";
 import { isIssueNumber, type IssueNumber } from "./issue-number.ts";
 import type { Ticket } from "./issue-tracker.ts";
@@ -796,7 +797,7 @@ export interface RepoHost {
    * itself does not reliably refuse on a red or pending check — see {@link
    * ChecksStatus}.
    */
-  readChecksStatus(pullRequest: PullRequestUrl, head: string): Promise<ChecksStatus>;
+  readChecksStatus(pullRequest: PullRequestUrl, head: CommitSha): Promise<ChecksStatus>;
   /**
    * Whether any of `pullRequest`'s checks is still running, read once — even
    * when another has already failed, which {@link readChecksStatus} reads as
@@ -892,7 +893,7 @@ export interface RepoHost {
    * pin a merge to with {@link mergePullRequest}, so that a commit pushed
    * after the read cannot ride along unchecked.
    */
-  readPullRequestHead(pullRequest: PullRequestUrl): Promise<string>;
+  readPullRequestHead(pullRequest: PullRequestUrl): Promise<CommitSha>;
   /**
    * Lists `repo`'s pull requests of any state — open, merged or closed
    * without merging — up to {@link CLOSING_PULL_REQUEST_LIMIT}, newest first:

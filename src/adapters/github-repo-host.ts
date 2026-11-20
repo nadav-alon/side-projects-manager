@@ -9,6 +9,7 @@ import type {
   ApplyReviewThread,
   Branch,
   Checkout,
+  CommitSha,
   ChecksStatus,
   CheckRunUrl,
   FailingCheck,
@@ -585,7 +586,7 @@ export function githubRepoHost(
       return mergeStatusOf(pullRequest);
     },
 
-    async readChecksStatus(pullRequest: PullRequestUrl, head: string): Promise<ChecksStatus> {
+    async readChecksStatus(pullRequest: PullRequestUrl, head: CommitSha): Promise<ChecksStatus> {
       return checksStatusFrom(await readRawChecksAt(pullRequest, head));
     },
 
@@ -762,7 +763,7 @@ export function githubRepoHost(
       return openPullRequestsFrom(stdout, repo)[0];
     },
 
-    async readPullRequestHead(pullRequest: PullRequestUrl): Promise<string> {
+    async readPullRequestHead(pullRequest: PullRequestUrl): Promise<CommitSha> {
       const { stdout } = await run("gh", [
         "pr",
         "view",
@@ -772,7 +773,7 @@ export function githubRepoHost(
         "--jq",
         ".headRefOid",
       ]);
-      return stdout.trim();
+      return commitSha(stdout.trim());
     },
 
     async readPullRequestPaths(pullRequest: PullRequestUrl): Promise<string[]> {
@@ -953,6 +954,7 @@ const COMMIT_CHECKS_QUERY = `query($owner: String!, $name: String!, $oid: GitObj
       ... on Commit {
         statusCheckRollup {
           contexts(first: 100) {
+            pageInfo { hasNextPage }
             nodes {
               __typename
               ... on CheckRun { name status conclusion detailsUrl }
@@ -965,27 +967,50 @@ const COMMIT_CHECKS_QUERY = `query($owner: String!, $name: String!, $oid: GitObj
   }
 }`;
 
+/** What {@link COMMIT_CHECKS_QUERY} answers, as far as {@link readRawChecksAt} reads it. */
+interface CommitChecksResponse {
+  data: {
+    repository: {
+      object: {
+        statusCheckRollup: { contexts: { pageInfo: { hasNextPage: boolean }; nodes: RawCheck[] } } | null;
+      } | null;
+    };
+  };
+}
+
 /**
  * The `statusCheckRollup` of commit `head` itself, as {@link readRawChecks}
- * reads a pull request's. A commit with no rollup has no checks at all.
+ * reads a pull request's. A commit with no rollup has no checks at all. Throws
+ * for a `head` GitHub does not know, and for more checks than one page holds:
+ * either would otherwise read as green, so the gate leaves the pull request
+ * for the developer.
  */
-async function readRawChecksAt(pullRequest: PullRequestUrl, head: string): Promise<RawCheck[]> {
+async function readRawChecksAt(pullRequest: PullRequestUrl, head: CommitSha): Promise<RawCheck[]> {
   const { owner, repo } = pullRequestParts(pullRequest);
   const { stdout } = await run("gh", [
     "api",
     "graphql",
     "-f",
     `query=${COMMIT_CHECKS_QUERY}`,
-    "-F",
+    "-f",
     `owner=${owner}`,
-    "-F",
+    "-f",
     `name=${repo}`,
-    "-F",
+    "-f",
     `oid=${head}`,
-    "--jq",
-    ".data.repository.object.statusCheckRollup.contexts.nodes // []",
   ]);
-  return JSON.parse(stdout) as RawCheck[];
+  const { object } = (JSON.parse(stdout) as CommitChecksResponse).data.repository;
+  if (object === null) {
+    throw new Error(`GitHub does not know commit ${head} of ${pullRequest}`);
+  }
+  const contexts = object.statusCheckRollup?.contexts;
+  if (contexts === undefined) {
+    return [];
+  }
+  if (contexts.pageInfo.hasNextPage) {
+    throw new Error(`Commit ${head} of ${pullRequest} has more checks than one page reads`);
+  }
+  return contexts.nodes;
 }
 
 /**

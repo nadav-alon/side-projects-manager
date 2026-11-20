@@ -20,6 +20,7 @@ import {
   OPEN_PULL_REQUEST_LIMIT,
   branch as toBranch,
   checkout as toCheckout,
+  commitSha,
   issueNumber,
   pullRequestUrl,
   repoSlug,
@@ -2244,18 +2245,6 @@ describe("reading whether a pull request's checks are pending", () => {
 
   const rollup = (checks: object[]) => `echo '${JSON.stringify(checks)}'`;
 
-  it("reads an empty rollup as none, since CI has not created its check runs yet", async (t) => {
-    await recordingGh(t, rollup([]));
-
-    assert.equal(await githubRepoHost().readChecksStatus(PULL_REQUEST), "none");
-  });
-
-  it("reads a rollup of only passed checks as green", async (t) => {
-    await recordingGh(t, rollup([{ name: "test", status: "COMPLETED", conclusion: "SUCCESS" }]));
-
-    assert.equal(await githubRepoHost().readChecksStatus(PULL_REQUEST), "green");
-  });
-
   it("reads a failed legacy status context as settled, not pending", async (t) => {
     await recordingGh(t, rollup([{ context: "ci/legacy", state: "FAILURE" }, { context: "ci/other", state: "ERROR" }]));
 
@@ -2517,11 +2506,11 @@ describe("reading a pull request's files", () => {
       )
       .join("\n");
     const cases = files
-      .map(({ filename, content }) => `  *"/contents/${filename}?ref=abc123") printf '%s' '${content}' ;;`)
+      .map(({ filename, content }) => `  *"/contents/${filename}?ref=abc1234") printf '%s' '${content}' ;;`)
       .join("\n");
     return [
       `case "$1 $2" in`,
-      `  "pr view") echo abc123 ;;`,
+      `  "pr view") echo abc1234 ;;`,
       `  "api repos/nadav-alon/pilot/pulls/7/files") cat <<'JSON'`,
       listed,
       "JSON",
@@ -2542,7 +2531,7 @@ describe("reading a pull request's files", () => {
       ]),
     );
 
-    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED), "abc123");
+    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED), "abc1234");
 
     assert.deepEqual(files, [
       { path: "docs/agents/domain.md", content: "# domain" },
@@ -2553,7 +2542,7 @@ describe("reading a pull request's files", () => {
   it("answers a deleted file with no content, without reading it", async (t) => {
     await recordingGh(t, ghAnswering([{ filename: "gone.md", status: "removed", content: "" }]));
 
-    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED), "abc123");
+    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED), "abc1234");
 
     assert.deepEqual(files, [{ path: "gone.md" }]);
   });
@@ -2566,7 +2555,7 @@ describe("reading a pull request's files", () => {
       ]),
     );
 
-    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED), "abc123");
+    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED), "abc1234");
 
     assert.deepEqual(files, [{ path: "notes.md" }, { path: "docs/agents/domain.md", content: "# domain" }]);
   });
@@ -2590,7 +2579,7 @@ describe("reading a pull request's files", () => {
   it("answers the commit the pull request's branch points at", async (t) => {
     await recordingGh(t, ghAnswering([]));
 
-    assert.equal(await githubRepoHost().readPullRequestHead(pullRequestUrl(OPENED)), "abc123");
+    assert.equal(await githubRepoHost().readPullRequestHead(pullRequestUrl(OPENED)), "abc1234");
   });
 });
 
@@ -2773,5 +2762,70 @@ describe("reading a pull request's labels", () => {
     await recordingGh(t, ":");
 
     assert.deepEqual(await githubRepoHost().readPullRequestLabels(PULL_REQUEST), []);
+  });
+});
+
+describe("reading the checks of a head", () => {
+  const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
+  const HEAD = commitSha("abcdef1234567");
+
+  /** A `gh` that answers every call with `response`, the GraphQL reply for a commit's rollup. */
+  function answering(t: TestContext, response: unknown) {
+    return recordingGh(t, `echo '${JSON.stringify(response)}'`);
+  }
+
+  const rollup = (nodes: unknown[], hasNextPage = false) => ({
+    data: { repository: { object: { statusCheckRollup: { contexts: { pageInfo: { hasNextPage }, nodes } } } } },
+  });
+
+  it("asks for that commit by its own oid, with every variable a raw string", async (t) => {
+    const gh = await answering(t, rollup([]));
+
+    await githubRepoHost().readChecksStatus(PULL_REQUEST, HEAD);
+
+    const call = callWith(await gh.calls(), "graphql");
+    assert.ok(call?.includes(`oid=${HEAD}`));
+    assert.ok(!call?.includes("-F"));
+  });
+
+  it("reads a failed check run red and a passing one green", async (t) => {
+    await answering(
+      t,
+      rollup([{ __typename: "CheckRun", name: "ci", status: "COMPLETED", conclusion: "FAILURE", detailsUrl: "u" }]),
+    );
+    assert.equal(await githubRepoHost().readChecksStatus(PULL_REQUEST, HEAD), "red");
+  });
+
+  it("reads a failing status context red", async (t) => {
+    await answering(t, rollup([{ __typename: "StatusContext", context: "ci", state: "FAILURE", targetUrl: "u" }]));
+    assert.equal(await githubRepoHost().readChecksStatus(PULL_REQUEST, HEAD), "red");
+  });
+
+  it("reads an empty rollup as none, since CI has not created its check runs yet", async (t) => {
+    await answering(t, rollup([]));
+    assert.equal(await githubRepoHost().readChecksStatus(PULL_REQUEST, HEAD), "none");
+  });
+
+  it("reads a rollup of only passed checks as green", async (t) => {
+    await answering(
+      t,
+      rollup([{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS", detailsUrl: "u" }]),
+    );
+    assert.equal(await githubRepoHost().readChecksStatus(PULL_REQUEST, HEAD), "green");
+  });
+
+  it("reads a commit with no rollup as having no checks", async (t) => {
+    await answering(t, { data: { repository: { object: { statusCheckRollup: null } } } });
+    assert.equal(await githubRepoHost().readChecksStatus(PULL_REQUEST, HEAD), "none");
+  });
+
+  it("throws for a commit GitHub does not know, rather than reading it green", async (t) => {
+    await answering(t, { data: { repository: { object: null } } });
+    await assert.rejects(githubRepoHost().readChecksStatus(PULL_REQUEST, HEAD), /does not know commit/);
+  });
+
+  it("throws for more checks than one page holds, rather than reading the first page alone", async (t) => {
+    await answering(t, rollup([], true));
+    await assert.rejects(githubRepoHost().readChecksStatus(PULL_REQUEST, HEAD), /more checks than one page/);
   });
 });

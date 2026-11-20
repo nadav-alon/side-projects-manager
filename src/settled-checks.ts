@@ -1,4 +1,4 @@
-import type { ChecksStatus, Clock, Milliseconds, PullRequestUrl, RepoHost } from "./ports/index.ts";
+import type { ChecksStatus, Clock, CommitSha, Milliseconds, PullRequestUrl, RepoHost } from "./ports/index.ts";
 import { milliseconds } from "./ports/index.ts";
 
 /**
@@ -41,7 +41,7 @@ export function settledChecks(
   repoHost: Pick<RepoHost, "readChecksStatus">,
   clock: Clock,
   pullRequest: PullRequestUrl,
-  head: string,
+  head: CommitSha,
 ): Promise<ChecksStatus> {
   return waitOutPending(() => repoHost.readChecksStatus(pullRequest, head), (checks) => checks === "pending" || checks === "none", clock);
 }

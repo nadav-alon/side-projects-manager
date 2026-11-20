@@ -5,6 +5,7 @@ import type {
   Branch,
   Checkout,
   ChecksStatus,
+  CommitSha,
   Clock,
   Day,
   DiscoveredTicketSummary,
@@ -2828,7 +2829,7 @@ async function readyOnGreen(
 /** Checks read of one commit: `head` is the commit they belong to. */
 interface ChecksReading {
   checks: ChecksStatus;
-  head: string;
+  head: CommitSha;
 }
 
 /** The checks a draft's ready-mark read, as `mergeGate` is given them; undefined once it was marked. */
@@ -3147,9 +3148,9 @@ async function mergeWhenGreen(
   ports: MorningLoopPorts,
   pullRequest: PullRequestUrl,
   implementation: Ticket,
-  readChecks: (head: string) => Promise<ChecksStatus>,
+  readChecks: (head: CommitSha) => Promise<ChecksStatus>,
 ): Promise<MergeGate> {
-  let head: string;
+  let head: CommitSha;
   try {
     head = await ports.repoHost.readPullRequestHead(pullRequest);
     const paths = await ports.repoHost.readPullRequestPaths(pullRequest);
