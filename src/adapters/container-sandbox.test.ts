@@ -2916,6 +2916,34 @@ describe("discoveries", () => {
 });
 
 describe("containerSandbox.review", () => {
+  it("takes its base from the remote's default branch when the checkout is detached", async () => {
+    const directory = await project();
+    await run("git", ["-C", directory, "checkout", "--quiet", "--detach"]);
+    let seenBase: string | undefined;
+    const sandbox = testSandbox(async ({ base }) => {
+      seenBase = base;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(seenBase, "main");
+  });
+
+  it("takes its base from the remote's default branch when the checkout is parked elsewhere", async () => {
+    const directory = await project();
+    await run("git", ["-C", directory, "switch", "--quiet", "--create", "parked"]);
+    let seenBase: string | undefined;
+    const sandbox = testSandbox(async ({ base }) => {
+      seenBase = base;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(seenBase, "main");
+  });
+
   it("mounts a clone of its own, read-only", async () => {
     const directory = await project();
     const mounts: (Mount | undefined)[] = [];
@@ -3870,6 +3898,34 @@ describe("containerSandbox.uxReview", () => {
 });
 
 describe("containerSandbox.applyReview", () => {
+  it("takes its base from the remote's default branch when the checkout is detached", async () => {
+    const { directory } = await hostedProject();
+    await run("git", ["-C", directory, "checkout", "--quiet", "--detach"]);
+    let seenBase: string | undefined;
+    const sandbox = testSandbox(async ({ base }) => {
+      seenBase = base;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.equal(seenBase, "main");
+  });
+
+  it("takes its base from the remote's default branch when the checkout is parked elsewhere", async () => {
+    const { directory } = await hostedProject();
+    await run("git", ["-C", directory, "switch", "--quiet", "--create", "parked"]);
+    let seenBase: string | undefined;
+    const sandbox = testSandbox(async ({ base }) => {
+      seenBase = base;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.equal(seenBase, "main");
+  });
+
   it("mounts a clone of its own, read-write, on the pull request's head branch as the repo host has it", async () => {
     const { directory, headCommit } = await hostedProject();
     const seen: { mounted: string; mount: Mount; on: string; at: string }[] = [];

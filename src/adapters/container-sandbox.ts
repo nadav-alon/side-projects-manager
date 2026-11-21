@@ -1785,7 +1785,7 @@ async function reviewOnClone(
   return withThrowawayClone(kind, async (clone) => {
     await withCheckoutLock(project, () => cloneWithSubmodules(project, clone));
     await populateSubmodules(project, clone);
-    const base = await baseBranchOf(clone);
+    const base = await remoteDefaultBranch(project);
     const agent = await attempt(
       container,
       kind,
@@ -2021,20 +2021,6 @@ function uxReviewPromptFor(
 }
 
 /**
- * The branch a fresh clone of the project is on: the base a review's or a
- * pull-request clone's pushes are measured against. Implementation runs take
- * theirs from `startOnRemoteDefault` instead.
- */
-async function baseBranchOf(clone: Checkout): Promise<Branch> {
-  const { stdout } = await run("git", ["-C", clone, "branch", "--show-current"]);
-  const base = stdout.trim();
-  if (!isBranch(base)) {
-    throw new Error(`${clone} is not on a usable branch, so there is no base to refuse pushes to.`);
-  }
-  return base;
-}
-
-/**
  * Clones `project` under the checkout lock, points the clone's `origin` at
  * the checkout's own remote made pushable, and switches it onto the pull
  * request's `head` branch as the repo host has it now, tracking it — so the
@@ -2049,10 +2035,9 @@ async function baseBranchOf(clone: Checkout): Promise<Branch> {
  * the checkout was on it, and that copy may be stale; the repo host's is the
  * one.
  *
- * Answers with the branch `project` was on before the switch — the pull
- * request's base, exactly as `readChangedPaths` reads an implementation
- * run's own base (`github-repo-host.ts`): cloning `project` leaves it as the
- * clone's own checked-out branch, before `head` ever displaces it.
+ * Answers with the remote's default branch (`remoteDefaultBranch`) — the
+ * pull request's base, read as an implementation run's own is, whatever
+ * `project` itself is on.
  */
 async function cloneOntoPullRequestHead(
   project: Checkout,
@@ -2076,7 +2061,7 @@ async function cloneOntoPullRequestHead(
     }
     return origin;
   });
-  const base = await baseBranchOf(clone);
+  const base = await remoteDefaultBranch(project);
   await run("git", [
     "-C",
     clone,
