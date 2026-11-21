@@ -56,6 +56,7 @@ import {
 } from "../ports/index.ts";
 import { errorMessage } from "../error-message.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { remoteDefaultBranch } from "./default-branch.ts";
 import { expectField } from "./expect-field.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
 
@@ -306,12 +307,7 @@ export function githubRepoHost(
     },
 
     async readChangedPaths(directory: Checkout, branch: Branch): Promise<string[]> {
-      const base = await currentBranch(directory);
-      if (base === undefined) {
-        throw new Error(
-          `${directory} is not on a branch, so there is no base to diff ${branch} against.`,
-        );
-      }
+      const base = await remoteDefaultBranch(directory);
       // Three dots, not two: diffed against the merge base rather than the
       // base branch's own tip, so a base that has moved on since the run
       // branched never shows up as part of the run's own diff.
@@ -320,7 +316,7 @@ export function githubRepoHost(
         directory,
         "diff",
         "--name-only",
-        `${base}...${branch}`,
+        `origin/${base}...${branch}`,
       ]);
       return stdout.split("\n").filter((line) => line !== "");
     },
@@ -338,21 +334,10 @@ export function githubRepoHost(
       let base: Branch;
       try {
         base = await withCheckoutLock(directory, async () => {
-          // What the run branched from: the sandbox clones this checkout at its
-          // HEAD, so the branch it is on is the base the commits actually sit
-          // on. Asked rather than left to `gh`, which would open against the
-          // remote's default branch and put every commit between the two in
-          // the diff.
-          const onBranch = await currentBranch(directory);
-          if (onBranch === undefined) {
-            // A detached HEAD has no branch to name, and carrying on without
-            // `--base` would hand `gh` the default branch — the very diff the
-            // flag is here to avoid. Refused before the push, so a checkout in
-            // this state costs nothing on the host.
-            throw new Error(
-              `${directory} is not on a branch, so there is no base to open a pull request against. Check out a branch and run this again.`,
-            );
-          }
+          // The remote's default branch, named rather than left to `gh` and
+          // not read off the checkout's HEAD, which sessions move while runs
+          // are in flight.
+          const defaultBranch = await remoteDefaultBranch(directory);
 
           // By name, not by checking it out, and without upstream tracking: the
           // branch came back from the sandbox as a ref in this checkout, and the
@@ -367,7 +352,7 @@ export function githubRepoHost(
               `Could not push ${branch} to ${ticket.repo}: ${commandFailureMessage(error)}`,
             );
           }
-          return onBranch;
+          return defaultBranch;
         });
       } catch (error) {
         // Everything that can fail in here fails before or at the push, so
@@ -1855,7 +1840,7 @@ function pullRequestParts(
  * none. Best effort: a remote still empty has no default branch to name.
  * Every failure of `set-head --auto` (an `ls-remote`) is swallowed on purpose,
  * network and auth ones included; a missing `origin/HEAD` surfaces later as
- * `defaultRef`'s refusal.
+ * `remoteDefaultBranch`'s refusal, at the sandbox's image build and at handover.
  */
 async function recordRemoteHead(directory: Checkout): Promise<void> {
   try {

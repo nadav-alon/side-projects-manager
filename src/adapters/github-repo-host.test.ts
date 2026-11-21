@@ -825,19 +825,17 @@ describe("opening a draft pull request for a completed run", () => {
   };
 
   /**
-   * The branch the managed clone is parked on, and so the base every pull
-   * request here should be opened against.
-   *
-   * Deliberately not `main`: `gh` falls back to the remote's default branch
-   * when no base is named, so a fixture based on `main` would pass whether the
-   * adapter inferred the base or hardcoded it.
+   * The branch the managed clone is parked on. Deliberately not the remote's
+   * default (`main`), which is the base every pull request here is opened
+   * against: the checkout's own HEAD must not decide it.
    */
   const BASE = "release-2";
+  const DEFAULT = "main";
 
   /**
    * A checkout carrying a branch of committed work, which is what the sandbox
-   * fetches back when a run leaves commits behind. Left on `BASE`, the branch
-   * the run was based on, as the sandbox found it.
+   * fetches back when a run leaves commits behind. Left on `BASE`, where the
+   * managed clone is parked; the pull request's base is `DEFAULT`.
    */
   async function ran(branch: string): Promise<Checkout> {
     const directory = await checkout();
@@ -918,10 +916,10 @@ describe("opening a draft pull request for a completed run", () => {
     assert.equal(valueOf(call, "--head"), RAN);
   });
 
-  it("opens it against the branch the run was based on", async (t) => {
+  it("opens it against the remote's default branch, not the checkout's own", async (t) => {
     const { call } = await openedFor(t);
 
-    assert.equal(valueOf(call, "--base"), BASE);
+    assert.equal(valueOf(call, "--base"), DEFAULT);
   });
 
   it("waits for the checkout lock before pushing, and only on its own checkout", HANGS, async (t) => {
@@ -956,13 +954,31 @@ describe("opening a draft pull request for a completed run", () => {
     ]);
   });
 
-  it("refuses rather than let gh choose the base, when there is no branch to name", async (t) => {
+  it("pushes and opens against the default branch when the checkout was detached after the run started", async (t) => {
     const gh = await recordingGh(t, `echo ${OPENED}`);
     const directory = await ran(RAN);
-    // A detached HEAD: `git branch --show-current` answers with nothing, and
-    // a pull request opened without `--base` would take the remote's default
-    // branch and every commit between it and the run.
+    // A session's `git checkout origin/HEAD` between the run's start and its
+    // handover leaves `git branch --show-current` answering with nothing.
     await run("git", ["-C", directory, "checkout", "--detach"]);
+
+    const opening = await githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+    );
+
+    assert.equal(opening.kind, "opened");
+    assert.deepEqual(await pushedFiles(directory, `origin/${RAN}`), [
+      "seed.md",
+      "thing.md",
+    ]);
+    assert.equal(valueOf((await gh.calls())[0] ?? [], "--base"), DEFAULT);
+  });
+
+  it("refuses without pushing or calling gh when the checkout has no origin/HEAD", async (t) => {
+    const gh = await recordingGh(t, `echo ${OPENED}`);
+    const directory = await ran(RAN);
+    await run("git", ["-C", directory, "remote", "set-head", "origin", "--delete"]);
 
     const opening = await githubRepoHost().openDraftPullRequest(
       directory,
@@ -973,12 +989,10 @@ describe("opening a draft pull request for a completed run", () => {
     assert.equal(opening.kind, "unpushed");
     assert.match(
       opening.kind === "unpushed" ? opening.failure : "",
-      /is not on a branch/,
+      /no origin\/HEAD/,
     );
-
-    // Refused before anything left the checkout, so nothing has to be undone.
-    assert.deepEqual(await gh.calls(), []);
     await assert.rejects(pushedFiles(directory, `origin/${RAN}`));
+    assert.deepEqual(await gh.calls(), []);
   });
 
   it("names the project the ticket lives in, rather than letting gh choose", async (t) => {
@@ -1168,7 +1182,7 @@ describe("opening a draft pull request for a completed run", () => {
     // `gh` refused, and it is not visible from the raw failure.
     assert.match(
       opening.kind === "pushed" ? opening.failure : "",
-      new RegExp(`${BASE}.*pull requests are disabled`, "s"),
+      new RegExp(`${DEFAULT}.*pull requests are disabled`, "s"),
     );
 
     // The push happened before the pull request was asked for, so the work is
@@ -1208,9 +1222,8 @@ describe("reading the paths a run's branch changed", () => {
 
   /**
    * A checkout with `BASE` cut from `main` and `RAN` cut from `BASE`,
-   * carrying one commit that writes every path in `paths`. Left on `BASE`,
-   * the branch the diff should read as the base — exactly as the sandbox
-   * leaves a checkout after fetching a run's branch back.
+   * carrying one commit that writes every path in `paths`. Parked on `BASE`, as
+   * the sandbox leaves a checkout; the diff's base is the remote's default.
    */
   async function ran(paths: Record<string, string>): Promise<Checkout> {
     const directory = await checkout();
@@ -1263,13 +1276,23 @@ describe("reading the paths a run's branch changed", () => {
     );
   });
 
-  it("refuses when the checkout has no current branch to diff against", async () => {
+  it("refuses to read the diff when the checkout has no origin/HEAD", async () => {
     const directory = await ran({ "thing.md": "the thing\n" });
-    await run("git", ["-C", directory, "checkout", "--detach"]);
+    await run("git", ["-C", directory, "remote", "set-head", "origin", "--delete"]);
 
     await assert.rejects(
       githubRepoHost().readChangedPaths(directory, toBranch(RAN)),
-      /is not on a branch/,
+      /no origin\/HEAD/,
+    );
+  });
+
+  it("reads the diff against the default branch when the checkout was detached", async () => {
+    const directory = await ran({ "thing.md": "the thing\n" });
+    await run("git", ["-C", directory, "checkout", "--detach"]);
+
+    assert.deepEqual(
+      await githubRepoHost().readChangedPaths(directory, toBranch(RAN)),
+      ["thing.md"],
     );
   });
 });
