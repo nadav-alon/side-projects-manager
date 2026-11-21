@@ -86,6 +86,7 @@ import {
   unreserveBranch,
 } from "./branch-reservations.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { remoteDefaultBranch } from "./default-branch.ts";
 import { cliSettings, managerDenyRules } from "./manager-settings.ts";
 import { isErrorWithCode } from "./error-code.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
@@ -874,6 +875,29 @@ async function cloneWithSubmodules(project: Checkout, clone: Checkout): Promise<
   await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
 }
 
+/**
+ * Puts a fresh `clone` of `project` on the remote's default branch as
+ * `project`'s `origin` has it now, whatever `project` itself is on — a
+ * parked branch, a detached HEAD — so a run starts from the same base its
+ * handover opens the pull request against. Answers that branch. Called under
+ * `project`'s lock.
+ *
+ * `project` is fetched first when it has an `origin` to fetch from; the
+ * clone then takes the remote-tracking ref from `project`, since cloning
+ * only carries `project`'s local branches.
+ */
+async function startOnRemoteDefault(project: Checkout, clone: Checkout): Promise<Branch> {
+  const { stdout } = await run("git", ["-C", project, "remote"]);
+  if (stdout.split("\n").includes("origin")) {
+    await run("git", ["-C", project, "fetch", "--quiet", "origin"]);
+  }
+  const base = await remoteDefaultBranch(project);
+  const tracking = `refs/remotes/origin/${base}`;
+  await run("git", ["-C", clone, "fetch", "--quiet", "origin", `+${tracking}:${tracking}`]);
+  await run("git", ["-C", clone, "switch", "--quiet", "--force-create", base, `origin/${base}`]);
+  return base;
+}
+
 async function runOnClone(
   container: ContainerInImage,
   request: RunRequest,
@@ -918,14 +942,15 @@ async function runOnClone(
         // developer's own uid (`dockerCommand`), so the filesystem would not
         // stop it — the copy is what does.
         await cloneWithSubmodules(project, clone);
+        const base = await startOnRemoteDefault(project, clone);
         reserveBranch(project, branchName);
-        return { branchName, resuming };
+        return { branchName, resuming, base };
       });
       onto = chosen.branchName;
       // Branded before the agent starts: a clone whose hashes this cannot read
       // fails the sandbox's set-up, not a run whose work is already done.
       const head = commitSha(await revision(clone, "HEAD"));
-      const base = await baseBranchOf(clone);
+      const base = chosen.base;
       if (chosen.resuming) {
         // The clone only ever gets a local branch for the checkout's default
         // one; `onto` is resumed from the remote-tracking ref the clone made

@@ -228,6 +228,15 @@ async function project(
  * `main.tex`, and commits it. Answers the submodule's own repository.
  */
 async function addSubmodule(directory: Checkout): Promise<Checkout> {
+  const remote = await commitSubmodule(directory);
+  // A run starts from the remote's default branch, so the commit counts as
+  // pushed there, as `project` leaves the first one.
+  await run("git", ["-C", directory, "update-ref", "refs/remotes/origin/main", "HEAD"]);
+  return remote;
+}
+
+/** Commits the submodule to `directory` without moving any remote-tracking ref. */
+async function commitSubmodule(directory: Checkout): Promise<Checkout> {
   const remote = checkout(await mkdtemp(path.join(tmpdir(), "submodule-")));
   await run("git", ["init", "--initial-branch=main", remote]);
   await identify(remote);
@@ -257,7 +266,7 @@ async function pullRequestPinningSubmodule(hosted: string): Promise<Checkout> {
   const elsewhere = checkout(await mkdtemp(path.join(tmpdir(), "sandbox-elsewhere-")));
   await run("git", ["clone", "--quiet", "--branch", BRANCH, hosted, elsewhere]);
   await identify(elsewhere);
-  const remote = await addSubmodule(elsewhere);
+  const remote = await commitSubmodule(elsewhere);
   await run("git", ["-C", elsewhere, "push", "--quiet", "origin", BRANCH]);
   return remote;
 }
@@ -927,6 +936,54 @@ describe("containerSandbox", () => {
     assert.equal(finished?.branch, BRANCH);
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
     assert.equal(await headOf(directory, BRANCH), finished?.commits.at(-1));
+  });
+
+  it("starts from the remote's default branch when the checkout is parked on another", async () => {
+    const { directory, hosted } = await hostedProject();
+    await run("git", ["-C", directory, "switch", "--quiet", "--create", "parked"]);
+    await writeFile(path.join(directory, "parked.md"), "parked\n");
+    await run("git", ["-C", directory, "add", "."]);
+    await run("git", ["-C", directory, "commit", "--message", "Parked"]);
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
+
+    const finished = variant(
+      await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      "finished",
+    );
+
+    assert.equal(finished?.commits.length, 1);
+    assert.deepEqual(await filesOn(directory, BRANCH), ["README.md", "one.txt"]);
+    assert.equal(await headOf(directory, `${BRANCH}~1`), await headOf(hosted, "main"));
+  });
+
+  it("starts from the remote's default branch freshly fetched", async () => {
+    const { directory, hosted } = await hostedProject();
+    const elsewhere = await mkdtemp(path.join(tmpdir(), "sandbox-elsewhere-"));
+    await run("git", ["clone", "--quiet", hosted, elsewhere]);
+    await identify(elsewhere);
+    await writeFile(path.join(elsewhere, "merged.md"), "merged\n");
+    await run("git", ["-C", elsewhere, "add", "."]);
+    await run("git", ["-C", elsewhere, "commit", "--message", "Merged"]);
+    await run("git", ["-C", elsewhere, "push", "--quiet", "origin", "main"]);
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
+
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(await headOf(directory, `${BRANCH}~1`), await headOf(elsewhere));
+  });
+
+  it("starts when the checkout is detached", async () => {
+    const directory = await project();
+    await run("git", ["-C", directory, "checkout", "--quiet", "--detach"]);
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
+
+    const finished = variant(
+      await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      "finished",
+    );
+
+    assert.equal(finished?.branch, BRANCH);
+    assert.equal(finished?.commits.length, 1);
   });
 
   it("leaves the branch the checkout is on untouched", async () => {
