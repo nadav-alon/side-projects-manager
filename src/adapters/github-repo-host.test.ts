@@ -2312,18 +2312,21 @@ describe("reading whether a pull request's checks are pending", () => {
     "https://github.com/nadav-alon/pilot/pull/7",
   );
 
-  const rollup = (checks: object[]) => `echo '${JSON.stringify(checks)}'`;
+  const HEAD = commitSha("abcdef1234567");
+
+  const rollup = (nodes: object[]) =>
+    `echo '${JSON.stringify({ data: { repository: { object: { statusCheckRollup: { contexts: { pageInfo: { hasNextPage: false }, nodes } } } } } })}'`;
 
   it("reads a failed legacy status context as settled, not pending", async (t) => {
     await recordingGh(t, rollup([{ context: "ci/legacy", state: "FAILURE" }, { context: "ci/other", state: "ERROR" }]));
 
-    assert.equal(await githubRepoHost().readChecksPending(PULL_REQUEST), false);
+    assert.equal(await githubRepoHost().readChecksPending(PULL_REQUEST, HEAD), false);
   });
 
   it("reads a pending legacy status context as pending beside a failed one", async (t) => {
     await recordingGh(t, rollup([{ context: "ci/legacy", state: "FAILURE" }, { context: "ci/slow", state: "PENDING" }]));
 
-    assert.equal(await githubRepoHost().readChecksPending(PULL_REQUEST), true);
+    assert.equal(await githubRepoHost().readChecksPending(PULL_REQUEST, HEAD), true);
   });
 
   it("reads a check run not yet completed as pending beside a completed failure", async (t) => {
@@ -2335,7 +2338,28 @@ describe("reading whether a pull request's checks are pending", () => {
       ]),
     );
 
-    assert.equal(await githubRepoHost().readChecksPending(PULL_REQUEST), true);
+    assert.equal(await githubRepoHost().readChecksPending(PULL_REQUEST, HEAD), true);
+  });
+
+  it("reads the rollup of the head it is given, never the pull request's live one", async (t) => {
+    const gh = await recordingGh(t, rollup([]));
+
+    await githubRepoHost().readChecksPending(PULL_REQUEST, HEAD);
+
+    const calls = await gh.calls();
+    assert.ok(callWith(calls, "graphql")?.includes(`oid=${HEAD}`));
+    assert.ok(!calls.some((call) => call[0] === "pr" && call[1] === "view"));
+  });
+
+  it("reads the failing checks of the head it is given, never the pull request's live rollup", async (t) => {
+    const gh = await recordingGh(t, rollup([{ context: "ci/legacy", state: "FAILURE" }]));
+
+    const failing = await githubRepoHost().readFailingChecks(PULL_REQUEST, HEAD);
+
+    assert.deepEqual(failing.map((check) => check.name), ["ci/legacy"]);
+    const calls = await gh.calls();
+    assert.ok(callWith(calls, "graphql")?.includes(`oid=${HEAD}`));
+    assert.ok(!calls.some((call) => call[0] === "pr" && call[1] === "view"));
   });
 });
 

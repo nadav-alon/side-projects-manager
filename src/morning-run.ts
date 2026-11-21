@@ -2047,7 +2047,8 @@ async function runReview(
   // Before the reviewer starts, so the apply-review run that follows works a
   // red check like any finding; the reviewing agent itself never reads checks.
   try {
-    await postFailingCheckThreads(ports.repoHost, ports.clock, ticket.pullRequest.url);
+    const head = await ports.repoHost.readPullRequestHead(ticket.pullRequest.url);
+    await postFailingCheckThreads(ports.repoHost, ports.clock, ticket.pullRequest.url, head);
   } catch (error: unknown) {
     return infrastructureFailure(error);
   }
@@ -2757,8 +2758,9 @@ async function queueChecksRetry(
   if (implementation === undefined) {
     return undefined;
   }
-  await postFailingCheckThreads(ports.repoHost, ports.clock, pullRequest);
-  const checks = (await ports.repoHost.readFailingChecks(pullRequest)).map((check) => check.name);
+  const head = await ports.repoHost.readPullRequestHead(pullRequest);
+  await postFailingCheckThreads(ports.repoHost, ports.clock, pullRequest, head);
+  const checks = (await ports.repoHost.readFailingChecks(pullRequest, head)).map((check) => check.name);
   if (checks.length === 0) {
     throw new Error(`the checks on ${pullRequest} no longer read red, so no retry was queued`);
   }

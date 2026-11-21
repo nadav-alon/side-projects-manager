@@ -1,5 +1,5 @@
 import { waitOutPending } from "./settled-checks.ts";
-import type { Clock, FailingCheck, PullRequestUrl, RepoHost } from "./ports/index.ts";
+import type { Clock, CommitSha, FailingCheck, PullRequestUrl, RepoHost } from "./ports/index.ts";
 
 /**
  * The comment left on a pull request whose checks were still running when the
@@ -19,11 +19,13 @@ export function failingCheckThreadBody(check: FailingCheck): string {
 }
 
 /**
- * Waits until none of `pullRequest`'s checks is pending, within the same bound
+ * Waits until none of commit `head`'s checks is pending, within the same bound
  * as the merge gate's wait, then posts each failing check as its own review
  * thread, and returns how many it posted. `readChecksStatus` answers `red`
  * while other checks still run, so this waits on `readChecksPending` instead,
- * or a check failing later would go unposted.
+ * or a check failing later would go unposted. `head` is read once by the
+ * caller, so the wait, the verdict and the threads all describe one commit,
+ * whatever is pushed meanwhile.
  * Green or no checks post none. A wait that runs out with checks still pending
  * posts what has failed so far, and a comment on the pull request saying the
  * rest went unread. Safe to call again, as after an apply-review run or a
@@ -35,24 +37,24 @@ export function failingCheckThreadBody(check: FailingCheck): string {
 export async function postFailingCheckThreads(
   repoHost: Pick<
     RepoHost,
-    "readChecksStatus" | "readPullRequestHead" | "readChecksPending" | "readFailingChecks" | "postReviewThread" | "postComment" | "readOpenReviewThreadBodies"
+    "readChecksStatus" | "readChecksPending" | "readFailingChecks" | "postReviewThread" | "postComment" | "readOpenReviewThreadBodies"
   >,
   clock: Clock,
   pullRequest: PullRequestUrl,
+  head: CommitSha,
 ): Promise<number> {
   const pending = await waitOutPending(
-    () => repoHost.readChecksPending(pullRequest),
+    () => repoHost.readChecksPending(pullRequest, head),
     (stillPending) => stillPending,
     clock,
   );
   if (pending) {
     await repoHost.postComment(pullRequest, CHECKS_STILL_PENDING_NOTE);
   }
-  const head = await repoHost.readPullRequestHead(pullRequest);
   if ((await repoHost.readChecksStatus(pullRequest, head)) !== "red") {
     return 0;
   }
-  const failing = await repoHost.readFailingChecks(pullRequest);
+  const failing = await repoHost.readFailingChecks(pullRequest, head);
   const open = new Set(await repoHost.readOpenReviewThreadBodies(pullRequest));
   let posted = 0;
   for (const check of failing) {

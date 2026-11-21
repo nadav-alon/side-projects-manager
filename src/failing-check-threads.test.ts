@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { CHECKS_STILL_PENDING_NOTE, failingCheckThreadBody, postFailingCheckThreads } from "./failing-check-threads.ts";
-import { checkRunUrl, pullRequestUrl } from "./ports/index.ts";
+import { checkRunUrl, commitSha, pullRequestUrl } from "./ports/index.ts";
 import { FakeClock, FakeRepoHost } from "./testing/index.ts";
 
 const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
@@ -16,7 +16,7 @@ describe("postFailingCheckThreads", () => {
       { name: "lint", errorLines: [], runUrl: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/2") },
     ];
 
-    const posted = await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST);
+    const posted = await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST, FakeRepoHost.HEAD);
 
     assert.equal(posted, 2);
     assert.equal(host.reviewThreads.length, 2);
@@ -33,7 +33,7 @@ describe("postFailingCheckThreads", () => {
     const host = new FakeRepoHost();
     host.failingChecks = () => [{ name: "stale", errorLines: [], runUrl: checkRunUrl("https://example.test/run") }];
 
-    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 0);
+    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST, FakeRepoHost.HEAD), 0);
     assert.deepEqual(host.reviewThreads, []);
   });
 
@@ -42,8 +42,8 @@ describe("postFailingCheckThreads", () => {
     host.checksStatus = () => "red";
     host.failingChecks = () => [{ name: "test", errorLines: ["Error: boom"], runUrl: checkRunUrl("https://example.test/run") }];
 
-    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 1);
-    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 0);
+    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST, FakeRepoHost.HEAD), 1);
+    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST, FakeRepoHost.HEAD), 0);
     assert.equal(host.reviewThreads.length, 1);
   });
 
@@ -60,7 +60,7 @@ describe("postFailingCheckThreads", () => {
             { name: "test", errorLines: [] },
           ];
 
-    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 2);
+    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST, FakeRepoHost.HEAD), 2);
     assert.deepEqual(host.comments, []);
   });
 
@@ -69,7 +69,7 @@ describe("postFailingCheckThreads", () => {
     host.checksPending = () => true;
     host.checksStatus = () => "pending";
 
-    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST), 0);
+    assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST, FakeRepoHost.HEAD), 0);
     assert.deepEqual(host.comments, [{ pullRequest: PULL_REQUEST, body: CHECKS_STILL_PENDING_NOTE }]);
   });
 });
@@ -77,5 +77,29 @@ describe("postFailingCheckThreads", () => {
 describe("failingCheckThreadBody", () => {
   it("leaves the run line out when the check reported no run", () => {
     assert.equal(failingCheckThreadBody({ name: "ci/legacy", errorLines: [] }), "Failing check: ci/legacy");
+  });
+});
+
+describe("postFailingCheckThreads head", () => {
+  it("reads pending, status and failing checks at the head it is given", async () => {
+    const host = new FakeRepoHost();
+    const given = commitSha("1111111");
+    const seen: string[] = [];
+    host.checksPending = (_pullRequest, head) => {
+      seen.push(head);
+      return false;
+    };
+    host.checksStatus = (_pullRequest, head) => {
+      seen.push(head);
+      return "red";
+    };
+    host.failingChecks = (_pullRequest, head) => {
+      seen.push(head);
+      return [];
+    };
+
+    await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST, given);
+
+    assert.deepEqual(seen, [given, given, given]);
   });
 });

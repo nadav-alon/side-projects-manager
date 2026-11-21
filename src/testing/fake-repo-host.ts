@@ -166,10 +166,10 @@ export class FakeRepoHost implements RepoHost {
   checksStatus: (pullRequest: PullRequestUrl, head: CommitSha) => ChecksStatus = () => "green";
 
   /** What `readChecksPending` answers for a pull request. Not pending, unless a test says otherwise; scripted apart from `checksStatus`, as the two are separate reads. */
-  checksPending: (pullRequest: PullRequestUrl) => boolean = () => false;
+  checksPending: (pullRequest: PullRequestUrl, head: CommitSha) => boolean = () => false;
 
   /** What `readFailingChecks` answers for a pull request. None, unless a test says otherwise. */
-  failingChecks: (pullRequest: PullRequestUrl) => FailingCheck[] = () => [];
+  failingChecks: (pullRequest: PullRequestUrl, head: CommitSha) => FailingCheck[] = () => [];
 
   /** Every review thread opened on a pull request, in the order `postReviewThread` was called. */
   readonly reviewThreads: { pullRequest: PullRequestUrl; body: string }[] = [];
@@ -496,12 +496,12 @@ export class FakeRepoHost implements RepoHost {
     return this.checksStatus(pullRequest, head);
   }
 
-  async readChecksPending(pullRequest: PullRequestUrl): Promise<boolean> {
-    return this.checksPending(pullRequest);
+  async readChecksPending(pullRequest: PullRequestUrl, head: CommitSha): Promise<boolean> {
+    return this.checksPending(pullRequest, head);
   }
 
-  async readFailingChecks(pullRequest: PullRequestUrl): Promise<FailingCheck[]> {
-    return this.failingChecks(pullRequest);
+  async readFailingChecks(pullRequest: PullRequestUrl, head: CommitSha): Promise<FailingCheck[]> {
+    return this.failingChecks(pullRequest, head);
   }
 
   async postReviewThread(pullRequest: PullRequestUrl, body: string): Promise<void> {

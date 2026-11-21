@@ -799,16 +799,19 @@ export interface RepoHost {
    */
   readChecksStatus(pullRequest: PullRequestUrl, head: CommitSha): Promise<ChecksStatus>;
   /**
-   * Whether any of `pullRequest`'s checks is still running, read once — even
+   * Whether any of commit `head`'s checks is still running, read once — even
    * when another has already failed, which {@link readChecksStatus} reads as
-   * `"red"` all the same.
+   * `"red"` all the same. Read at the `head` the verdict was, never the pull
+   * request's live rollup.
    */
-  readChecksPending(pullRequest: PullRequestUrl): Promise<boolean>;
+  readChecksPending(pullRequest: PullRequestUrl, head: CommitSha): Promise<boolean>;
   /**
-   * Reads each of `pullRequest`'s checks that has failed, once: see {@link
-   * FailingCheck}. None when no check failed, whatever else is pending.
+   * Reads each of commit `head`'s checks that has failed, once: see {@link
+   * FailingCheck}. None when no check failed, whatever else is pending. Read
+   * at the `head` the verdict was, so the threads describe the commit that
+   * read red.
    */
-  readFailingChecks(pullRequest: PullRequestUrl): Promise<FailingCheck[]>;
+  readFailingChecks(pullRequest: PullRequestUrl, head: CommitSha): Promise<FailingCheck[]>;
   /**
    * Opens a review thread on `pullRequest` carrying `body`, so an
    * apply-review run works it like any finding. A check has no line of its
