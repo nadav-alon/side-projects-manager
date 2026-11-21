@@ -38,6 +38,10 @@
     {
       "repo": "nadav-alon/recipes",
       "turbo": true
+    },
+    {
+      "repo": "nadav-alon/household-ui",
+      "turbo": true
     }
   ]
 }
