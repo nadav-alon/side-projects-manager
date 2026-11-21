@@ -614,11 +614,10 @@ export interface RepoHost {
     branch: Branch,
   ): Promise<Proposal>;
   /**
-   * The paths `branch` changed relative to the branch `directory` is
-   * currently on — the base a pull request for it would open against, per
-   * {@link openDraftPullRequest}'s own doc comment: the sandbox clones the
-   * checkout at its HEAD, so the branch it is on is the base the commits
-   * actually sit on.
+   * The paths `branch` changed relative to the remote's default branch
+   * (`origin/HEAD`) — the base {@link openDraftPullRequest} opens against —
+   * whatever the checkout's own HEAD points at, a detached one included.
+   * Rejects when the checkout's remote names no default branch.
    *
    * Read before opening a pull request, so a run whose diff touches a file
    * the manager keeps uniform across every project (`UNIFORM_FILES`) can be
@@ -640,7 +639,8 @@ export interface RepoHost {
    * request; nothing here reaches for it.
    *
    * The branch is the agent's work, already committed and fetched back into
-   * the checkout by the sandbox, so nothing is committed here.
+   * the checkout by the sandbox, so nothing is committed here. The base is the
+   * remote's default branch, never the checkout's own HEAD.
    *
    * `gist`, when the run produced one, opens the body with it — one sentence
    * saying what the ticket asked for, so the developer knows what they are

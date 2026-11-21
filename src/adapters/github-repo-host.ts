@@ -306,12 +306,7 @@ export function githubRepoHost(
     },
 
     async readChangedPaths(directory: Checkout, branch: Branch): Promise<string[]> {
-      const base = await currentBranch(directory);
-      if (base === undefined) {
-        throw new Error(
-          `${directory} is not on a branch, so there is no base to diff ${branch} against.`,
-        );
-      }
+      const base = await remoteDefaultBranch(directory);
       // Three dots, not two: diffed against the merge base rather than the
       // base branch's own tip, so a base that has moved on since the run
       // branched never shows up as part of the run's own diff.
@@ -320,7 +315,7 @@ export function githubRepoHost(
         directory,
         "diff",
         "--name-only",
-        `${base}...${branch}`,
+        `origin/${base}...${branch}`,
       ]);
       return stdout.split("\n").filter((line) => line !== "");
     },
@@ -338,21 +333,10 @@ export function githubRepoHost(
       let base: Branch;
       try {
         base = await withCheckoutLock(directory, async () => {
-          // What the run branched from: the sandbox clones this checkout at its
-          // HEAD, so the branch it is on is the base the commits actually sit
-          // on. Asked rather than left to `gh`, which would open against the
-          // remote's default branch and put every commit between the two in
-          // the diff.
-          const onBranch = await currentBranch(directory);
-          if (onBranch === undefined) {
-            // A detached HEAD has no branch to name, and carrying on without
-            // `--base` would hand `gh` the default branch — the very diff the
-            // flag is here to avoid. Refused before the push, so a checkout in
-            // this state costs nothing on the host.
-            throw new Error(
-              `${directory} is not on a branch, so there is no base to open a pull request against. Check out a branch and run this again.`,
-            );
-          }
+          // The remote's default branch, named rather than left to `gh` and
+          // not read off the checkout's HEAD, which sessions move while runs
+          // are in flight.
+          const onBranch = await remoteDefaultBranch(directory);
 
           // By name, not by checking it out, and without upstream tracking: the
           // branch came back from the sandbox as a ref in this checkout, and the
@@ -1919,6 +1903,33 @@ async function catchUp(directory: Checkout): Promise<void> {
       `${directory} cannot be brought up to date with its remote: ${commandFailureMessage(error)}. Bring it level with its upstream by hand, then run this again.`,
     );
   }
+}
+
+/**
+ * The default branch the remote names (`origin/HEAD`), whatever the
+ * checkout's own HEAD points at. A checkout whose remote names none is refused
+ * rather than guessed at.
+ */
+async function remoteDefaultBranch(directory: Checkout): Promise<Branch> {
+  let name: string;
+  try {
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "symbolic-ref",
+      "--short",
+      "refs/remotes/origin/HEAD",
+    ]);
+    name = stdout.trim().replace(/^origin\//, "");
+  } catch {
+    throw new Error(
+      `${directory} has no origin/HEAD, so its default branch is unknown.`,
+    );
+  }
+  if (!isBranch(name)) {
+    throw new TypeError(`origin/HEAD names a branch this adapter cannot use: ${name}`);
+  }
+  return name;
 }
 
 /** The branch the checkout is on, or undefined on a detached HEAD. */
