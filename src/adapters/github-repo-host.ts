@@ -192,6 +192,10 @@ export function githubRepoHost(
       // tracks something keeps tracking it.
       const upstream = (await hasUpstream(directory)) ? [] : ["--set-upstream"];
       await run("git", ["-C", directory, "push", ...upstream, "origin", branch]);
+
+      // A clone of an empty remote records no origin/HEAD, and this push does
+      // not add one; the first run resolves the default branch from it.
+      await recordRemoteHead(directory);
     },
 
     async commitAndPropose(
@@ -1861,6 +1865,40 @@ function pullRequestParts(
 }
 
 /**
+ * Sets `origin/HEAD` to the remote's default branch when the checkout has
+ * none. Best effort: a remote still empty has no default branch to name.
+ * Every failure of `set-head --auto` (an `ls-remote`) is swallowed on purpose,
+ * network and auth ones included; a missing `origin/HEAD` surfaces later as
+ * `defaultRef`'s refusal.
+ */
+async function recordRemoteHead(directory: Checkout): Promise<void> {
+  try {
+    await run("git", [
+      "-C",
+      directory,
+      "symbolic-ref",
+      "--quiet",
+      "refs/remotes/origin/HEAD",
+    ]);
+    return;
+  } catch {
+    // Missing: set it below.
+  }
+  try {
+    await run("git", [
+      "-C",
+      directory,
+      "remote",
+      "set-head",
+      "origin",
+      "--auto",
+    ]);
+  } catch {
+    // Nothing on the remote to name yet.
+  }
+}
+
+/**
  * Fast-forwards the branch the checkout is on to what its remote has.
  *
  * A reused clone is otherwise frozen at whenever it was made: the sandbox
@@ -1872,11 +1910,13 @@ function pullRequestParts(
  * merged or reset — none of those are this adapter's to decide, and running on
  * the stale code instead is the failure this exists to stop. Uncommitted work
  * the update does not touch is carried across. A branch with no upstream (a
- * detached HEAD, an empty repo) has nothing to catch up to and is left alone.
+ * detached HEAD, an empty repo) has nothing to catch up to and is left alone,
+ * apart from `origin/HEAD`, which is still recorded if the checkout has none.
  */
 async function catchUp(directory: Checkout): Promise<void> {
   try {
     await run("git", ["-C", directory, "fetch", "--quiet", "origin"]);
+    await recordRemoteHead(directory);
     if (!(await hasUpstream(directory))) {
       return;
     }
