@@ -1,3 +1,4 @@
+import type { ProjectLabel } from "../project-labels.ts";
 import type {
   ApplyReviewAnswers,
   ApplyReviewThread,
@@ -222,7 +223,7 @@ export class FakeRepoHost implements RepoHost {
   readonly #labels = new Map<RepoSlug, Set<string>>();
 
   /** Every label `ensureLabel` actually created, in order. */
-  readonly labelsCreated: { repo: RepoSlug; name: string }[] = [];
+  readonly labelsCreated: { repo: RepoSlug; name: string; description: string }[] = [];
 
   /** Names whose creation fails, as a refused request would. */
   readonly failingLabels = new Set<string>();
@@ -232,7 +233,7 @@ export class FakeRepoHost implements RepoHost {
     this.#labels.set(repo, (this.#labels.get(repo) ?? new Set()).add(name));
   }
 
-  async ensureLabel(repo: RepoSlug, name: string): Promise<void> {
+  async ensureLabel(repo: RepoSlug, { name, description }: ProjectLabel): Promise<void> {
     if (this.failingLabels.has(name)) {
       throw new Error(`HTTP 403 creating ${name}`);
     }
@@ -240,7 +241,7 @@ export class FakeRepoHost implements RepoHost {
       return;
     }
     this.alreadyLabelled(repo, name);
-    this.labelsCreated.push({ repo, name });
+    this.labelsCreated.push({ repo, name, description });
   }
 
   /** Marks `repo` as already on the host, as a project predating the manager. */

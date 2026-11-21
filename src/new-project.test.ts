@@ -338,6 +338,10 @@ describe("giving the project its labels", () => {
       ports.host.labelsCreated.map((label) => label.name),
       NAMES,
     );
+    assert.deepEqual(
+      ports.host.labelsCreated.map(({ name, description }) => ({ name, description })),
+      PROJECT_LABELS,
+    );
     for (const name of ["ready-for-agent", "size:M", "turboable", "needs-grilling", "ux-review"]) {
       assert.ok(NAMES.includes(name), name);
     }

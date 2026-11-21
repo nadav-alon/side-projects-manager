@@ -184,12 +184,12 @@ export async function newProject(
  * the missing ones.
  */
 async function ensureLabels(host: RepoHost, repo: RepoSlug): Promise<void> {
-  for (const { name, description } of PROJECT_LABELS) {
+  for (const label of PROJECT_LABELS) {
     try {
-      await host.ensureLabel(repo, name, description);
+      await host.ensureLabel(repo, label);
     } catch (error) {
       throw new Error(
-        `Could not create the label ${name} in ${repo}: ${errorMessage(error)}`,
+        `Could not create the label ${label.name} in ${repo}: ${errorMessage(error)}`,
       );
     }
   }

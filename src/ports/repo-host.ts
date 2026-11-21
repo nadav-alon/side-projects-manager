@@ -1,6 +1,7 @@
 import type { Branch } from "./branch.ts";
 import type { CheckRunUrl } from "./check-run-url.ts";
 import type { CommitSha } from "./commit-sha.ts";
+import type { ProjectLabel } from "../project-labels.ts";
 import type { Checkout } from "./checkout.ts";
 import { isIssueNumber, type IssueNumber } from "./issue-number.ts";
 import type { Ticket } from "./issue-tracker.ts";
@@ -568,11 +569,11 @@ export interface RepoHost {
     visibility: Visibility,
   ): Promise<void>;
   /**
-   * Ensures `repo` has a label called `name`, creating it with `description`
+   * Ensures `repo` has a label called `name`, creating it with its description
    * when it has none. A label already there is left as it is — colour and
    * description included. Rejects on any other failure.
    */
-  ensureLabel(repo: RepoSlug, name: string, description: string): Promise<void>;
+  ensureLabel(repo: RepoSlug, label: ProjectLabel): Promise<void>;
   /**
    * Ensures a checkout of `repo` in the managed location, and returns it.
    * A clone already sitting there is reused rather than replaced, which is
