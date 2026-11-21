@@ -10,7 +10,7 @@ import type {
   StandardsPreset,
   UniformComparison,
 } from "../ports/index.ts";
-import { STANDARDS_FILE, UNIFORM_FILES, UnknownPreset } from "../ports/index.ts";
+import { CI_FILE, STANDARDS_FILE, UNIFORM_FILES, UnknownPreset } from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
 /** Where the generated, project-specific instructions go. */
@@ -25,22 +25,20 @@ const STANDARDS_STUB = `# Project standards
 This project has no rules beyond the uniform ones in \`docs/agents/coding-standards.md\`.
 `;
 
-/** Where a project's CI goes. Written once, like the standards: the project owns its checks. */
-const CI_FILE = ".github/workflows/ci.yml";
+/** Where the project's own workflows live; any file here means the project has CI of its own. */
+const WORKFLOWS_DIRECTORY = ".github/workflows";
 
 /**
  * What a project with no CI starts with: its own typecheck and test scripts,
  * on every pull request, so a pull request is never left waiting on checks
- * that no workflow will ever report. A script the project does not define is
- * skipped rather than failed, so the first pull request can go green.
+ * that no workflow will ever report. The npm steps run only where there is a
+ * `package.json`, and a script the project does not define is skipped rather
+ * than failed, so a pull request with nothing to check still goes green.
  */
 const CI_WORKFLOW = `name: CI
 
 on:
   pull_request:
-  push:
-    branches:
-      - master
 
 permissions:
   contents: read
@@ -52,15 +50,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - if: hashFiles('package.json') != ''
+        uses: actions/setup-node@v4
         with:
           node-version: 22.x
 
-      - run: npm ci --if-present || npm install
+      - if: hashFiles('package.json') != ''
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-      - run: npm run typecheck --if-present
+      - if: hashFiles('package.json') != ''
+        run: npm run typecheck --if-present
 
-      - run: npm test --if-present
+      - if: hashFiles('package.json') != ''
+        run: npm test --if-present
 `;
 
 /**
@@ -68,9 +70,11 @@ jobs:
  * checkout unless a test says otherwise.
  *
  * Uniform files are overwritten, because a project whose copy has drifted is a
- * project reading conventions nobody maintains. The instructions file and the
- * standards file are not: once a project has said something about itself, that
- * is the project's, and re-scaffolding must not talk over it.
+ * project reading conventions nobody maintains. The instructions file, the
+ * standards file and the CI workflow are not: once a project has said something
+ * about itself, that is the project's, and re-scaffolding must not talk over
+ * it. The CI workflow is also written only to a checkout with no workflows of
+ * its own, so a repo that already has CI under another name is not given a second.
  */
 export function directoryHarness(source: string = MANAGER_HOME): Harness {
   return {
@@ -81,6 +85,19 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
     ): Promise<Scaffold> {
       const paths: string[] = [];
       const overwritten: string[] = [];
+
+      // Asked before the uniform files land, because some of them are workflows.
+      const hadWorkflows = (await presetFiles(path.join(directory, WORKFLOWS_DIRECTORY))).length > 0;
+
+      const writeOnce = async (file: string, contents: string): Promise<void> => {
+        const to = path.join(directory, file);
+        if (await exists(to)) {
+          return;
+        }
+        await mkdir(path.dirname(to), { recursive: true });
+        await writeFile(to, contents, "utf8");
+        paths.push(file);
+      };
 
       for (const file of UNIFORM_FILES) {
         const to = path.join(directory, file);
@@ -93,24 +110,10 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
         paths.push(file);
       }
 
-      const instructionsFile = path.join(directory, INSTRUCTIONS_FILE);
-      if (!(await exists(instructionsFile))) {
-        await writeFile(instructionsFile, instructions, "utf8");
-        paths.push(INSTRUCTIONS_FILE);
-      }
-
-      const standardsFile = path.join(directory, STANDARDS_FILE);
-      if (!(await exists(standardsFile))) {
-        await mkdir(path.dirname(standardsFile), { recursive: true });
-        await writeFile(standardsFile, standards, "utf8");
-        paths.push(STANDARDS_FILE);
-      }
-
-      const ciFile = path.join(directory, CI_FILE);
-      if (!(await exists(ciFile))) {
-        await mkdir(path.dirname(ciFile), { recursive: true });
-        await writeFile(ciFile, CI_WORKFLOW, "utf8");
-        paths.push(CI_FILE);
+      await writeOnce(INSTRUCTIONS_FILE, instructions);
+      await writeOnce(STANDARDS_FILE, standards);
+      if (!hadWorkflows) {
+        await writeOnce(CI_FILE, CI_WORKFLOW);
       }
 
       return { paths, overwritten };
