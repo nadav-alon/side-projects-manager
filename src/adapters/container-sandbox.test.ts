@@ -997,6 +997,8 @@ describe("containerSandbox", () => {
 
   it("fails at its start when the checkout has no origin/HEAD", async () => {
     const directory = await project();
+    // Git 2.48+ re-creates a missing origin/HEAD on fetch unless told not to.
+    await run("git", ["-C", directory, "config", "remote.origin.followRemoteHEAD", "never"]);
     await run("git", ["-C", directory, "remote", "set-head", "origin", "--delete"]);
     const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
