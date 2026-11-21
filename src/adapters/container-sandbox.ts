@@ -1783,9 +1783,12 @@ async function reviewOnClone(
   const { checkout: project, spendCeiling, model } = request;
 
   return withThrowawayClone(kind, async (clone) => {
-    await withCheckoutLock(project, () => cloneWithSubmodules(project, clone));
+    await fetchOrigin(project);
+    const base = await withCheckoutLock(project, async () => {
+      await cloneWithSubmodules(project, clone);
+      return remoteDefaultBranch(project);
+    });
     await populateSubmodules(project, clone);
-    const base = await remoteDefaultBranch(project);
     const agent = await attempt(
       container,
       kind,
@@ -2036,16 +2039,19 @@ function uxReviewPromptFor(
  * one.
  *
  * Answers with the remote's default branch (`remoteDefaultBranch`) — the
- * pull request's base, read as an implementation run's own is, whatever
- * `project` itself is on.
+ * pull request's base, read as `startOnRemoteDefault` reads it — under
+ * `project`'s lock, after `fetchOrigin` — whatever `project` itself is on. A
+ * `project` with no `origin/HEAD` fails here, at the start of the run.
  */
 async function cloneOntoPullRequestHead(
   project: Checkout,
   clone: Checkout,
   head: Branch,
 ): Promise<Branch> {
-  const remote = await withCheckoutLock(project, async () => {
+  await fetchOrigin(project);
+  const { remote, base } = await withCheckoutLock(project, async () => {
     await cloneWithSubmodules(project, clone);
+    const base = await remoteDefaultBranch(project);
     const { stdout } = await run("git", [
       "-C",
       project,
@@ -2059,9 +2065,8 @@ async function cloneOntoPullRequestHead(
         `${project}'s origin is not an address a clone can push to: ${JSON.stringify(origin)}`,
       );
     }
-    return origin;
+    return { remote: origin, base };
   });
-  const base = await remoteDefaultBranch(project);
   await run("git", [
     "-C",
     clone,
