@@ -210,16 +210,19 @@ async function project(
   await writeFile(path.join(directory, "README.md"), "pilot\n");
   await run("git", ["-C", directory, "add", "."]);
   await run("git", ["-C", directory, "commit", "--message", "First"]);
-  // What `gh repo clone` leaves, and the project image resolves a default from.
-  // Written as refs, so a test may still add its own `origin` remote.
-  await run("git", ["-C", directory, "update-ref", "refs/remotes/origin/main", "HEAD"]);
+  // What `gh repo clone` leaves, and the project image resolves a default from:
+  // a real `origin` holding `main`, with `origin/HEAD` recorded.
+  const hosted = await mkdtemp(path.join(tmpdir(), "sandbox-hosted-"));
   await run("git", [
-    "-C",
-    directory,
-    "symbolic-ref",
-    "refs/remotes/origin/HEAD",
-    "refs/remotes/origin/main",
+    "init",
+    "--bare",
+    "--initial-branch=main",
+    `--object-format=${objectFormat}`,
+    hosted,
   ]);
+  await run("git", ["-C", directory, "remote", "add", "origin", hosted]);
+  await run("git", ["-C", directory, "push", "--quiet", "origin", "main"]);
+  await run("git", ["-C", directory, "remote", "set-head", "origin", "main"]);
   return directory;
 }
 
@@ -228,6 +231,15 @@ async function project(
  * `main.tex`, and commits it. Answers the submodule's own repository.
  */
 async function addSubmodule(directory: Checkout): Promise<Checkout> {
+  const remote = await addSubmoduleUnpushed(directory);
+  // A run starts from the remote's default branch, so the commit counts as
+  // pushed there, as `project` leaves the first one.
+  await run("git", ["-C", directory, "push", "--quiet", "origin", "main"]);
+  return remote;
+}
+
+/** Commits the submodule to `directory` without pushing it, so `origin/main` stays where it was. */
+async function addSubmoduleUnpushed(directory: Checkout): Promise<Checkout> {
   const remote = checkout(await mkdtemp(path.join(tmpdir(), "submodule-")));
   await run("git", ["init", "--initial-branch=main", remote]);
   await identify(remote);
@@ -257,9 +269,16 @@ async function pullRequestPinningSubmodule(hosted: string): Promise<Checkout> {
   const elsewhere = checkout(await mkdtemp(path.join(tmpdir(), "sandbox-elsewhere-")));
   await run("git", ["clone", "--quiet", "--branch", BRANCH, hosted, elsewhere]);
   await identify(elsewhere);
-  const remote = await addSubmodule(elsewhere);
+  const remote = await addSubmoduleUnpushed(elsewhere);
   await run("git", ["-C", elsewhere, "push", "--quiet", "origin", BRANCH]);
   return remote;
+}
+
+/** Commits a new file `name` to `directory`'s current branch. */
+async function commitFile(directory: string, name: string, message: string): Promise<void> {
+  await writeFile(path.join(directory, name), `${name}\n`);
+  await run("git", ["-C", directory, "add", "."]);
+  await run("git", ["-C", directory, "commit", "--message", message]);
 }
 
 /** What the sandbox image does for a real run, done here for a fake one. */
@@ -927,6 +946,65 @@ describe("containerSandbox", () => {
     assert.equal(finished?.branch, BRANCH);
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
     assert.equal(await headOf(directory, BRANCH), finished?.commits.at(-1));
+  });
+
+  it("starts from the remote's default branch when the checkout is parked on another", async () => {
+    const { directory, hosted } = await hostedProject();
+    await run("git", ["-C", directory, "switch", "--quiet", "--create", "parked"]);
+    await commitFile(directory, "parked.md", "Parked");
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
+
+    const finished = variant(
+      await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      "finished",
+    );
+
+    assert.equal(finished?.commits.length, 1);
+    assert.deepEqual(await filesOn(directory, BRANCH), ["README.md", "one.txt"]);
+    assert.equal(await headOf(directory, `${BRANCH}~1`), await headOf(hosted, "main"));
+  });
+
+  it("starts from the remote's default branch freshly fetched", async () => {
+    const { directory, hosted } = await hostedProject();
+    const elsewhere = checkout(await mkdtemp(path.join(tmpdir(), "sandbox-elsewhere-")));
+    await run("git", ["clone", "--quiet", hosted, elsewhere]);
+    await identify(elsewhere);
+    await commitFile(elsewhere, "merged.md", "Merged");
+    await run("git", ["-C", elsewhere, "push", "--quiet", "origin", "main"]);
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
+
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(await headOf(directory, `${BRANCH}~1`), await headOf(elsewhere));
+  });
+
+  it("starts from the remote's default branch when the checkout is detached elsewhere", async () => {
+    const directory = await project();
+    await run("git", ["-C", directory, "switch", "--quiet", "--create", "parked"]);
+    await commitFile(directory, "parked.md", "Parked");
+    await run("git", ["-C", directory, "checkout", "--quiet", "--detach"]);
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
+
+    const finished = variant(
+      await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      "finished",
+    );
+
+    assert.equal(finished?.branch, BRANCH);
+    assert.equal(finished?.commits.length, 1);
+    assert.equal(await headOf(directory, `${BRANCH}~1`), await headOf(directory, "origin/main"));
+  });
+
+  it("fails at its start when the checkout has no origin/HEAD", async () => {
+    const directory = await project();
+    // Git 2.48+ re-creates a missing origin/HEAD on fetch unless told not to.
+    await run("git", ["-C", directory, "config", "remote.origin.followRemoteHEAD", "never"]);
+    await run("git", ["-C", directory, "remote", "set-head", "origin", "--delete"]);
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
+
+    await assert.rejects(
+      sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
   });
 
   it("leaves the branch the checkout is on untouched", async () => {
@@ -3564,10 +3642,8 @@ async function hostedProject(): Promise<{
   headCommit: string;
 }> {
   const directory = await project();
-  const hosted = await mkdtemp(path.join(tmpdir(), "sandbox-hosted-"));
-  await run("git", ["init", "--bare", "--initial-branch=main", hosted]);
-  await run("git", ["-C", directory, "remote", "add", "origin", hosted]);
-  await run("git", ["-C", directory, "push", "--quiet", "origin", "main"]);
+  const { stdout } = await run("git", ["-C", directory, "remote", "get-url", "origin"]);
+  const hosted = stdout.trim();
 
   const elsewhere = await mkdtemp(path.join(tmpdir(), "sandbox-elsewhere-"));
   await run("git", ["clone", "--quiet", hosted, elsewhere]);
