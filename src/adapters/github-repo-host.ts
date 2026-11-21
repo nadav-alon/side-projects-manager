@@ -54,6 +54,7 @@ import {
   resolveNeedsRebase,
   summarizeApplyReviewThreads,
 } from "../ports/index.ts";
+import type { ProjectLabel } from "../project-labels.ts";
 import { errorMessage } from "../error-message.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import { remoteDefaultBranch } from "./default-branch.ts";
@@ -99,6 +100,10 @@ export function githubRepoHost(
     ): Promise<void> {
       const options = description === "" ? [] : ["--description", description];
       await run("gh", ["repo", "create", repo, `--${visibility}`, ...options]);
+    },
+
+    async ensureLabel(repo: RepoSlug, label: ProjectLabel): Promise<void> {
+      await createLabelUnlessPresent(repo, label.name, label.description);
     },
 
     async clone(repo: RepoSlug): Promise<Checkout> {
@@ -535,18 +540,12 @@ export function githubRepoHost(
       // Named by the pull request's own URL, not the cwd: `clone`'s managed
       // location may hold a different repo, or none, by the time this runs.
       const { owner, repo } = pullRequestParts(pullRequest);
-      try {
-        await run("gh", ["label", "create", label, "--repo", `${owner}/${repo}`]);
-      } catch (error) {
-        // Best effort, but only for the one refusal the ticket scoped this
-        // to: a label already there is not a reason to fail a call whose
-        // real work is the add below. Anything else — an expired token, a
-        // network drop — surfaces here rather than as a confusing failure
-        // on the add.
-        if (!isAlreadyExists(error)) {
-          throw error;
-        }
-      }
+      // Best effort, but only for the one refusal the ticket scoped this
+      // to: a label already there is not a reason to fail a call whose
+      // real work is the add below. Anything else — an expired token, a
+      // network drop — surfaces here rather than as a confusing failure
+      // on the add.
+      await createLabelUnlessPresent(`${owner}/${repo}`, label);
       await run("gh", ["pr", "edit", pullRequest, "--add-label", label]);
     },
 
@@ -1960,6 +1959,25 @@ function isUnresolvable(error: unknown): boolean {
 }
 
 /** Whether `gh label create` failed because the label is already there. */
+/**
+ * Creates `name` in `repo`, with `description` when given. A label already
+ * there is not a failure; any other refusal is.
+ */
+async function createLabelUnlessPresent(
+  repo: string,
+  name: string,
+  description?: string,
+): Promise<void> {
+  const options = description === undefined ? [] : ["--description", description];
+  try {
+    await run("gh", ["label", "create", name, "--repo", repo, ...options]);
+  } catch (error) {
+    if (!isAlreadyExists(error)) {
+      throw error;
+    }
+  }
+}
+
 function isAlreadyExists(error: unknown): boolean {
   const stderr =
     typeof error === "object" && error !== null && "stderr" in error

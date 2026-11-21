@@ -1,5 +1,6 @@
 import { agentInstructions } from "./agent-instructions.ts";
 import { errorMessage } from "./error-message.ts";
+import { PROJECT_LABELS } from "./project-labels.ts";
 import type {
   Checkout,
   Grilling,
@@ -123,6 +124,7 @@ export async function newProject(
   if (!existing) {
     await ports.host.create(repo, description, visibility);
   }
+  await ensureLabels(ports.host, repo);
 
   const directory = await ports.host.clone(repo);
   const scaffold = await ports.harness.install(
@@ -174,6 +176,23 @@ export async function newProject(
       grillingFailure,
     }),
   };
+}
+
+/**
+ * Gives the repo every label the manager's docs tell people to apply. One a
+ * repo already has is left as it is, so a re-run or `--existing` creates only
+ * the missing ones.
+ */
+async function ensureLabels(host: RepoHost, repo: RepoSlug): Promise<void> {
+  for (const label of PROJECT_LABELS) {
+    try {
+      await host.ensureLabel(repo, label);
+    } catch (error) {
+      throw new Error(
+        `Could not create the label ${label.name} in ${repo}: ${errorMessage(error)}`,
+      );
+    }
+  }
 }
 
 /** What the scaffold commit says, whichever way it lands. */

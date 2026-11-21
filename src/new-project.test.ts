@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { newProject } from "./new-project.ts";
 import { priority, repoSlug, standardsPreset } from "./ports/index.ts";
+import { PROJECT_LABELS } from "./project-labels.ts";
 import { FakeRepoHost, fakeNewProjectPorts } from "./testing/index.ts";
 
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
@@ -322,5 +323,59 @@ describe("refusing to start a project twice", () => {
       { repo: PILOT, paused: true, turbo: false },
     ]);
     assert.match(report.message, /already registered/i);
+  });
+});
+
+describe("giving the project its labels", () => {
+  const NAMES = PROJECT_LABELS.map((label) => label.name);
+
+  it("creates every label on a new repo, the triage ones among them", async () => {
+    const ports = fakeNewProjectPorts();
+
+    await newProject(ports, IDEA);
+
+    assert.deepEqual(
+      ports.host.labelsCreated.map((label) => label.name),
+      NAMES,
+    );
+    assert.deepEqual(
+      ports.host.labelsCreated.map(({ name, description }) => ({ name, description })),
+      PROJECT_LABELS,
+    );
+    for (const name of ["ready-for-agent", "size:M", "turboable", "needs-grilling", "ux-review"]) {
+      assert.ok(NAMES.includes(name), name);
+    }
+  });
+
+  it("creates only the missing ones on a repo that has some", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.alreadyExists(PILOT);
+    ports.host.alreadyLabelled(PILOT, "wontfix");
+    ports.host.alreadyLabelled(PILOT, "size:M");
+
+    await newProject(ports, { ...IDEA, existing: true });
+
+    assert.deepEqual(
+      ports.host.labelsCreated.map((label) => label.name),
+      NAMES.filter((name) => name !== "wontfix" && name !== "size:M"),
+    );
+  });
+
+  it("creates nothing on a re-run", async () => {
+    const ports = fakeNewProjectPorts();
+    await newProject(ports, IDEA);
+    const created = ports.host.labelsCreated.length;
+
+    await newProject(ports, { ...IDEA, existing: true });
+
+    assert.equal(ports.host.labelsCreated.length, created);
+  });
+
+  it("fails naming the label it could not create", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.failingLabels.add("supertask");
+
+    await assert.rejects(newProject(ports, IDEA), /label supertask/);
+    assert.deepEqual(ports.host.clones, []);
   });
 });

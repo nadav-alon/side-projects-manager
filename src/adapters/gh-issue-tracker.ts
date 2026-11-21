@@ -25,18 +25,14 @@ import type {
   TicketPriority,
   GrantConsent,
 } from "../ports/index.ts";
+import { LABEL_DESCRIPTIONS } from "../project-labels.ts";
 import {
-  ENHANCEMENT_LABEL,
   isDiscoveredWhileWorking,
-  NEEDS_TRIAGE_LABEL,
-  READY_DISCOVERY_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
-  SIZE_S_LABEL,
   SPEC_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
   TURBOABLE_LABEL,
-  LIVE_WRITE_LABEL,
   GRANT_LABELS,
   type GrantLabel,
   carriesReadyDiscoveryLabel,
@@ -600,24 +596,6 @@ async function closeWithComment(
     comment,
   ]);
 }
-
-/**
- * What each label the manager applies itself says about itself, as
- * `docs/agents/triage-labels.md` describes it.
- */
-const LABEL_DESCRIPTIONS = {
-  [READY_FOR_AGENT_LABEL]: "Fully specified, ready for an AFK agent",
-  [READY_FOR_HUMAN_LABEL]: "Requires human implementation",
-  [NEEDS_TRIAGE_LABEL]: "Maintainer needs to evaluate this issue",
-  [ENHANCEMENT_LABEL]: "New feature or request",
-  [SPEC_REVIEW_LABEL]:
-    "Reviews the repo against a supertask's body; reports, never commits.",
-  [SPEC_REVIEW_SIZE_LABEL]: "Larger than M, smaller than XL",
-  [SIZE_S_LABEL]: "Smallest",
-  [READY_DISCOVERY_LABEL]: "Born from a discovery its filer declared ready",
-  [TURBOABLE_LABEL]: "Consents to the manager merging this ticket's pull request",
-  [LIVE_WRITE_LABEL]: "Consents to this ticket's run writing the project's mounted directories",
-} as const;
 
 /**
  * The `gh` argv fragment that names `ticket` to a subcommand: the number and

@@ -2943,3 +2943,47 @@ describe("reading the checks of a head", () => {
     await assert.rejects(githubRepoHost().readChecksStatus(PULL_REQUEST, HEAD), /more checks than one page/);
   });
 });
+
+describe("ensuring a label", () => {
+  it("creates it with its description in the named repo", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await githubRepoHost().ensureLabel(PILOT, { name: "size:M", description: "Larger than S" });
+
+    assert.deepEqual(callWith(await gh.calls(), "label", "create"), [
+      "label",
+      "create",
+      "size:M",
+      "--repo",
+      PILOT,
+      "--description",
+      "Larger than S",
+    ]);
+  });
+
+  it("resolves when the repo already has the label", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `echo 'label with name "size:M" already exists' >&2`,
+        `exit 1`,
+      ].join("\n"),
+    );
+
+    await assert.doesNotReject(
+      githubRepoHost().ensureLabel(PILOT, { name: "size:M", description: "Larger than S" }),
+    );
+  });
+
+  it("rejects with gh's own error when creating the label is refused for any other reason", async (t) => {
+    await recordingGh(
+      t,
+      [`echo 'HTTP 403: Resource not accessible' >&2`, `exit 1`].join("\n"),
+    );
+
+    await assert.rejects(
+      githubRepoHost().ensureLabel(PILOT, { name: "size:M", description: "Larger than S" }),
+      /HTTP 403/,
+    );
+  });
+});
