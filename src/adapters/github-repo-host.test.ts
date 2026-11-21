@@ -834,8 +834,8 @@ describe("opening a draft pull request for a completed run", () => {
 
   /**
    * A checkout carrying a branch of committed work, which is what the sandbox
-   * fetches back when a run leaves commits behind. Left on `BASE`, the branch
-   * the run was based on, as the sandbox found it.
+   * fetches back when a run leaves commits behind. Left on `BASE`, where the
+   * managed clone is parked; the pull request's base is `DEFAULT`.
    */
   async function ran(branch: string): Promise<Checkout> {
     const directory = await checkout();
@@ -973,6 +973,26 @@ describe("opening a draft pull request for a completed run", () => {
       "thing.md",
     ]);
     assert.equal(valueOf((await gh.calls())[0] ?? [], "--base"), DEFAULT);
+  });
+
+  it("refuses without pushing or calling gh when the checkout has no origin/HEAD", async (t) => {
+    const gh = await recordingGh(t, `echo ${OPENED}`);
+    const directory = await ran(RAN);
+    await run("git", ["-C", directory, "remote", "set-head", "origin", "--delete"]);
+
+    const opening = await githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+    );
+
+    assert.equal(opening.kind, "unpushed");
+    assert.match(
+      opening.kind === "unpushed" ? opening.failure : "",
+      /no origin\/HEAD/,
+    );
+    await assert.rejects(pushedFiles(directory, `origin/${RAN}`));
+    assert.deepEqual(await gh.calls(), []);
   });
 
   it("names the project the ticket lives in, rather than letting gh choose", async (t) => {
@@ -1202,9 +1222,8 @@ describe("reading the paths a run's branch changed", () => {
 
   /**
    * A checkout with `BASE` cut from `main` and `RAN` cut from `BASE`,
-   * carrying one commit that writes every path in `paths`. Left on `BASE`,
-   * the branch the diff should read as the base — exactly as the sandbox
-   * leaves a checkout after fetching a run's branch back.
+   * carrying one commit that writes every path in `paths`. Parked on `BASE`, as
+   * the sandbox leaves a checkout; the diff's base is the remote's default.
    */
   async function ran(paths: Record<string, string>): Promise<Checkout> {
     const directory = await checkout();
@@ -1254,6 +1273,16 @@ describe("reading the paths a run's branch changed", () => {
     assert.deepEqual(
       await githubRepoHost().readChangedPaths(directory, toBranch(RAN)),
       [],
+    );
+  });
+
+  it("refuses to read the diff when the checkout has no origin/HEAD", async () => {
+    const directory = await ran({ "thing.md": "the thing\n" });
+    await run("git", ["-C", directory, "remote", "set-head", "origin", "--delete"]);
+
+    await assert.rejects(
+      githubRepoHost().readChangedPaths(directory, toBranch(RAN)),
+      /no origin\/HEAD/,
     );
   });
 

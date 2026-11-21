@@ -56,6 +56,7 @@ import {
 } from "../ports/index.ts";
 import { errorMessage } from "../error-message.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { remoteDefaultBranch } from "./default-branch.ts";
 import { expectField } from "./expect-field.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
 
@@ -336,7 +337,7 @@ export function githubRepoHost(
           // The remote's default branch, named rather than left to `gh` and
           // not read off the checkout's HEAD, which sessions move while runs
           // are in flight.
-          const onBranch = await remoteDefaultBranch(directory);
+          const defaultBranch = await remoteDefaultBranch(directory);
 
           // By name, not by checking it out, and without upstream tracking: the
           // branch came back from the sandbox as a ref in this checkout, and the
@@ -351,7 +352,7 @@ export function githubRepoHost(
               `Could not push ${branch} to ${ticket.repo}: ${commandFailureMessage(error)}`,
             );
           }
-          return onBranch;
+          return defaultBranch;
         });
       } catch (error) {
         // Everything that can fail in here fails before or at the push, so
@@ -1839,7 +1840,7 @@ function pullRequestParts(
  * none. Best effort: a remote still empty has no default branch to name.
  * Every failure of `set-head --auto` (an `ls-remote`) is swallowed on purpose,
  * network and auth ones included; a missing `origin/HEAD` surfaces later as
- * `defaultRef`'s refusal.
+ * `remoteDefaultBranch`'s refusal, at the sandbox's image build and at handover.
  */
 async function recordRemoteHead(directory: Checkout): Promise<void> {
   try {
@@ -1903,33 +1904,6 @@ async function catchUp(directory: Checkout): Promise<void> {
       `${directory} cannot be brought up to date with its remote: ${commandFailureMessage(error)}. Bring it level with its upstream by hand, then run this again.`,
     );
   }
-}
-
-/**
- * The default branch the remote names (`origin/HEAD`), whatever the
- * checkout's own HEAD points at. A checkout whose remote names none is refused
- * rather than guessed at.
- */
-async function remoteDefaultBranch(directory: Checkout): Promise<Branch> {
-  let name: string;
-  try {
-    const { stdout } = await run("git", [
-      "-C",
-      directory,
-      "symbolic-ref",
-      "--short",
-      "refs/remotes/origin/HEAD",
-    ]);
-    name = stdout.trim().replace(/^origin\//, "");
-  } catch {
-    throw new Error(
-      `${directory} has no origin/HEAD, so its default branch is unknown.`,
-    );
-  }
-  if (!isBranch(name)) {
-    throw new TypeError(`origin/HEAD names a branch this adapter cannot use: ${name}`);
-  }
-  return name;
 }
 
 /** The branch the checkout is on, or undefined on a detached HEAD. */

@@ -1145,7 +1145,7 @@ async function handOver(
     try {
       touched = await touchedUniformFiles(ports.repoHost, checkout, run.branch);
     } catch (error: unknown) {
-      // The same checkout state (typically a detached HEAD) that would have
+      // The same checkout state (typically no `origin/HEAD`) that would have
       // failed the push inside `openDraftPullRequest` below fails this read
       // first — handled the same way, so a run whose checkout cannot be
       // diffed is no worse off than one whose branch could not be pushed.

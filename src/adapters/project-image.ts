@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import type { Checkout } from "../ports/checkout.ts";
 import { type ImageTag, imageTag } from "../ports/image-tag.ts";
 import { type RepoSlug, repoSlug } from "../ports/repo-slug.ts";
+import { remoteDefaultBranch } from "./default-branch.ts";
 import { errorMessage } from "../error-message.ts";
 import { IMAGE } from "./sandbox-image.ts";
 import { SANDBOX_DIRECTORY } from "../sandbox-directory.ts";
@@ -79,20 +80,7 @@ export function projectImageTag(checkout: Checkout): ImageTag {
  * since its own `HEAD` may sit on any branch.
  */
 async function defaultRef(checkout: Checkout): Promise<string> {
-  try {
-    const { stdout } = await run("git", [
-      "-C",
-      checkout,
-      "symbolic-ref",
-      "--short",
-      "refs/remotes/origin/HEAD",
-    ]);
-    return stdout.trim();
-  } catch {
-    throw new Error(
-      "its checkout has no origin/HEAD, so its default branch is unknown",
-    );
-  }
+  return `origin/${await remoteDefaultBranch(checkout)}`;
 }
 
 /**
