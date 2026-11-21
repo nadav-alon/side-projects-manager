@@ -581,6 +581,50 @@ describe("checking a checkout for uncommitted changes", () => {
   });
 });
 
+describe("the remote's default branch", () => {
+  async function originHead(directory: string): Promise<string | undefined> {
+    try {
+      const { stdout } = await run("git", [
+        "-C",
+        directory,
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+      ]);
+      return stdout.trim();
+    } catch {
+      return undefined;
+    }
+  }
+
+  it("is recorded as origin/HEAD once a scaffold is pushed to an empty remote", async () => {
+    const directory = await checkout();
+    assert.equal(await originHead(directory), undefined);
+    await writeFile(path.join(directory, "seed.md"), "seed\n");
+
+    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+
+    assert.equal(await originHead(directory), "refs/remotes/origin/main");
+  });
+
+  it("is recorded on a reused checkout that was cloned while its remote was empty", async () => {
+    const directory = await checkout();
+    // The first push comes from another clone, so this one stays headless.
+    const elsewhere = await mkdtemp(path.join(tmpdir(), "repo-host-first-"));
+    await run("git", ["clone", await originOf(directory), elsewhere]);
+    await run("git", ["-C", elsewhere, "config", "user.email", "t@example.com"]);
+    await run("git", ["-C", elsewhere, "config", "user.name", "Test"]);
+    await writeFile(path.join(elsewhere, "first.md"), "first\n");
+    await run("git", ["-C", elsewhere, "add", "first.md"]);
+    await run("git", ["-C", elsewhere, "commit", "--message", "First"]);
+    await run("git", ["-C", elsewhere, "push", "origin", "HEAD:main"]);
+    assert.equal(await originHead(directory), undefined);
+
+    await githubRepoHost(locationOf(directory)).clone(PILOT);
+
+    assert.equal(await originHead(directory), "refs/remotes/origin/main");
+  });
+});
+
 describe("finding the checkout", () => {
   it("reuses a clone of this project already in the managed location", async () => {
     const directory = await checkout();

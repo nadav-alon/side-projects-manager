@@ -192,6 +192,10 @@ export function githubRepoHost(
       // tracks something keeps tracking it.
       const upstream = (await hasUpstream(directory)) ? [] : ["--set-upstream"];
       await run("git", ["-C", directory, "push", ...upstream, "origin", branch]);
+
+      // A clone of an empty remote records no origin/HEAD, and this push does
+      // not add one; the first run resolves the default branch from it.
+      await recordRemoteHead(directory);
     },
 
     async commitAndPropose(
@@ -1874,9 +1878,41 @@ function pullRequestParts(
  * the update does not touch is carried across. A branch with no upstream (a
  * detached HEAD, an empty repo) has nothing to catch up to and is left alone.
  */
+/**
+ * Sets `origin/HEAD` to the remote's default branch when the checkout has
+ * none. Best effort: a remote still empty has no default branch to name.
+ */
+async function recordRemoteHead(directory: Checkout): Promise<void> {
+  try {
+    await run("git", [
+      "-C",
+      directory,
+      "symbolic-ref",
+      "--quiet",
+      "refs/remotes/origin/HEAD",
+    ]);
+    return;
+  } catch {
+    // Missing: set it below.
+  }
+  try {
+    await run("git", [
+      "-C",
+      directory,
+      "remote",
+      "set-head",
+      "origin",
+      "--auto",
+    ]);
+  } catch {
+    // Nothing on the remote to name yet.
+  }
+}
+
 async function catchUp(directory: Checkout): Promise<void> {
   try {
     await run("git", ["-C", directory, "fetch", "--quiet", "origin"]);
+    await recordRemoteHead(directory);
     if (!(await hasUpstream(directory))) {
       return;
     }
