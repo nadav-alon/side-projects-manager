@@ -880,22 +880,28 @@ async function cloneWithSubmodules(project: Checkout, clone: Checkout): Promise<
  * `project`'s `origin` has it now, whatever `project` itself is on — a
  * parked branch, a detached HEAD — so a run starts from the same base its
  * handover opens the pull request against. Answers that branch. Called under
- * `project`'s lock.
+ * `project`'s lock, after `fetchOrigin`.
  *
- * `project` is fetched first when it has an `origin` to fetch from; the
- * clone then takes the remote-tracking ref from `project`, since cloning
- * only carries `project`'s local branches.
+ * The clone takes the remote-tracking ref from `project`, since cloning only
+ * carries `project`'s local branches. A `project` with no `origin/HEAD`
+ * fails here, at the start of the run, not only at its handover.
  */
 async function startOnRemoteDefault(project: Checkout, clone: Checkout): Promise<Branch> {
-  const { stdout } = await run("git", ["-C", project, "remote"]);
-  if (stdout.split("\n").includes("origin")) {
-    await run("git", ["-C", project, "fetch", "--quiet", "origin"]);
-  }
   const base = await remoteDefaultBranch(project);
   const tracking = `refs/remotes/origin/${base}`;
   await run("git", ["-C", clone, "fetch", "--quiet", "origin", `+${tracking}:${tracking}`]);
   await run("git", ["-C", clone, "switch", "--quiet", "--force-create", base, `origin/${base}`]);
   return base;
+}
+
+/**
+ * Fetches `project`'s `origin`, so a run starts from what the remote has now.
+ * Run before taking `project`'s lock: the network wait must not hold up every
+ * other run's set-up and fetch-back, and a fetch is safe beside reads of the
+ * checkout. An offline or unauthenticated remote fails the run at its start.
+ */
+async function fetchOrigin(project: Checkout): Promise<void> {
+  await run("git", ["-C", project, "fetch", "--quiet", "origin"]);
 }
 
 async function runOnClone(
@@ -911,7 +917,8 @@ async function runOnClone(
     let onto: Branch | undefined;
 
     try {
-      const chosen = await withCheckoutLock(project, async () => {
+      await fetchOrigin(project);
+      const { branchName, resuming, base } = await withCheckoutLock(project, async () => {
         // A salvage branch is resumed rather than started over — see
         // `Salvage` in CONTEXT.md — but only when it is still there, free,
         // and safe to fetch back into: the developer may have deleted it,
@@ -946,15 +953,15 @@ async function runOnClone(
         reserveBranch(project, branchName);
         return { branchName, resuming, base };
       });
-      onto = chosen.branchName;
+      onto = branchName;
       // Branded before the agent starts: a clone whose hashes this cannot read
       // fails the sandbox's set-up, not a run whose work is already done.
       const head = commitSha(await revision(clone, "HEAD"));
-      const base = chosen.base;
-      if (chosen.resuming) {
-        // The clone only ever gets a local branch for the checkout's default
-        // one; `onto` is resumed from the remote-tracking ref the clone made
-        // for every other branch project has.
+      if (resuming) {
+        // The clone gets a local branch for whatever the checkout has checked
+        // out, plus `base`, which `startOnRemoteDefault` force-creates;
+        // `onto` is resumed from the remote-tracking ref the clone made for
+        // every other branch project has.
         await run("git", [
           "-C",
           clone,
@@ -971,17 +978,18 @@ async function runOnClone(
       // After the switch, not the clone: a resumed branch pins what it pins.
       await populateSubmodules(project, clone);
       // A resumed run's commits are everything on the branch since it left
-      // the checkout's HEAD, not only what this run adds — so a resumed run
-      // that commits nothing more still has the salvage's own commits, and
-      // still gets a handover. `head` may not be the salvage branch's own
-      // parent any more if the checkout moved on since it was left, so the
+      // the remote's default branch, not only what this run adds — so a
+      // resumed run that commits nothing more still has the salvage's own
+      // commits, and still gets a handover. `head` is the tip of
+      // `origin/<default>` now, which may not be the salvage branch's own
+      // parent any more if the remote moved on since it was left, so the
       // merge-base, not `head` itself, is what commits are counted from. The
       // commits already there are named too, so the loop can tell what this
       // run itself added.
-      const baseCommit = chosen.resuming
+      const baseCommit = resuming
         ? commitSha(await mergeBase(clone, head, onto))
         : head;
-      const resumedCommits = chosen.resuming
+      const resumedCommits = resuming
         ? await commitsSince(clone, baseCommit)
         : undefined;
 
@@ -992,7 +1000,7 @@ async function runOnClone(
           directory: clone,
           prompt: promptFor(
             ticket,
-            chosen.resuming ? onto : undefined,
+            resuming ? onto : undefined,
             request.discovered,
             request.mountsWritable === true ? request.mounts : undefined,
           ),
@@ -2013,8 +2021,9 @@ function uxReviewPromptFor(
 }
 
 /**
- * The branch a fresh clone of the project is on: the base every pull request
- * and every push is measured against.
+ * The branch a fresh clone of the project is on: the base a review's or a
+ * pull-request clone's pushes are measured against. Implementation runs take
+ * theirs from `startOnRemoteDefault` instead.
  */
 async function baseBranchOf(clone: Checkout): Promise<Branch> {
   const { stdout } = await run("git", ["-C", clone, "branch", "--show-current"]);

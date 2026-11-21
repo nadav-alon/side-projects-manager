@@ -1872,9 +1872,9 @@ async function recordRemoteHead(directory: Checkout): Promise<void> {
 /**
  * Fast-forwards the branch the checkout is on to what its remote has.
  *
- * A reused clone is otherwise frozen at whenever it was made: the sandbox
- * clones it at its HEAD, so every run would start from that day's code and
- * open a pull request that fights everything merged since.
+ * A reused clone is otherwise frozen at whenever it was made: the reviews and
+ * pull-request clones the sandbox takes of it start at its HEAD, so every one
+ * would start from that day's code and fight everything merged since.
  *
  * Fast-forward only. A branch with commits its remote lacks, or uncommitted
  * work the incoming changes would overwrite, is refused rather than rebased,
