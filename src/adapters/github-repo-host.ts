@@ -1865,22 +1865,11 @@ function pullRequestParts(
 }
 
 /**
- * Fast-forwards the branch the checkout is on to what its remote has.
- *
- * A reused clone is otherwise frozen at whenever it was made: the sandbox
- * clones it at its HEAD, so every run would start from that day's code and
- * open a pull request that fights everything merged since.
- *
- * Fast-forward only. A branch with commits its remote lacks, or uncommitted
- * work the incoming changes would overwrite, is refused rather than rebased,
- * merged or reset — none of those are this adapter's to decide, and running on
- * the stale code instead is the failure this exists to stop. Uncommitted work
- * the update does not touch is carried across. A branch with no upstream (a
- * detached HEAD, an empty repo) has nothing to catch up to and is left alone.
- */
-/**
  * Sets `origin/HEAD` to the remote's default branch when the checkout has
  * none. Best effort: a remote still empty has no default branch to name.
+ * Every failure of `set-head --auto` (an `ls-remote`) is swallowed on purpose,
+ * network and auth ones included; a missing `origin/HEAD` surfaces later as
+ * `defaultRef`'s refusal.
  */
 async function recordRemoteHead(directory: Checkout): Promise<void> {
   try {
@@ -1909,6 +1898,21 @@ async function recordRemoteHead(directory: Checkout): Promise<void> {
   }
 }
 
+/**
+ * Fast-forwards the branch the checkout is on to what its remote has.
+ *
+ * A reused clone is otherwise frozen at whenever it was made: the sandbox
+ * clones it at its HEAD, so every run would start from that day's code and
+ * open a pull request that fights everything merged since.
+ *
+ * Fast-forward only. A branch with commits its remote lacks, or uncommitted
+ * work the incoming changes would overwrite, is refused rather than rebased,
+ * merged or reset — none of those are this adapter's to decide, and running on
+ * the stale code instead is the failure this exists to stop. Uncommitted work
+ * the update does not touch is carried across. A branch with no upstream (a
+ * detached HEAD, an empty repo) has nothing to catch up to and is left alone,
+ * apart from `origin/HEAD`, which is still recorded if the checkout has none.
+ */
 async function catchUp(directory: Checkout): Promise<void> {
   try {
     await run("git", ["-C", directory, "fetch", "--quiet", "origin"]);

@@ -91,6 +91,36 @@ async function landedElsewhere(
   await run("git", ["-C", elsewhere, "push", "origin", branch]);
 }
 
+/** The branch `origin/HEAD` names in `directory`, or undefined when unset. */
+async function originHead(directory: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "symbolic-ref",
+      "refs/remotes/origin/HEAD",
+    ]);
+    return stdout.trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The remote's first commit, pushed from somewhere other than `directory`, so
+ * that `directory` stays headless if it was cloned while the remote was empty.
+ */
+async function firstPushElsewhere(directory: string): Promise<void> {
+  const elsewhere = await mkdtemp(path.join(tmpdir(), "repo-host-first-"));
+  await run("git", ["clone", await originOf(directory), elsewhere]);
+  await run("git", ["-C", elsewhere, "config", "user.email", "test@example.com"]);
+  await run("git", ["-C", elsewhere, "config", "user.name", "Test"]);
+  await writeFile(path.join(elsewhere, "first.md"), "first\n");
+  await run("git", ["-C", elsewhere, "add", "first.md"]);
+  await run("git", ["-C", elsewhere, "commit", "--message", "First"]);
+  await run("git", ["-C", elsewhere, "push", "origin", "HEAD:main"]);
+}
+
 /**
  * A branch removed from the remote from somewhere other than `directory` — a
  * pull request merged on GitHub with its branch deleted, as far as the
@@ -582,20 +612,6 @@ describe("checking a checkout for uncommitted changes", () => {
 });
 
 describe("the remote's default branch", () => {
-  async function originHead(directory: string): Promise<string | undefined> {
-    try {
-      const { stdout } = await run("git", [
-        "-C",
-        directory,
-        "symbolic-ref",
-        "refs/remotes/origin/HEAD",
-      ]);
-      return stdout.trim();
-    } catch {
-      return undefined;
-    }
-  }
-
   it("is recorded as origin/HEAD once a scaffold is pushed to an empty remote", async () => {
     const directory = await checkout();
     assert.equal(await originHead(directory), undefined);
@@ -608,20 +624,29 @@ describe("the remote's default branch", () => {
 
   it("is recorded on a reused checkout that was cloned while its remote was empty", async () => {
     const directory = await checkout();
-    // The first push comes from another clone, so this one stays headless.
-    const elsewhere = await mkdtemp(path.join(tmpdir(), "repo-host-first-"));
-    await run("git", ["clone", await originOf(directory), elsewhere]);
-    await run("git", ["-C", elsewhere, "config", "user.email", "t@example.com"]);
-    await run("git", ["-C", elsewhere, "config", "user.name", "Test"]);
-    await writeFile(path.join(elsewhere, "first.md"), "first\n");
-    await run("git", ["-C", elsewhere, "add", "first.md"]);
-    await run("git", ["-C", elsewhere, "commit", "--message", "First"]);
-    await run("git", ["-C", elsewhere, "push", "origin", "HEAD:main"]);
+    await firstPushElsewhere(directory);
     assert.equal(await originHead(directory), undefined);
 
     await githubRepoHost(locationOf(directory)).clone(PILOT);
 
     assert.equal(await originHead(directory), "refs/remotes/origin/main");
+  });
+
+  it("is left as it was on a reused checkout that already has one", async () => {
+    const directory = await checkout();
+    await firstPushElsewhere(directory);
+    await run("git", ["-C", directory, "fetch", "origin"]);
+    await run("git", [
+      "-C",
+      directory,
+      "symbolic-ref",
+      "refs/remotes/origin/HEAD",
+      "refs/remotes/origin/elsewhere",
+    ]);
+
+    await githubRepoHost(locationOf(directory)).clone(PILOT);
+
+    assert.equal(await originHead(directory), "refs/remotes/origin/elsewhere");
   });
 });
 
