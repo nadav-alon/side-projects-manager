@@ -801,15 +801,13 @@ export interface RepoHost {
   /**
    * Whether any of commit `head`'s checks is still running, read once — even
    * when another has already failed, which {@link readChecksStatus} reads as
-   * `"red"` all the same. Read at the `head` the verdict was, never the pull
-   * request's live rollup.
+   * `"red"` all the same. Commit `head`'s own rollup, which no later push changes.
    */
   readChecksPending(pullRequest: PullRequestUrl, head: CommitSha): Promise<boolean>;
   /**
    * Reads each of commit `head`'s checks that has failed, once: see {@link
-   * FailingCheck}. None when no check failed, whatever else is pending. Read
-   * at the `head` the verdict was, so the threads describe the commit that
-   * read red.
+   * FailingCheck}. None when no check failed, whatever else is pending.
+   * Commit `head`'s own rollup, which no later push changes.
    */
   readFailingChecks(pullRequest: PullRequestUrl, head: CommitSha): Promise<FailingCheck[]>;
   /**

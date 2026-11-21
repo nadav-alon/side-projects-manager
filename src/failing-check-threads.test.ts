@@ -72,15 +72,7 @@ describe("postFailingCheckThreads", () => {
     assert.equal(await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST, FakeRepoHost.HEAD), 0);
     assert.deepEqual(host.comments, [{ pullRequest: PULL_REQUEST, body: CHECKS_STILL_PENDING_NOTE }]);
   });
-});
 
-describe("failingCheckThreadBody", () => {
-  it("leaves the run line out when the check reported no run", () => {
-    assert.equal(failingCheckThreadBody({ name: "ci/legacy", errorLines: [] }), "Failing check: ci/legacy");
-  });
-});
-
-describe("postFailingCheckThreads head", () => {
   it("reads pending, status and failing checks at the head it is given", async () => {
     const host = new FakeRepoHost();
     const given = commitSha("1111111");
@@ -101,5 +93,11 @@ describe("postFailingCheckThreads head", () => {
     await postFailingCheckThreads(host, new FakeClock(), PULL_REQUEST, given);
 
     assert.deepEqual(seen, [given, given, given]);
+  });
+});
+
+describe("failingCheckThreadBody", () => {
+  it("leaves the run line out when the check reported no run", () => {
+    assert.equal(failingCheckThreadBody({ name: "ci/legacy", errorLines: [] }), "Failing check: ci/legacy");
   });
 });

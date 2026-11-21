@@ -1964,7 +1964,7 @@ async function markCleanReviewReady(
   // Kept apart from `notReadied`: the ready-mark was never refused, the
   // retry could not be queued, and the developer is told to fix red checks.
   try {
-    const retry = await queueChecksRetry(ports, pullRequest, async () => implementation);
+    const retry = await queueChecksRetry(ports, pullRequest, held.head, async () => implementation);
     if (retry === undefined) {
       throw new Error(`the implementation ticket of ${ticketReference(reviewTicket)} was not found`);
     }
@@ -2656,7 +2656,7 @@ async function finishApplyReview(
   }
   if (readyHeld?.kind === "checks-failing") {
     try {
-      const checksRetry = await retryRedChecks(ports, ticket);
+      const checksRetry = await retryRedChecks(ports, ticket, readyHeld.head);
       readyHeld = { ...readyHeld, retry: checksRetry };
       if (checksRetry.kind === "exhausted") {
         await ports.tracker.handBack(ticket, CHECKS_STILL_FAILING_COMMENT(pullRequest));
@@ -2725,10 +2725,12 @@ const CHECKS_STILL_FAILING_COMMENT = (pullRequest: PullRequestUrl): string =>
 async function retryRedChecks(
   ports: MorningLoopPorts,
   ticket: ApplyReviewTicket,
+  head: CommitSha,
 ): Promise<ChecksRetry> {
   const retry = await queueChecksRetry(
     ports,
     ticket.pullRequest.url,
+    head,
     () => implementationTicketFor(ports.tracker, ticket),
     ticket.number,
   );
@@ -2739,7 +2741,7 @@ async function retryRedChecks(
 }
 
 /**
- * `retryRedChecks`'s body, for any red `pullRequest`: `exhausted` once it
+ * `retryRedChecks`'s body, for any red `pullRequest` whose verdict read `head`: `exhausted` once it
  * carries `APPLY_REVIEW_RETRIED`, else the retry queued under the ticket
  * `implementation` finds, read only then. `undefined` where that finds none.
  * `current`, the apply-review ticket being finished if there is one, is never
@@ -2748,6 +2750,7 @@ async function retryRedChecks(
 async function queueChecksRetry(
   ports: MorningLoopPorts,
   pullRequest: PullRequestUrl,
+  head: CommitSha,
   implementationOf: () => Promise<Ticket | undefined>,
   current?: IssueNumber,
 ): Promise<ChecksRetry | undefined> {
@@ -2758,7 +2761,6 @@ async function queueChecksRetry(
   if (implementation === undefined) {
     return undefined;
   }
-  const head = await ports.repoHost.readPullRequestHead(pullRequest);
   await postFailingCheckThreads(ports.repoHost, ports.clock, pullRequest, head);
   const checks = (await ports.repoHost.readFailingChecks(pullRequest, head)).map((check) => check.name);
   if (checks.length === 0) {
@@ -2884,7 +2886,7 @@ function pendingReadySweep(
           settled.push({ pullRequest, outcome: "ready-for-review" });
         } else if (checks === "red") {
           held = "checks failing";
-          retry = await queueChecksRetry(ports, pullRequest, () => implementationTicketClosedBy(ports, pullRequest));
+          retry = await queueChecksRetry(ports, pullRequest, head, () => implementationTicketClosedBy(ports, pullRequest));
         } else if (ports.clock.now().getTime() - deferredAt.getTime() >= PENDING_READY_LIMIT) {
           if (checks === "none") {
             noChecksOn = head;
