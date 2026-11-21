@@ -2989,6 +2989,28 @@ describe("morningLoop", () => {
             );
           });
 
+          it("reads the failing checks at the head the red verdict read, though a push lands right after it", async () => {
+            const ports = fakePorts();
+            queuedRedAfterReview(ports);
+            const verdict = ports.repoHost.checksStatus;
+            let pushed = false;
+            ports.repoHost.pullRequestHead = () => (pushed ? H2 : H1);
+            ports.repoHost.checksStatus = (pullRequest, head) => {
+              const status = verdict(pullRequest, head);
+              pushed ||= status === "red";
+              return status;
+            };
+            const failingAt: string[] = [];
+            ports.repoHost.failingChecks = (_pullRequest, head) => {
+              failingAt.push(head);
+              return [FAILING_CHECK];
+            };
+
+            await morningLoop(ports);
+
+            assert.deepEqual(failingAt, [H1, H1]);
+          });
+
           it("reports a retry that cannot be queued for want of the implementation ticket, posting no thread", async () => {
             const ports = fakePorts();
             queued(ports);

@@ -594,14 +594,14 @@ export function githubRepoHost(
       return checksStatusFrom(await readRawChecksAt(pullRequest, head));
     },
 
-    async readChecksPending(pullRequest: PullRequestUrl): Promise<boolean> {
-      return (await readRawChecks(pullRequest)).some(isPending);
+    async readChecksPending(pullRequest: PullRequestUrl, head: CommitSha): Promise<boolean> {
+      return (await readRawChecksAt(pullRequest, head)).some(isPending);
     },
 
-    async readFailingChecks(pullRequest: PullRequestUrl): Promise<FailingCheck[]> {
+    async readFailingChecks(pullRequest: PullRequestUrl, head: CommitSha): Promise<FailingCheck[]> {
       const { owner, repo } = pullRequestParts(pullRequest);
       const failing: FailingCheck[] = [];
-      for (const check of (await readRawChecks(pullRequest)).filter(isRed)) {
+      for (const check of (await readRawChecksAt(pullRequest, head)).filter(isRed)) {
         const link = check.detailsUrl ?? check.targetUrl;
         const runUrl = link !== undefined && isCheckRunUrl(link) ? link : undefined;
         failing.push({
@@ -937,20 +937,6 @@ interface RawCheck {
 const RED_CONCLUSIONS = new Set(["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"]);
 const RED_STATES = new Set(["ERROR", "FAILURE"]);
 
-/** `pullRequest`'s `statusCheckRollup`: each check, a check run or a legacy status context. */
-async function readRawChecks(pullRequest: PullRequestUrl): Promise<RawCheck[]> {
-  const { stdout } = await run("gh", [
-    "pr",
-    "view",
-    pullRequest,
-    "--json",
-    "statusCheckRollup",
-    "--jq",
-    ".statusCheckRollup",
-  ]);
-  return JSON.parse(stdout) as RawCheck[];
-}
-
 /** The query behind {@link readRawChecksAt}: a commit's own rollup, which no later push changes. */
 const COMMIT_CHECKS_QUERY = `query($owner: String!, $name: String!, $oid: GitObjectID!) {
   repository(owner: $owner, name: $name) {
@@ -983,8 +969,8 @@ interface CommitChecksResponse {
 }
 
 /**
- * The `statusCheckRollup` of commit `head` itself, as {@link readRawChecks}
- * reads a pull request's. A commit with no rollup has no checks at all. Throws
+ * The `statusCheckRollup` of commit `head` itself, each check a check run or a
+ * legacy status context. A commit with no rollup has no checks at all. Throws
  * for a `head` GitHub does not know, and for more checks than one page holds:
  * either would otherwise read as green, so the gate leaves the pull request
  * for the developer.
