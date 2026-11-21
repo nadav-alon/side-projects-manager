@@ -184,14 +184,14 @@ describe("FakeRepoHost readChecksStatus", () => {
   it("answers green by default", async () => {
     const host = new FakeRepoHost();
 
-    assert.equal(await host.readChecksStatus(PULL_REQUEST), "green");
+    assert.equal(await host.readChecksStatus(PULL_REQUEST, FakeRepoHost.HEAD), "green");
   });
 
   it("answers with what checksStatus is scripted to say", async () => {
     const host = new FakeRepoHost();
     host.checksStatus = () => "red";
 
-    assert.equal(await host.readChecksStatus(PULL_REQUEST), "red");
+    assert.equal(await host.readChecksStatus(PULL_REQUEST, FakeRepoHost.HEAD), "red");
   });
 });
 

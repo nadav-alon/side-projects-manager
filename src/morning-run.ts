@@ -5,6 +5,7 @@ import type {
   Branch,
   Checkout,
   ChecksStatus,
+  CommitSha,
   Clock,
   Day,
   DiscoveredTicketSummary,
@@ -2663,7 +2664,7 @@ async function finishApplyReview(
         const merge =
           mergeGateContext === undefined
             ? undefined
-            : await mergeGate(ports, ticket, mergeGateContext, "red");
+            : await mergeGate(ports, ticket, mergeGateContext, { checks: "red", head: readyHeld.head });
         return { ...applied, readyHeld, ...(merge !== undefined && { merge }) };
       }
     } catch (error: unknown) {
@@ -2810,23 +2811,32 @@ async function readyOnGreen(
   invocation: Pick<RunRecording, "deferReady">,
   pullRequest: PullRequestUrl,
 ): Promise<ReadyHold | undefined> {
-  const checks = await settledChecks(ports.repoHost, ports.clock, pullRequest);
+  const head = await ports.repoHost.readPullRequestHead(pullRequest);
+  const checks = await settledChecks(ports.repoHost, ports.clock, pullRequest, head);
   if (checks === "red") {
-    return { kind: "checks-failing" };
+    return { kind: "checks-failing", head };
   }
   if (checks === "pending" || checks === "none") {
     await invocation.deferReady(pullRequest, ports.clock.now()).catch((error: unknown) => {
       console.warn(`Could not record the pending ready of ${pullRequest}: ${errorMessage(error)}`);
     });
-    return { kind: "checks-running" };
+    return { kind: "checks-running", head };
   }
   await ports.repoHost.markPullRequestReady(pullRequest);
   return undefined;
 }
 
+/** Checks read of one commit: `head` is the commit they belong to. */
+interface ChecksReading {
+  checks: ChecksStatus;
+  head: CommitSha;
+}
+
 /** The checks a draft's ready-mark read, as `mergeGate` is given them; undefined once it was marked. */
-function heldChecks(held: ReadyHold | undefined): ChecksStatus | undefined {
-  return held === undefined ? undefined : held.kind === "checks-failing" ? "red" : "pending";
+function heldChecks(held: ReadyHold | undefined): ChecksReading | undefined {
+  return held === undefined
+    ? undefined
+    : { checks: held.kind === "checks-failing" ? "red" : "pending", head: held.head };
 }
 
 /**
@@ -2862,7 +2872,8 @@ function pendingReadySweep(
           await state.settleReady(pullRequest);
           continue;
         }
-        const checks = await ports.repoHost.readChecksStatus(pullRequest);
+        const head = await ports.repoHost.readPullRequestHead(pullRequest);
+        const checks = await ports.repoHost.readChecksStatus(pullRequest, head);
         let held: string | undefined;
         let noChecksOn: string | undefined;
         let retry: ChecksRetry | undefined;
@@ -2874,7 +2885,7 @@ function pendingReadySweep(
           retry = await queueChecksRetry(ports, pullRequest, () => implementationTicketClosedBy(ports, pullRequest));
         } else if (ports.clock.now().getTime() - deferredAt.getTime() >= PENDING_READY_LIMIT) {
           if (checks === "none") {
-            noChecksOn = await ports.repoHost.readPullRequestHead(pullRequest);
+            noChecksOn = head;
           }
           held = noChecksOn === undefined ? "checks still running after a day" : `no checks ran on ${noChecksOn}`;
         } else {
@@ -2891,14 +2902,14 @@ function pendingReadySweep(
               pullRequest,
               outcome:
                 checks === "red"
-                  ? { kind: "checks-failing", ...(retry !== undefined && { retry }) }
+                  ? { kind: "checks-failing", head, ...(retry !== undefined && { retry }) }
                   : noChecksOn !== undefined
                     ? { kind: "no-checks", head: noChecksOn }
                     : "left-for-you",
             });
           } else if (retry?.kind === "queued") {
             // The queued retry's own finish fires the gate once green.
-            settled.push({ pullRequest, outcome: { kind: "checks-failing", retry } });
+            settled.push({ pullRequest, outcome: { kind: "checks-failing", head, retry } });
             await state.settleMerge(merge);
           } else {
             const verdict = await leftForHuman(ports, pullRequest, held);
@@ -2943,7 +2954,7 @@ async function mergeGate(
   ports: MorningLoopPorts,
   ticket: PullRequestTicket,
   context: MergeGateContext,
-  readChecks?: ChecksStatus,
+  readChecks?: ChecksReading,
 ): Promise<MergeGate> {
   // Read before the verdict and used up after it, whatever it is: a record
   // vouches for one firing of the gate (ADR 0012).
@@ -3029,8 +3040,8 @@ function pendingMergeSweep(
           await state.settleMerge(pending);
           continue;
         }
-        let verdict = await mergeWhenGreen(ports, pending.pullRequest, implementation, () =>
-          ports.repoHost.readChecksStatus(pending.pullRequest),
+        let verdict = await mergeWhenGreen(ports, pending.pullRequest, implementation, (head) =>
+          ports.repoHost.readChecksStatus(pending.pullRequest, head),
         );
         if (
           verdict.kind === "checks-pending" &&
@@ -3068,7 +3079,7 @@ async function decideMerge(
   ticket: PullRequestTicket,
   context: MergeGateContext,
   grants: readonly GrantRecord[],
-  readChecks: ChecksStatus | undefined,
+  readChecks: ChecksReading | undefined,
 ): Promise<MergeGate> {
   const { implementation } = context;
   if (implementation === undefined) {
@@ -3118,11 +3129,12 @@ async function decideMerge(
     }
   }
 
-  // Checks the caller's ready-mark already read are not waited on again.
-  return mergeWhenGreen(ports, ticket.pullRequest.url, implementation, () =>
-    readChecks !== undefined
-      ? Promise.resolve(readChecks)
-      : settledChecks(ports.repoHost, ports.clock, ticket.pullRequest.url),
+  // Checks the caller's ready-mark already read are not waited on again, but
+  // only when they are those of the head the merge pins.
+  return mergeWhenGreen(ports, ticket.pullRequest.url, implementation, (head) =>
+    readChecks !== undefined && readChecks.head === head
+      ? Promise.resolve(readChecks.checks)
+      : settledChecks(ports.repoHost, ports.clock, ticket.pullRequest.url, head),
   );
 }
 
@@ -3136,9 +3148,9 @@ async function mergeWhenGreen(
   ports: MorningLoopPorts,
   pullRequest: PullRequestUrl,
   implementation: Ticket,
-  readChecks: () => Promise<ChecksStatus>,
+  readChecks: (head: CommitSha) => Promise<ChecksStatus>,
 ): Promise<MergeGate> {
-  let head: string;
+  let head: CommitSha;
   try {
     head = await ports.repoHost.readPullRequestHead(pullRequest);
     const paths = await ports.repoHost.readPullRequestPaths(pullRequest);
@@ -3150,7 +3162,7 @@ async function mergeWhenGreen(
   }
   let checks: ChecksStatus;
   try {
-    checks = await readChecks();
+    checks = await readChecks(head);
   } catch (error: unknown) {
     return leftForHuman(ports, pullRequest, errorMessage(error));
   }

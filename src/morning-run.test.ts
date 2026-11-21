@@ -295,6 +295,11 @@ function queuedWithImplementation(
   return { implementation, pullRequestTicket };
 }
 
+const H1 = commitSha("1111111");
+const H2 = commitSha("2222222");
+const H3 = commitSha("3333333");
+const H4 = commitSha("4444444");
+
 describe("morningLoop", () => {
   it("reports a dry queue when nothing is registered", async () => {
     const ports = fakePorts();
@@ -3184,6 +3189,24 @@ describe("morningLoop", () => {
           );
         });
 
+        it("reads the checks again, rather than reusing the ready-mark's, when the pull request's head moved since", async () => {
+          const ports = fakePorts();
+          queuedTurboableReview(ports);
+          postedACleanReview(ports);
+          const heads = [H1];
+          ports.repoHost.pullRequestHead = () => heads.shift() ?? H2;
+          const readAt: string[] = [];
+          ports.repoHost.checksStatus = (_pullRequest, head) => {
+            readAt.push(head);
+            return head === H1 ? "pending" : "green";
+          };
+
+          await morningLoop(ports);
+
+          assert.ok(readAt.includes(H2));
+          assert.deepEqual(ports.repoHost.mergedHeads, [H2]);
+        });
+
         it("labels the pull request ready-for-human instead of merging when the repo host refuses the merge, reporting rather than raising it", async (t) => {
           const ports = fakePorts();
           queuedTurboableReview(ports);
@@ -5979,6 +6002,29 @@ describe("morningLoop", () => {
         await morningLoop(ports);
 
         assert.deepEqual(ports.repoHost.mergedHeads, [FakeRepoHost.HEAD]);
+      });
+
+      it("reads the checks of the head it pins, so a push after the head read is never merged on the old head's green", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        let head = H3;
+        ports.repoHost.pullRequestHead = () => head;
+        const paths = ports.repoHost.readPullRequestPaths.bind(ports.repoHost);
+        ports.repoHost.readPullRequestPaths = async (pullRequest) => {
+          const read = await paths(pullRequest);
+          head = H4;
+          return read;
+        };
+        const readAt: string[] = [];
+        ports.repoHost.checksStatus = (_pullRequest, at) => {
+          readAt.push(at);
+          return at === H3 ? "green" : "red";
+        };
+
+        await morningLoop(ports);
+
+        assert.ok(!readAt.includes(H4));
+        assert.deepEqual(ports.repoHost.mergedHeads, [H3]);
       });
 
       it("leaves the pull request ready-for-human when its files cannot be read", async () => {

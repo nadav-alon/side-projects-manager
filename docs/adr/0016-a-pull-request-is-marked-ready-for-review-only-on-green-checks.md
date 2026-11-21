@@ -49,3 +49,7 @@ pull request held on failing checks gets no gate at all, so no `ready-for-human`
 
 - A turboable pull request whose ready-mark is held on failing checks is neither merged nor labelled;
   #1788 decides what a red pull request gets.
+- The ready-mark is not pinned to the head whose checks were read. The checks are read at the head
+  just read, but GitHub's ready-for-review mutation takes no expected head, so a push between the
+  read and the mark can mark a commit whose checks were never read. The merge is pinned
+  (`--match-head-commit`); the mark cannot be.
