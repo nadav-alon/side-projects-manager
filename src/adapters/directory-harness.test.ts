@@ -6,7 +6,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import type { Checkout } from "../ports/index.ts";
-import { STANDARDS_FILE, UNIFORM_FILES, checkout, standardsPreset } from "../ports/index.ts";
+import { CI_FILE, STANDARDS_FILE, UNIFORM_FILES, checkout, standardsPreset } from "../ports/index.ts";
 import { NAMES_THE_MANAGER } from "../testing/names-the-manager.ts";
 import { directoryHarness } from "./directory-harness.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
@@ -55,6 +55,7 @@ describe("scaffolding the harness into a project", () => {
       ...UNIFORM_FILES,
       "AGENTS.md",
       STANDARDS_FILE,
+      CI_FILE,
     ]);
   });
 
@@ -84,8 +85,55 @@ describe("scaffolding the harness into a project", () => {
     const scaffold = await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS);
 
     assert.equal(await contentsOf(directory, "AGENTS.md"), "# mine\n");
-    assert.deepEqual(scaffold.paths, [...UNIFORM_FILES, STANDARDS_FILE]);
+    assert.deepEqual(scaffold.paths, [
+      ...UNIFORM_FILES,
+      STANDARDS_FILE,
+      CI_FILE,
+    ]);
     assert.ok(!scaffold.overwritten.includes("AGENTS.md"));
+  });
+
+  it("scaffolds a CI workflow that runs on pull requests", async () => {
+    const directory = await emptyCheckout();
+
+    await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS);
+
+    assert.match(await contentsOf(directory, CI_FILE), /^on:\n {2}pull_request:/m);
+  });
+
+  it("leaves a CI workflow the project already has alone", async () => {
+    const directory = await emptyCheckout();
+    await mkdir(path.join(directory, ".github", "workflows"), { recursive: true });
+    await writeFile(path.join(directory, CI_FILE), "mine\n");
+
+    const scaffold = await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS);
+
+    assert.equal(await contentsOf(directory, CI_FILE), "mine\n");
+    assert.ok(!scaffold.paths.includes(CI_FILE));
+    assert.ok(!scaffold.overwritten.includes(CI_FILE));
+  });
+
+  it("guards every npm step on a package.json, so a project with nothing to check goes green", async () => {
+    const directory = await emptyCheckout();
+
+    await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS);
+
+    const steps = (await contentsOf(directory, CI_FILE)).split("\n      - ").slice(1);
+    const npm = steps.filter((step) => /npm|setup-node/.test(step));
+    assert.ok(npm.length > 0);
+    for (const step of npm) {
+      assert.match(step, /if: hashFiles\('package\.json'\) != ''/);
+    }
+  });
+
+  it("scaffolds no second CI workflow into a project that has one under another name", async () => {
+    const directory = await emptyCheckout();
+    await mkdir(path.join(directory, ".github", "workflows"), { recursive: true });
+    await writeFile(path.join(directory, ".github/workflows/test.yml"), "mine\n");
+
+    const scaffold = await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS);
+
+    assert.ok(!scaffold.paths.includes(CI_FILE));
   });
 
   it("writes the standards it is given as docs/project-standards.md", async () => {

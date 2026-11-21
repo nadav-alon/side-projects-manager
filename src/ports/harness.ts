@@ -4,6 +4,9 @@ import type { StandardsPreset } from "./standards-preset.ts";
 /** Where a project's own rules go. Not uniform: written once, never synced. */
 export const STANDARDS_FILE = "docs/project-standards.md";
 
+/** Where a new project's CI goes. Written once, like the standards: the project owns its checks. */
+export const CI_FILE = ".github/workflows/ci.yml";
+
 /** A `--standards` name that has no preset file, naming the ones that do. */
 export class UnknownPreset extends Error {
   constructor(preset: string, names: readonly string[]) {

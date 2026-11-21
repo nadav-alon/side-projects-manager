@@ -148,14 +148,17 @@ Pass `--standards typescript` to start the project's own rules from a preset:
 npm run new-project -- nadav-alon/pilot "A flight log that files itself." --standards typescript
 ```
 
-Scaffolding puts three kinds of file into the new repo. The uniform files
+Scaffolding puts four kinds of file into the new repo. The uniform files
 ([`docs/agents/`](docs/agents)) are copied byte for byte, so improving a convention here improves it
 in every project. `AGENTS.md` is generated for that project, naming it and its purpose — never
 copied, since a project that inherited another repo's instructions would describe a codebase it is
 not in. `docs/project-standards.md` is the project's own rules: a stub saying it has none beyond the
 uniform ones, or the named preset from [`docs/project-standards-presets/`](docs/project-standards-presets)
 (only `typescript` so far; an unknown name fails before anything is created, naming the presets there
-are). It is written once and is the project's from then on — never overwritten, never synced. None of
+are). It is written once and is the project's from then on — never overwritten, never synced.
+`.github/workflows/ci.yml` is the fourth, written once too and only into a checkout with no workflows
+of its own: it runs the project's `typecheck` and `test` scripts on every pull request, and goes
+green where there is no `package.json`, so a new project's first pull request has checks. None of
 them refers back to this repo: a project carries no reference to the manager and no
 live coupling to it, so you can walk away with just the project.
 

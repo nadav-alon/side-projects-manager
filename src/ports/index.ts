@@ -33,7 +33,7 @@ export { exitCode, isExitCode } from "./exit-code.ts";
 export type { ExitCode } from "./exit-code.ts";
 export type { Grilling, GrillingSubject } from "./grilling.ts";
 export type { Harness, Scaffold, UniformComparison } from "./harness.ts";
-export { STANDARDS_FILE, UNIFORM_FILES, UnknownPreset, uniformFilesAmong } from "./harness.ts";
+export { CI_FILE, STANDARDS_FILE, UNIFORM_FILES, UnknownPreset, uniformFilesAmong } from "./harness.ts";
 export { isStandardsPreset, standardsPreset } from "./standards-preset.ts";
 export type { StandardsPreset } from "./standards-preset.ts";
 export { isIssueNumber, issueNumber } from "./issue-number.ts";
