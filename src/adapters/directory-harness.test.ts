@@ -55,6 +55,7 @@ describe("scaffolding the harness into a project", () => {
       ...UNIFORM_FILES,
       "AGENTS.md",
       STANDARDS_FILE,
+      ".github/workflows/ci.yml",
     ]);
   });
 
@@ -84,8 +85,32 @@ describe("scaffolding the harness into a project", () => {
     const scaffold = await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS);
 
     assert.equal(await contentsOf(directory, "AGENTS.md"), "# mine\n");
-    assert.deepEqual(scaffold.paths, [...UNIFORM_FILES, STANDARDS_FILE]);
+    assert.deepEqual(scaffold.paths, [
+      ...UNIFORM_FILES,
+      STANDARDS_FILE,
+      ".github/workflows/ci.yml",
+    ]);
     assert.ok(!scaffold.overwritten.includes("AGENTS.md"));
+  });
+
+  it("scaffolds a CI workflow that runs on pull requests", async () => {
+    const directory = await emptyCheckout();
+
+    await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS);
+
+    assert.match(await contentsOf(directory, ".github/workflows/ci.yml"), /^on:\n {2}pull_request:/m);
+  });
+
+  it("leaves a CI workflow the project already has alone", async () => {
+    const directory = await emptyCheckout();
+    await mkdir(path.join(directory, ".github", "workflows"), { recursive: true });
+    await writeFile(path.join(directory, ".github/workflows/ci.yml"), "mine\n");
+
+    const scaffold = await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS);
+
+    assert.equal(await contentsOf(directory, ".github/workflows/ci.yml"), "mine\n");
+    assert.ok(!scaffold.paths.includes(".github/workflows/ci.yml"));
+    assert.ok(!scaffold.overwritten.includes(".github/workflows/ci.yml"));
   });
 
   it("writes the standards it is given as docs/project-standards.md", async () => {

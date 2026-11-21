@@ -23,5 +23,5 @@ every way but its name: the merge gate and the ready-mark wait on it and sweep i
 
 ## Consequences
 
-A freshly scaffolded project with no CI never turbo-merges until the developer adds `ci.yml`;
-`new-project` is unchanged.
+A project with no CI never turbo-merges until the developer adds one. `new-project` scaffolds a
+`ci.yml` for a project that has none, so a new project has checks from its first pull request.

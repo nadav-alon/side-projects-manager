@@ -25,6 +25,44 @@ const STANDARDS_STUB = `# Project standards
 This project has no rules beyond the uniform ones in \`docs/agents/coding-standards.md\`.
 `;
 
+/** Where a project's CI goes. Written once, like the standards: the project owns its checks. */
+const CI_FILE = ".github/workflows/ci.yml";
+
+/**
+ * What a project with no CI starts with: its own typecheck and test scripts,
+ * on every pull request, so a pull request is never left waiting on checks
+ * that no workflow will ever report. A script the project does not define is
+ * skipped rather than failed, so the first pull request can go green.
+ */
+const CI_WORKFLOW = `name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - run: npm ci --if-present || npm install
+
+      - run: npm run typecheck --if-present
+
+      - run: npm test --if-present
+`;
+
 /**
  * The harness as files copied out of `source`, which is the manager's own
  * checkout unless a test says otherwise.
@@ -66,6 +104,13 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
         await mkdir(path.dirname(standardsFile), { recursive: true });
         await writeFile(standardsFile, standards, "utf8");
         paths.push(STANDARDS_FILE);
+      }
+
+      const ciFile = path.join(directory, CI_FILE);
+      if (!(await exists(ciFile))) {
+        await mkdir(path.dirname(ciFile), { recursive: true });
+        await writeFile(ciFile, CI_WORKFLOW, "utf8");
+        paths.push(CI_FILE);
       }
 
       return { paths, overwritten };
