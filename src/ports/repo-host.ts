@@ -568,6 +568,12 @@ export interface RepoHost {
     visibility: Visibility,
   ): Promise<void>;
   /**
+   * Ensures `repo` has a label called `name`, creating it with `description`
+   * when it has none. A label already there is left as it is — colour and
+   * description included. Rejects on any other failure.
+   */
+  ensureLabel(repo: RepoSlug, name: string, description: string): Promise<void>;
+  /**
    * Ensures a checkout of `repo` in the managed location, and returns it.
    * A clone already sitting there is reused rather than replaced, which is
    * what makes a missing clone self-healing and an existing one safe.

@@ -101,6 +101,28 @@ export function githubRepoHost(
       await run("gh", ["repo", "create", repo, `--${visibility}`, ...options]);
     },
 
+    async ensureLabel(
+      repo: RepoSlug,
+      name: string,
+      description: string,
+    ): Promise<void> {
+      try {
+        await run("gh", [
+          "label",
+          "create",
+          name,
+          "--repo",
+          repo,
+          "--description",
+          description,
+        ]);
+      } catch (error) {
+        if (!isAlreadyExists(error)) {
+          throw error;
+        }
+      }
+    },
+
     async clone(repo: RepoSlug): Promise<Checkout> {
       const directory = checkout(path.join(location, repo));
       await mkdir(path.dirname(directory), { recursive: true });

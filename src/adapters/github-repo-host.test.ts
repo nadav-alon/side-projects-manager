@@ -2943,3 +2943,21 @@ describe("reading the checks of a head", () => {
     await assert.rejects(githubRepoHost().readChecksStatus(PULL_REQUEST, HEAD), /more checks than one page/);
   });
 });
+
+describe("ensuring a label", () => {
+  it("creates it with its description in the named repo", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await githubRepoHost().ensureLabel(PILOT, "size:M", "Larger than S");
+
+    assert.deepEqual(callWith(await gh.calls(), "label", "create"), [
+      "label",
+      "create",
+      "size:M",
+      "--repo",
+      PILOT,
+      "--description",
+      "Larger than S",
+    ]);
+  });
+});
