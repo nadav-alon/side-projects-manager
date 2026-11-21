@@ -2916,6 +2916,43 @@ describe("discoveries", () => {
 });
 
 describe("containerSandbox.review", () => {
+  const checkoutStates = {
+    "detached at a commit off the default branch": async (directory: Checkout) => {
+      await run("git", ["-C", directory, "switch", "--quiet", "--create", "parked"]);
+      await commitFile(directory, "parked.md", "Parked");
+      await run("git", ["-C", directory, "checkout", "--quiet", "--detach"]);
+    },
+    "parked on another branch": async (directory: Checkout) => {
+      await run("git", ["-C", directory, "switch", "--quiet", "--create", "parked"]);
+    },
+  };
+
+  for (const [state, setUp] of Object.entries(checkoutStates)) {
+    it(`takes its base from the remote's default branch when the checkout is ${state}`, async () => {
+      const directory = await project();
+      await setUp(directory);
+      let seenBase: string | undefined;
+      const sandbox = testSandbox(async ({ base }) => {
+        seenBase = base;
+        return { output: "", tokensUsed: tokenCount(0) };
+      });
+
+      await sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING });
+
+      assert.equal(seenBase, "main");
+    });
+  }
+
+  it("fails at its start when the checkout has no origin/HEAD", async () => {
+    const directory = await project();
+    // Git 2.48+ re-creates a missing origin/HEAD on fetch unless told not to.
+    await run("git", ["-C", directory, "config", "remote.origin.followRemoteHEAD", "never"]);
+    await run("git", ["-C", directory, "remote", "set-head", "origin", "--delete"]);
+    const sandbox = testSandbox(undefined);
+
+    await assert.rejects(sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING }), /no origin\/HEAD/);
+  });
+
   it("mounts a clone of its own, read-only", async () => {
     const directory = await project();
     const mounts: (Mount | undefined)[] = [];
@@ -3668,12 +3705,13 @@ const headIsBranch = async () => branch(BRANCH);
  */
 async function withInsteadOf(
   t: TestContext,
-  from: string,
+  from: string | readonly string[],
   to: string,
 ): Promise<void> {
   const dir = await mkdtemp(path.join(tmpdir(), "git-config-"));
   const config = path.join(dir, "gitconfig");
-  await writeFile(config, `[url "${to}"]\n\tinsteadOf = ${from}\n`);
+  const rewritten = [from].flat().map((address) => `\tinsteadOf = ${address}\n`);
+  await writeFile(config, `[url "${to}"]\n${rewritten.join("")}`);
   const previous = process.env["GIT_CONFIG_GLOBAL"];
   process.env["GIT_CONFIG_GLOBAL"] = config;
   t.after(() => {
@@ -3870,6 +3908,48 @@ describe("containerSandbox.uxReview", () => {
 });
 
 describe("containerSandbox.applyReview", () => {
+  const checkoutStates = {
+    "detached at a commit off the default branch": async (directory: Checkout) => {
+      await run("git", ["-C", directory, "switch", "--quiet", "--create", "parked"]);
+      await commitFile(directory, "parked.md", "Parked");
+      await run("git", ["-C", directory, "checkout", "--quiet", "--detach"]);
+    },
+    "parked on another branch": async (directory: Checkout) => {
+      await run("git", ["-C", directory, "switch", "--quiet", "--create", "parked"]);
+    },
+  };
+
+  const start = (kind: "rebase" | "apply-review", sandbox: Sandbox, directory: Checkout) =>
+    kind === "rebase" ? rebaseOn(sandbox, directory) : applyReviewOn(sandbox, directory);
+
+  for (const kind of ["rebase", "apply-review"] as const) {
+    for (const [state, setUp] of Object.entries(checkoutStates)) {
+      it(`a ${kind} run takes its base from the remote's default branch when the checkout is ${state}`, async () => {
+        const { directory } = await hostedProject();
+        await setUp(directory);
+        let seenBase: string | undefined;
+        const sandbox = testSandbox(async ({ base }) => {
+          seenBase = base;
+          return { output: "", tokensUsed: tokenCount(0) };
+        }, headIsBranch);
+
+        await start(kind, sandbox, directory);
+
+        assert.equal(seenBase, "main");
+      });
+    }
+
+    it(`a ${kind} run fails at its start when the checkout has no origin/HEAD`, async () => {
+      const { directory } = await hostedProject();
+      // Git 2.48+ re-creates a missing origin/HEAD on fetch unless told not to.
+      await run("git", ["-C", directory, "config", "remote.origin.followRemoteHEAD", "never"]);
+      await run("git", ["-C", directory, "remote", "set-head", "origin", "--delete"]);
+      const sandbox = testSandbox(undefined, headIsBranch);
+
+      await assert.rejects(start(kind, sandbox, directory), /no origin\/HEAD/);
+    });
+  }
+
   it("mounts a clone of its own, read-write, on the pull request's head branch as the repo host has it", async () => {
     const { directory, headCommit } = await hostedProject();
     const seen: { mounted: string; mount: Mount; on: string; at: string }[] = [];
@@ -3948,7 +4028,8 @@ describe("containerSandbox.applyReview", () => {
     it(`reaches ${ssh} over HTTPS, which the container's token can push to`, async (t) => {
       const { directory, hosted, headCommit } = await hostedProject();
       await run("git", ["-C", directory, "remote", "set-url", "origin", ssh]);
-      await withInsteadOf(t, "https://github.com/nadav-alon/pilot.git", hosted);
+      // The checkout's own fetch uses the address as written; the clone's uses its HTTPS form.
+      await withInsteadOf(t, ["https://github.com/nadav-alon/pilot.git", ssh], hosted);
       const sandbox = testSandbox(
         async ({ directory: mounted }) => ({
           output: await headOf(mounted),
@@ -4286,8 +4367,9 @@ describe("containerSandbox.applyReview", () => {
   });
 
   it("rejects, starting no agent, when the checkout's origin is no address a clone can push to", async () => {
-    const { directory } = await hostedProject();
-    await run("git", ["-C", directory, "remote", "set-url", "origin", "../pilot"]);
+    const { directory, hosted } = await hostedProject();
+    // A relative path the checkout can fetch from, but no clone can push to.
+    await run("git", ["-C", directory, "remote", "set-url", "origin", path.relative(directory, hosted)]);
     let started = false;
     const sandbox = testSandbox(async () => {
       started = true;
@@ -5460,7 +5542,7 @@ fi`;
    * force push all the same.
    */
   it("refuses a plain run a merge, a push to the base branch and every force-push", async (t) => {
-    const { docker, directory } = await runWithDocker(
+    const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
@@ -5468,7 +5550,7 @@ fi`;
     );
 
     const [call] = await docker.calls();
-    const base = (await run("git", ["-C", directory, "branch", "--show-current"])).stdout.trim();
+    const base = "main";
     assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null").permissions, {
       deny: [
         "Bash(gh pr merge*)",
@@ -5480,7 +5562,7 @@ fi`;
   });
 
   it("refuses a review the same four", async (t) => {
-    const { docker, directory } = await runWithDocker(
+    const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
@@ -5489,7 +5571,7 @@ fi`;
     );
 
     const [call] = await docker.calls();
-    const base = (await run("git", ["-C", directory, "branch", "--show-current"])).stdout.trim();
+    const base = "main";
     assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null").permissions.deny, [
       "Bash(gh pr merge*)",
       `Bash(git push origin ${base})`,
@@ -5508,7 +5590,7 @@ fi`;
       await (kind === "rebase" ? rebaseOn(sandbox, directory) : applyReviewOn(sandbox, directory));
 
       const [call] = await docker.calls();
-      const base = (await run("git", ["-C", directory, "branch", "--show-current"])).stdout.trim();
+      const base = "main";
       assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null").permissions.deny, [
         "Bash(gh pr merge*)",
         `Bash(git push origin ${base})`,
