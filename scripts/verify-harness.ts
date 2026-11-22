@@ -572,11 +572,31 @@ try {
   rmSync(browserDir, { recursive: true, force: true });
 }
 
+// A project's `github:` dependencies reach `npm ci` as SSH URLs, and the image
+// has no SSH key. `ls-remote --get-url` prints the URL git would fetch after
+// applying `insteadOf`, so this asserts the rewrite without touching the network.
+const SSH_REMOTES = [
+  "ssh://git@github.com/nadav-alon/household-ui.git",
+  "git@github.com:nadav-alon/household-ui.git",
+];
+const HTTPS_REMOTE = "https://github.com/nadav-alon/household-ui.git";
+for (const remote of SSH_REMOTES) {
+  const fetched = execFileSync("git", ["ls-remote", "--get-url", remote], {
+    encoding: "utf8",
+  }).trim();
+  if (fetched !== HTTPS_REMOTE) {
+    fail(
+      `git would fetch \`${remote}\` as ${fetched}, so \`npm ci\` cannot install a \`github:\` dependency without an SSH key`,
+      `expected ${HTTPS_REMOTE}`,
+    );
+  }
+}
+
 const personalSkillsPresent = PERSONAL_SKILLS.map((skill) => `${skill} present`).join(", ");
 const pinnedEnvPresent = PINNED_ENV.map(({ variable, pinned }) => `${variable}=${pinned}`).join(
   " and ",
 );
 
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG}, ${JSON_SCHEMA_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, playwright-mcp screenshot a local page, ${pinnedEnvPresent} pinned, running as uid ${UID} with ${HOME} writable`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG}, ${JSON_SCHEMA_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, playwright-mcp screenshot a local page, ${pinnedEnvPresent} pinned, GitHub SSH URLs fetched over https, running as uid ${UID} with ${HOME} writable`,
 );

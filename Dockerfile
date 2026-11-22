@@ -146,6 +146,16 @@ RUN git config --global user.name "side-projects-manager" \
     && git config --global user.email "manager@side-projects.invalid" \
     && git config --global --add safe.directory /repo
 
+# A project may depend on another GitHub repo through npm's `github:` shorthand,
+# which npm writes into package-lock.json as a `git+ssh://git@github.com/...`
+# URL. The image carries no SSH key, so `npm ci` would hang on that fetch even
+# for a public repo. Both SSH spellings are rewritten to HTTPS instead. In the
+# system config rather than the user's, so it holds for whatever uid and HOME
+# a run starts with. Public repos only: HTTPS carries no credential.
+# scripts/verify-harness.ts asserts both spellings rewrite.
+RUN git config --system url."https://github.com/".insteadOf ssh://git@github.com/ \
+    && git config --system --add url."https://github.com/".insteadOf git@github.com:
+
 # The harness is installed by uid 1000 but read — and written: the CLI keeps
 # its own state alongside it — by whichever uid the manager pins, which is the
 # developer's and need not be 1000. So the home holding it is opened to any
