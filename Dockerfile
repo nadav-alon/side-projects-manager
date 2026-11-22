@@ -153,8 +153,10 @@ RUN git config --global user.name "side-projects-manager" \
 # system config rather than the user's, so it holds for whatever uid and HOME
 # a run starts with. Public repos only: HTTPS carries no credential.
 # scripts/verify-harness.ts asserts both spellings rewrite.
+USER root
 RUN git config --system url."https://github.com/".insteadOf ssh://git@github.com/ \
     && git config --system --add url."https://github.com/".insteadOf git@github.com:
+USER node
 
 # The harness is installed by uid 1000 but read — and written: the CLI keeps
 # its own state alongside it — by whichever uid the manager pins, which is the

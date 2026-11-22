@@ -573,21 +573,22 @@ try {
 }
 
 // A project's `github:` dependencies reach `npm ci` as SSH URLs, and the image
-// has no SSH key. `ls-remote --get-url` prints the URL git would fetch after
-// applying `insteadOf`, so this asserts the rewrite without touching the network.
-const SSH_REMOTES = [
-  "ssh://git@github.com/nadav-alon/household-ui.git",
-  "git@github.com:nadav-alon/household-ui.git",
-];
-const HTTPS_REMOTE = "https://github.com/nadav-alon/household-ui.git";
+// has no SSH key. Each spelling must really fetch: `GIT_SSH_COMMAND=false` makes
+// an un-rewritten URL fail at once instead of hanging on a connection.
+const REPO_PATH = "nadav-alon/household-ui.git";
+const SSH_REMOTES = [`ssh://git@github.com/${REPO_PATH}`, `git@github.com:${REPO_PATH}`];
 for (const remote of SSH_REMOTES) {
-  const fetched = execFileSync("git", ["ls-remote", "--get-url", remote], {
-    encoding: "utf8",
-  }).trim();
-  if (fetched !== HTTPS_REMOTE) {
+  try {
+    execFileSync("git", ["ls-remote", remote, "HEAD"], {
+      encoding: "utf8",
+      stdio: "pipe",
+      timeout: 30_000,
+      env: { ...process.env, GIT_SSH_COMMAND: "false", GIT_TERMINAL_PROMPT: "0" },
+    });
+  } catch (error) {
     fail(
-      `git would fetch \`${remote}\` as ${fetched}, so \`npm ci\` cannot install a \`github:\` dependency without an SSH key`,
-      `expected ${HTTPS_REMOTE}`,
+      `\`git ls-remote ${remote}\` failed, so \`npm ci\` cannot install a \`github:\` dependency without an SSH key`,
+      describe(error),
     );
   }
 }
