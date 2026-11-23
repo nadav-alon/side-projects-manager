@@ -572,11 +572,32 @@ try {
   rmSync(browserDir, { recursive: true, force: true });
 }
 
+// A project's `github:` dependencies reach `npm ci` as SSH URLs, and the image
+// has no SSH key. Each spelling must really fetch: `GIT_SSH_COMMAND=false` makes
+// an un-rewritten URL fail at once instead of hanging on a connection.
+const REPO_PATH = "nadav-alon/household-ui.git";
+const SSH_REMOTES = [`ssh://git@github.com/${REPO_PATH}`, `git@github.com:${REPO_PATH}`];
+for (const remote of SSH_REMOTES) {
+  try {
+    execFileSync("git", ["ls-remote", remote, "HEAD"], {
+      encoding: "utf8",
+      stdio: "pipe",
+      timeout: 30_000,
+      env: { ...process.env, GIT_SSH_COMMAND: "false", GIT_TERMINAL_PROMPT: "0" },
+    });
+  } catch (error) {
+    fail(
+      `\`git ls-remote ${remote}\` failed, so \`npm ci\` cannot install a \`github:\` dependency without an SSH key`,
+      describe(error),
+    );
+  }
+}
+
 const personalSkillsPresent = PERSONAL_SKILLS.map((skill) => `${skill} present`).join(", ");
 const pinnedEnvPresent = PINNED_ENV.map(({ variable, pinned }) => `${variable}=${pinned}`).join(
   " and ",
 );
 
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG}, ${JSON_SCHEMA_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, playwright-mcp screenshot a local page, ${pinnedEnvPresent} pinned, running as uid ${UID} with ${HOME} writable`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG}, ${JSON_SCHEMA_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, playwright-mcp screenshot a local page, ${pinnedEnvPresent} pinned, GitHub SSH URLs fetched over https, running as uid ${UID} with ${HOME} writable`,
 );
