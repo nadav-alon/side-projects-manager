@@ -42,6 +42,10 @@
     {
       "repo": "nadav-alon/household-ui",
       "turbo": true
+    },
+    {
+      "repo": "nadav-alon/nutrition",
+      "turbo": true
     }
   ]
 }
