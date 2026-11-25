@@ -20,7 +20,8 @@ export type TriggerRegistration =
 /**
  * The schedule's registration, additionally carrying the minutes between its
  * firings when registered, and whether its cron line is the one
- * `scripts/install-triggers.sh` writes now (`current`) — a line from an older
+ * `scripts/install-triggers.sh` writes now (`current`; false is CONTEXT.md:
+ * Stale) — a line from an older
  * installer still fires, but not as the installer would have it.
  */
 export type ScheduleRegistration =

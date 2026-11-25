@@ -1000,7 +1000,7 @@ _Avoid_: installed, enabled, active, live
 A schedule that is registered and pointing at this manager home, but whose cron line differs from the
 one `scripts/install-triggers.sh` writes now. It still fires, so it is not unarmed — status reports it
 as its own state and names `npm run triggers:install` to bring it up to date.
-_Avoid_: outdated, out of date
+_Avoid_: outdated, out of date, unarmed
 
 ### The seam
 
