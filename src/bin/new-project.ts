@@ -46,6 +46,9 @@ async function main(): Promise<void> {
   );
 
   console.log(report.message);
+  if (report.registryFailure !== undefined) {
+    process.exitCode = 1;
+  }
 }
 
 /**

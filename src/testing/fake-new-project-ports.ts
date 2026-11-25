@@ -14,7 +14,7 @@ export interface FakeNewProjectPorts extends NewProjectPorts {
 }
 
 /** Where the fake manager's registry lives. */
-export const FAKE_MANAGER_HOME = checkout("/manager-home");
+const FAKE_MANAGER_HOME = checkout("/manager-home");
 
 /**
  * A machine on which nothing exists yet: no repos on the host, no clones, no

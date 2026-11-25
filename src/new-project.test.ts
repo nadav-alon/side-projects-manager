@@ -61,7 +61,10 @@ describe("starting a new project", () => {
   it("scaffolds the preset it is asked for as the standards", async () => {
     const ports = fakeNewProjectPorts();
 
-    await newProject(ports, { ...IDEA, standards: standardsPreset("typescript") });
+    await newProject(ports, {
+      ...IDEA,
+      standards: standardsPreset("typescript"),
+    });
 
     assert.equal(ports.harness.installs[0]?.standards, "typescript standards");
   });
@@ -95,7 +98,9 @@ describe("starting a new project", () => {
 
     await newProject(ports, IDEA);
 
-    const inProject = ports.host.pushes.filter((push) => push.directory === PILOT_CHECKOUT);
+    const inProject = ports.host.pushes.filter(
+      (push) => push.directory === PILOT_CHECKOUT,
+    );
     assert.equal(inProject.length, 1);
   });
 
@@ -136,11 +141,16 @@ describe("starting a new project", () => {
 
     await newProject(ports, IDEA);
 
-    assert.deepEqual(ports.host.pushes[1], {
-      directory: ports.managerHome,
-      message: `Register ${PILOT} as turbo`,
-      paths: ["registry.json"],
-    });
+    assert.deepEqual(
+      ports.host.pushes.filter((push) => push.directory === ports.managerHome),
+      [
+        {
+          directory: ports.managerHome,
+          message: `Register ${PILOT} as turbo`,
+          paths: ["registry.json"],
+        },
+      ],
+    );
   });
 
   it("commits nothing in the manager home when the project is registered already", async () => {
@@ -156,16 +166,36 @@ describe("starting a new project", () => {
     );
   });
 
-  it("fails, naming the entry left behind, when the registry push fails", async () => {
+  it("reports, naming the entry left behind, when the registry push fails, and still grills", async () => {
     const ports = fakeNewProjectPorts();
     ports.host.commitAndPush = async (directory) => {
       if (directory === ports.managerHome) throw new Error("rejected");
     };
 
-    await assert.rejects(
-      newProject(ports, IDEA),
-      /registry entry for nadav-alon\/pilot.*left uncommitted.*rejected/,
+    const report = await newProject(ports, IDEA);
+
+    assert.match(
+      report.registryFailure ?? "",
+      /nadav-alon\/pilot.*not on the manager's remote.*rejected/,
     );
+    assert.match(report.message, /not on the manager's remote/);
+    assert.equal(report.grilled, true);
+  });
+
+  it("retries the publish of an entry a failed run left dirty", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.store.register(PILOT, {});
+    ports.host.alreadyExists(PILOT);
+    ports.host.uncommittedChanges = (paths) => paths.includes("registry.json");
+
+    const report = await newProject(ports, { ...IDEA, existing: true });
+
+    assert.equal(
+      ports.host.pushes.filter((push) => push.directory === ports.managerHome)
+        .length,
+      1,
+    );
+    assert.equal(report.registryFailure, undefined);
   });
 
   it("hands off to an interactive grilling session in the checkout", async () => {
@@ -379,10 +409,19 @@ describe("giving the project its labels", () => {
       NAMES,
     );
     assert.deepEqual(
-      ports.host.labelsCreated.map(({ name, description }) => ({ name, description })),
+      ports.host.labelsCreated.map(({ name, description }) => ({
+        name,
+        description,
+      })),
       PROJECT_LABELS,
     );
-    for (const name of ["ready-for-agent", "size:M", "turboable", "needs-grilling", "ux-review"]) {
+    for (const name of [
+      "ready-for-agent",
+      "size:M",
+      "turboable",
+      "needs-grilling",
+      "ux-review",
+    ]) {
       assert.ok(NAMES.includes(name), name);
     }
   });
