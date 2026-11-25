@@ -34,5 +34,5 @@ export async function crontabStubBin(lines?: readonly string[]): Promise<string>
  * build a line carrying a stale one instead.
  */
 export function cronLine(home: string, marker: string = CRON_MARKER): string {
-  return `*/15 * * * * set -a; . "/home/dev/.side-projects-manager.env"; set +a; export PATH="/usr/local/bin:/usr/bin:/bin"; git -C "${home}" pull --ff-only -q >> "${home}/trigger.log" 2>&1; /usr/bin/node "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 ${marker}`;
+  return `*/15 * * * * set -a; . "/home/dev/.side-projects-manager.env"; set +a; export PATH="/usr/local/bin:/usr/bin:/bin"; "${home}/scripts/self-update.sh" "${home}" >> "${home}/trigger.log" 2>&1; /usr/bin/node "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 ${marker}`;
 }
