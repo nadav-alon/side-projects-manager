@@ -79,7 +79,7 @@ export interface StatusFacts {
 }
 
 /**
- * The status command's whole report: whether the triggers are armed, whether
+ * The status command's whole report: whether the triggers are armed (or armed but stale, CONTEXT.md: Stale), whether
  * today has been claimed and what came of it, what the most recent
  * invocation came to, and a short history of the ones before it.
  *
@@ -202,6 +202,9 @@ function scheduleLine(schedule: ScheduleRegistration, managerHome: string): stri
   }
   if (!isArmed(schedule, managerHome)) {
     return `Schedule: registered, but pointing at ${schedule.managerHome} rather than this manager home (${managerHome}). Run \`${INSTALLER_COMMAND}\` to re-arm it.`;
+  }
+  if (!schedule.current) {
+    return `Schedule: registered, but its cron line is older than the one the installer writes now, so it is stale. Run \`${INSTALLER_COMMAND}\` to bring it up to date.`;
   }
   return `Schedule: armed, firing every ${schedule.step === "1" ? "minute" : `${schedule.step} minutes`}.`;
 }

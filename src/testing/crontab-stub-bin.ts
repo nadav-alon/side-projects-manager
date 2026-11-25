@@ -36,3 +36,18 @@ export async function crontabStubBin(lines?: readonly string[]): Promise<string>
 export function cronLine(home: string, marker: string = CRON_MARKER): string {
   return `*/15 * * * * set -a; . "/home/dev/.side-projects-manager.env"; set +a; export PATH="/usr/local/bin:/usr/bin:/bin"; "${home}/scripts/self-update.sh" "${home}" >> "${home}/trigger.log" 2>&1; /usr/bin/node "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 ${marker}`;
 }
+
+/**
+ * Like `crontabStubBin`, but for the write side: a `crontab` that reports no
+ * crontab on `-l` and writes whatever is piped to it into `written`, a path
+ * the caller reads back. Returns the directory to put ahead of `PATH`.
+ */
+export async function crontabCaptureBin(written: string): Promise<string> {
+  const bin = await mkdtemp(path.join(tmpdir(), "crontab-capture-"));
+  await writeFile(
+    path.join(bin, "crontab"),
+    `#!/bin/sh\nif [ "$1" = "-l" ]; then exit 1; fi\ncat > "${written}"\n`,
+    { mode: 0o755 },
+  );
+  return bin;
+}

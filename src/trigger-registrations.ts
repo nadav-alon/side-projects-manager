@@ -17,10 +17,21 @@ export type TriggerRegistration =
   | { readonly registered: false }
   | { readonly registered: true; readonly managerHome: string };
 
-/** The schedule's registration, additionally carrying the minutes between its firings when registered. */
+/**
+ * The schedule's registration, additionally carrying the minutes between its
+ * firings when registered, and whether its cron line is the one
+ * `scripts/install-triggers.sh` writes now (`current`; false is CONTEXT.md:
+ * Stale) — a line from an older
+ * installer still fires, but not as the installer would have it.
+ */
 export type ScheduleRegistration =
   | { readonly registered: false }
-  | { readonly registered: true; readonly managerHome: string; readonly step: CronStep };
+  | {
+      readonly registered: true;
+      readonly managerHome: string;
+      readonly step: CronStep;
+      readonly current: boolean;
+    };
 
 /** Where the status command reads whether the schedule and a logon guard are registered. */
 export interface TriggerRegistrations {

@@ -1,15 +1,20 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 
-import { cronLine, crontabStubBin, tempHome } from "../testing/index.ts";
+import { cronLine, crontabCaptureBin, crontabStubBin, tempHome } from "../testing/index.ts";
 import {
   CRON_MARKER,
   RC_BEGIN,
   RC_END,
   systemTriggerRegistrations,
 } from "./system-trigger-registrations.ts";
+
+const execFileAsync = promisify(execFile);
 
 const OLD_CRON_MARKER =
   "# side-projects-manager: daily schedule (see scripts/install-triggers.sh)";
@@ -83,6 +88,7 @@ describe("the schedule registration", () => {
       registered: true,
       step: "15",
       managerHome: home,
+      current: true,
     });
   });
 
@@ -95,6 +101,7 @@ describe("the schedule registration", () => {
       registered: true,
       step: "15",
       managerHome: moved,
+      current: true,
     });
     assert.notEqual(moved, home);
   });
@@ -125,6 +132,35 @@ describe("the schedule registration", () => {
       });
     });
   }
+
+  it("reports a line from before the self-update pull as registered but not current", async (t) => {
+    const home = await tempHome("trigger-registrations");
+    const older = cronLine(home).replace(
+      `"${home}/scripts/self-update.sh" "${home}" >> "${home}/trigger.log" 2>&1`,
+      `git -C "${home}" pull --ff-only -q >> "${home}/trigger.log" 2>&1`,
+    );
+    assert.ok(older.includes("git -C"));
+    withPath(t, await crontabStubBin([older]));
+
+    assert.deepEqual(await systemTriggerRegistrations().schedule(), {
+      registered: true,
+      step: "15",
+      managerHome: home,
+      current: false,
+    });
+  });
+
+  it("reports a line with a step other than the installer's as registered but not current", async (t) => {
+    const home = await tempHome("trigger-registrations");
+    withPath(t, await crontabStubBin([cronLine(home).replace("*/15", "*/30")]));
+
+    assert.deepEqual(await systemTriggerRegistrations().schedule(), {
+      registered: true,
+      step: "30",
+      managerHome: home,
+      current: false,
+    });
+  });
 
   it("finds the marked line among other crontab entries", async (t) => {
     const home = await tempHome("trigger-registrations");
@@ -232,5 +268,30 @@ describe("the logon guard registration", () => {
       await systemTriggerRegistrations([bashrc, zshrc]).logonGuard(),
       { registered: true, managerHome: directory },
     );
+  });
+});
+
+describe("the line install-triggers.sh writes", () => {
+  it("is reported current", async (t) => {
+    const home = await tempHome("trigger-registrations-installer");
+    const written = path.join(await mkdtemp(path.join(tmpdir(), "installer-out-")), "written");
+    const bin = await crontabCaptureBin(written);
+    const checkout = path.resolve(import.meta.dirname, "../..");
+    for (const tool of ["gh", "git"]) {
+      await writeFile(path.join(bin, tool), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    }
+    await writeFile(path.join(home, ".side-projects-manager.env"), "");
+    await execFileAsync("bash", [path.join(checkout, "scripts/install-triggers.sh")], {
+      env: { ...process.env, HOME: home, PATH: `${bin}:${process.env["PATH"]}` },
+    });
+
+    withPath(t, await crontabStubBin([(await readFile(written, "utf8")).trim()]));
+
+    assert.deepEqual(await systemTriggerRegistrations().schedule(), {
+      registered: true,
+      step: "15",
+      managerHome: checkout,
+      current: true,
+    });
   });
 });

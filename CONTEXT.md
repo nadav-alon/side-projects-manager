@@ -996,6 +996,12 @@ A trigger that is registered on this machine and still points at this manager ho
 alone is not armed: a cron line naming a path that no longer exists is registered and not armed.
 _Avoid_: installed, enabled, active, live
 
+**Stale**:
+A schedule that is registered and pointing at this manager home, but whose cron line differs from the
+one `scripts/install-triggers.sh` writes now. It still fires, so it is not unarmed — status reports it
+as its own state and names `npm run triggers:install` to bring it up to date.
+_Avoid_: outdated, out of date, unarmed
+
 ### The seam
 
 **Port**:

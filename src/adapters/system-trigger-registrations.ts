@@ -42,6 +42,26 @@ const TRIGGER_SCRIPT_SUFFIX = /\/src\/bin\/(?:guarded-)?morning-run\.ts$/;
 /** A cron minute field naming a step — star, slash, then the step itself, captured. */
 const STEP_FIELD = /^\*\/(\d+)$/;
 
+/**
+ * Whether `line` has the shape `install-triggers.sh`'s `CRON_LINE` gives a
+ * schedule for `managerHome` now, every-15-minutes step included: every part but the machine's own env file,
+ * `PATH`, node binary and log path. A line from an older installer — one
+ * without the `self-update.sh` pull, say — is registered and not current.
+ * A test runs the real installer and holds this to its output.
+ */
+function isCurrentScheduleLine(line: string, managerHome: string): boolean {
+  const home = escapeRegExp(managerHome);
+  return new RegExp(
+    `^\\*/15 \\* \\* \\* \\* set -a; \\. "[^"]+"; set \\+a; export PATH="[^"]*"; ` +
+      `"${home}/scripts/self-update\\.sh" "${home}" >> "[^"]+" 2>&1; ` +
+      `\\S+ "${home}/src/bin/morning-run\\.ts" >> "[^"]+" 2>&1 ${escapeRegExp(CRON_MARKER)}$`,
+  ).test(line);
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const DEFAULT_RC_FILES = [
   path.join(os.homedir(), ".bashrc"),
   path.join(os.homedir(), ".zshrc"),
@@ -50,7 +70,7 @@ const DEFAULT_RC_FILES = [
 /**
  * Reads the crontab and the shell rc files for what `install-triggers.sh`
  * leaves behind, by the same markers it writes them with. Read-only: neither
- * is written here, and a registration this finds stale — pointing at a home
+ * is written here, and a registration this finds moved — pointing at a home
  * that no longer exists, or missing outright — is left for the installer to
  * fix, not fixed here.
  *
@@ -73,7 +93,12 @@ export function systemTriggerRegistrations(
       if (managerHome === undefined || step === undefined || !isCronStep(step)) {
         return { registered: false };
       }
-      return { registered: true, managerHome, step };
+      return {
+        registered: true,
+        managerHome,
+        step,
+        current: isCurrentScheduleLine(line.trim(), managerHome),
+      };
     },
 
     async logonGuard(): Promise<TriggerRegistration> {

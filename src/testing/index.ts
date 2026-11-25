@@ -38,7 +38,7 @@ export { recordingDocker, type RecordedDocker } from "./recording-docker.ts";
 export { FakeStore, type Registration } from "./fake-store.ts";
 export { fakeInvocationState } from "./fake-invocation-state.ts";
 export { FakeInvocationLease } from "./fake-invocation-lease.ts";
-export { cronLine, crontabStubBin } from "./crontab-stub-bin.ts";
+export { cronLine, crontabCaptureBin, crontabStubBin } from "./crontab-stub-bin.ts";
 export { FakeTriggerRegistrations } from "./fake-trigger-registrations.ts";
 export { deadPid } from "./dead-pid.ts";
 export { tempHome } from "./temp-home.ts";
