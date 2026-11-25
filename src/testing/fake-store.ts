@@ -369,6 +369,17 @@ export class FakeStore implements Store {
     return at;
   }
 
+  /** What the cron line's failed pull left, until the loop announces it; none by default. */
+  selfUpdateFailure: string | undefined = undefined;
+
+  async loadSelfUpdateFailure(): Promise<string | undefined> {
+    return this.selfUpdateFailure;
+  }
+
+  async markSelfUpdateFailureAnnounced(): Promise<void> {
+    this.selfUpdateFailure = undefined;
+  }
+
   async loadRecordedDiscoveries(): Promise<RecordedDiscovery[]> {
     return this.#recordedDiscoveries.map((discovery) => ({ ...discovery }));
   }

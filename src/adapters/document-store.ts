@@ -93,10 +93,21 @@ import {
   spendCeilingFor,
   ticketKey,
 } from "../ports/index.ts";
+import { isErrorWithCode } from "./error-code.ts";
 import { expectField } from "./expect-field.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import { errorMessage } from "../error-message.ts";
 import { summaryFileName } from "../summary.ts";
+
+/**
+ * Where the trigger's cron line (scripts/install-triggers.sh) leaves git's
+ * stderr when its self-update pull fails, and where the loop moves it once the
+ * summary has named it. The cron line writes the first only while the second
+ * is absent, and clears both on a pull that succeeds, so one failing streak
+ * is announced once.
+ */
+export const SELF_UPDATE_FAILURE_FILE = "self-update-failure.txt";
+export const SELF_UPDATE_FAILURE_ANNOUNCED_FILE = "self-update-failure.announced";
 
 const BUDGET_FILE = "budget.json";
 const STATE_FILE = "state.json";
@@ -287,6 +298,30 @@ export function documentStore(home: string = MANAGER_HOME): Store {
       await rename(pending, file);
       await trimKeptSummaries(home);
       return keptSummaryPath(file);
+    },
+
+    async loadSelfUpdateFailure(): Promise<string | undefined> {
+      try {
+        return await readFile(path.join(home, SELF_UPDATE_FAILURE_FILE), "utf8");
+      } catch (error: unknown) {
+        if (isErrorWithCode(error, "ENOENT")) {
+          return undefined;
+        }
+        throw error;
+      }
+    },
+
+    async markSelfUpdateFailureAnnounced(): Promise<void> {
+      try {
+        await rename(
+          path.join(home, SELF_UPDATE_FAILURE_FILE),
+          path.join(home, SELF_UPDATE_FAILURE_ANNOUNCED_FILE),
+        );
+      } catch (error: unknown) {
+        if (!isErrorWithCode(error, "ENOENT")) {
+          throw error;
+        }
+      }
     },
 
     async loadRecordedDiscoveries(): Promise<RecordedDiscovery[]> {
