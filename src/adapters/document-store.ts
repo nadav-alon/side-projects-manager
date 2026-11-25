@@ -98,6 +98,16 @@ import { MANAGER_HOME } from "./manager-home.ts";
 import { errorMessage } from "../error-message.ts";
 import { summaryFileName } from "../summary.ts";
 
+/**
+ * Where the trigger's cron line (scripts/install-triggers.sh) leaves git's
+ * stderr when its self-update pull fails, and where the loop moves it once the
+ * summary has named it. The cron line writes the first only while the second
+ * is absent, and clears both on a pull that succeeds, so one failing streak
+ * is announced once.
+ */
+export const SELF_UPDATE_FAILURE_FILE = "self-update-failure.txt";
+export const SELF_UPDATE_FAILURE_ANNOUNCED_FILE = "self-update-failure.announced";
+
 const BUDGET_FILE = "budget.json";
 const STATE_FILE = "state.json";
 const MODELS_FILE = "models.json";
@@ -289,6 +299,24 @@ export function documentStore(home: string = MANAGER_HOME): Store {
       return keptSummaryPath(file);
     },
 
+    async loadSelfUpdateFailure(): Promise<string | undefined> {
+      return readOptionalText(path.join(home, SELF_UPDATE_FAILURE_FILE));
+    },
+
+    async markSelfUpdateFailureAnnounced(failure: string): Promise<void> {
+      const file = path.join(home, SELF_UPDATE_FAILURE_FILE);
+      if ((await readOptionalText(file)) !== failure) {
+        return;
+      }
+      try {
+        await rename(file, path.join(home, SELF_UPDATE_FAILURE_ANNOUNCED_FILE));
+      } catch (error: unknown) {
+        if (!isNotFound(error)) {
+          throw error;
+        }
+      }
+    },
+
     async loadRecordedDiscoveries(): Promise<RecordedDiscovery[]> {
       return readRecordedDiscoveries();
     },
@@ -364,6 +392,17 @@ async function readDocument(file: string): Promise<unknown> {
     return JSON.parse(text);
   } catch (error) {
     throw new Error(`${file} is not valid JSON: ${errorMessage(error)}`);
+  }
+}
+
+async function readOptionalText(file: string): Promise<string | undefined> {
+  try {
+    return await readFile(file, "utf8");
+  } catch (error: unknown) {
+    if (isNotFound(error)) {
+      return undefined;
+    }
+    throw error;
   }
 }
 

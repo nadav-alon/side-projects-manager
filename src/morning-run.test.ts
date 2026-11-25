@@ -470,6 +470,55 @@ describe("morningLoop", () => {
     assert.match(report.message, /Check for a missed supertask label: .*#66/);
   });
 
+  describe("a failed self-update pull", () => {
+    const REASON = "error: Your local changes to registry.json would be overwritten by merge.";
+
+    it("names git's reason under Waiting on you once per streak, even when today is already announced", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      await morningLoop(ports);
+      assert.equal(ports.tracker.summaries.length, 1);
+
+      ports.store.selfUpdateFailure = REASON;
+      await morningLoop(ports);
+      assert.equal(ports.tracker.summaries.length, 2);
+      const body = ports.tracker.summaries[1]?.body ?? "";
+      assert.match(body.slice(body.indexOf("## Waiting on you")), /Your local changes to registry\.json/);
+
+      // The streak goes on: the cron line leaves nothing new while announced.
+      await morningLoop(ports);
+      assert.equal(ports.tracker.summaries.length, 2);
+    });
+
+    it("stays unannounced when its summary could not be published, so the next firing says it again", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.store.selfUpdateFailure = REASON;
+      ports.tracker.publishSummary = async () => {
+        throw new Error("the tracker refused the summary");
+      };
+
+      await morningLoop(ports);
+
+      assert.equal(await ports.store.loadSelfUpdateFailure(), REASON);
+    });
+
+    it("leaves a newer streak's failure unannounced when it replaced the one the summary named", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.store.selfUpdateFailure = REASON;
+      const publish = ports.tracker.publishSummary.bind(ports.tracker);
+      ports.tracker.publishSummary = async (...args: Parameters<typeof publish>) => {
+        ports.store.selfUpdateFailure = "error: a newer streak";
+        return publish(...args);
+      };
+
+      await morningLoop(ports);
+
+      assert.equal(await ports.store.loadSelfUpdateFailure(), "error: a newer streak");
+    });
+  });
+
   describe("a truncated backlog", () => {
     it("names the truncated project in the waiting section, even when nothing else is waiting", async () => {
       const ports = fakePorts();

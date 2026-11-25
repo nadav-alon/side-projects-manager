@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
-import { documentStore } from "./document-store.ts";
+import {
+  documentStore,
+  SELF_UPDATE_FAILURE_ANNOUNCED_FILE,
+  SELF_UPDATE_FAILURE_FILE,
+} from "./document-store.ts";
 import {
   DEFAULT_BUDGET,
   branch,
@@ -2241,6 +2245,24 @@ describe("keeping a summary that could not be published", () => {
 
     assert.equal(await readFile(at, "utf8"), "Nothing to do.");
     assert.equal(path.dirname(at), directory);
+  });
+
+  it("reads a self-update failure the cron line left, until it is marked announced", async () => {
+    const directory = await home();
+    const store = documentStore(directory);
+    assert.equal(await store.loadSelfUpdateFailure(), undefined);
+
+    await writeFile(path.join(directory, SELF_UPDATE_FAILURE_FILE), "error: pull failed\n");
+    assert.equal(await store.loadSelfUpdateFailure(), "error: pull failed\n");
+
+    // A newer streak than the one announced is left for its own notice.
+    await store.markSelfUpdateFailureAnnounced("error: an older streak\n");
+    assert.equal(await store.loadSelfUpdateFailure(), "error: pull failed\n");
+
+    await store.markSelfUpdateFailureAnnounced("error: pull failed\n");
+    assert.equal(await store.loadSelfUpdateFailure(), undefined);
+    await store.markSelfUpdateFailureAnnounced("error: pull failed\n");
+    assert.ok((await readdir(directory)).includes(SELF_UPDATE_FAILURE_ANNOUNCED_FILE));
   });
 
   it("leaves the previous document intact when the write is interrupted", async () => {

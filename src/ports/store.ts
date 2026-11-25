@@ -745,6 +745,21 @@ export interface Store {
    */
   keepSummary(startedAt: Date, body: string): Promise<KeptSummaryPath>;
   /**
+   * Git's reason the manager home's self-update pull failed, as the trigger's
+   * own cron line left it — only for a failing streak not yet announced.
+   * `undefined` when the last pull succeeded, or the streak was already told.
+   */
+  loadSelfUpdateFailure(): Promise<string | undefined>;
+  /**
+   * Records the failing streak `loadSelfUpdateFailure` answered as announced,
+   * so no later invocation names it again. Not an error when there is none.
+   * `failure` is what that call answered: a failure file holding anything
+   * else is a newer streak, one the summary never named, and is left to be
+   * announced. The streak ends when the cron line's next pull succeeds and
+   * clears it.
+   */
+  markSelfUpdateFailureAnnounced(failure: string): Promise<void>;
+  /**
    * Every discovery the manager filed and still keeps in the manager home,
    * oldest first. Empty when none is kept, or the document does not exist.
    */

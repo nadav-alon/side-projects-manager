@@ -3,6 +3,8 @@ dist/
 *.tsbuildinfo
 /invocation.lease
 /halt
+/self-update-failure.txt
+/self-update-failure.announced
 /trigger.log
 /summary-*.txt
 /transcripts/

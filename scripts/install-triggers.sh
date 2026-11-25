@@ -66,14 +66,15 @@ CRON_MARKER="# side-projects-manager: schedule (see scripts/install-triggers.sh)
 # A firing runs the loop from this checkout's own source, so it pulls first —
 # otherwise every merged fix to the loop waits on a developer's manual pull.
 # Fast-forward only, and `;` rather than `&&`: a pull that can't apply (the
-# network is down, the checkout has diverged) is logged, and the loop still
-# runs on the code it has.
+# network is down, the checkout has diverged) is logged and, through
+# scripts/self-update.sh, left for the summary to name once per failing
+# streak, and the loop still runs on the code it has.
 #
 # Every 15 minutes: a firing while an invocation is still in flight is a
 # no-op (the invocation lease), and a quiet invocation publishes at most one
 # summary a day, so firing often costs only a pull and a few reads — and a
 # ticket labelled ready waits minutes, not up to an hour.
-CRON_LINE="*/15 * * * * set -a; . \"$ENV_FILE\"; set +a; export PATH=\"$CRON_PATH\"; git -C \"$REPO_DIR\" pull --ff-only -q >> \"$LOG_FILE\" 2>&1; $NODE_BIN \"$TRIGGER_SCRIPT\" >> \"$LOG_FILE\" 2>&1 $CRON_MARKER"
+CRON_LINE="*/15 * * * * set -a; . \"$ENV_FILE\"; set +a; export PATH=\"$CRON_PATH\"; \"$REPO_DIR/scripts/self-update.sh\" \"$REPO_DIR\" >> \"$LOG_FILE\" 2>&1; $NODE_BIN \"$TRIGGER_SCRIPT\" >> \"$LOG_FILE\" 2>&1 $CRON_MARKER"
 
 RC_BEGIN="# >>> side-projects-manager: logon guard >>>"
 RC_END="# <<< side-projects-manager: logon guard <<<"
