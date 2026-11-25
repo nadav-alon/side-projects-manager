@@ -15,7 +15,7 @@ import type {
   Store,
   Visibility,
 } from "./ports/index.ts";
-import { branch } from "./ports/index.ts";
+import { branch, REGISTRY_FILE } from "./ports/index.ts";
 
 /**
  * What the new-project command reaches the outside world through. Four ports,
@@ -27,6 +27,12 @@ export interface NewProjectPorts {
   harness: Harness;
   grilling: Grilling;
   store: Store;
+  /**
+   * The manager's own checkout, where the registry lives. A registry entry
+   * left uncommitted there blocks every later pull of it, so the entry is
+   * committed and pushed from this checkout.
+   */
+  managerHome: Checkout;
 }
 
 /** An idea, as the developer brought it to the command. */
@@ -81,6 +87,12 @@ export interface NewProjectReport {
    * and the conversation is not: everything before it had already happened.
    */
   grilled: boolean;
+  /**
+   * Why the registry entry did not reach the manager's remote, when it did
+   * not. The project is registered locally and the session still ran, but the
+   * loop reads the remote's registry, so the command exits non-zero on this.
+   */
+  registryFailure?: string;
   /** One line, suitable for printing to a terminal. */
   message: string;
 }
@@ -103,7 +115,8 @@ export async function newProject(
 ): Promise<NewProjectReport> {
   const { repo, description } = request;
   const existing = request.existing ?? false;
-  const visibility: Visibility = request.public ?? false ? "public" : "private";
+  const visibility: Visibility =
+    (request.public ?? false) ? "public" : "private";
   // Before the host is touched: a preset that does not exist must cost nothing.
   const standards = await ports.harness.standards(request.standards);
   const onHost = await ports.host.exists(repo);
@@ -154,6 +167,13 @@ export async function newProject(
   // without them. A proposal that changed nothing means they are already there.
   const paused = proposal !== undefined && proposal.kind !== "unchanged";
   const registered = await register(ports.store, repo, paused);
+  // Published also when this run wrote nothing but the file is still dirty: an
+  // earlier run whose push failed left its entry there, and this is the retry.
+  const registryFailure =
+    registered ||
+    (await ports.host.hasUncommittedChanges(ports.managerHome, [REGISTRY_FILE]))
+      ? await publishRegistry(ports, repo)
+      : undefined;
   const grillingFailure = await startGrilling(ports.grilling, {
     directory,
     existing,
@@ -167,6 +187,7 @@ export async function newProject(
     ...(proposal !== undefined && { proposal }),
     registered,
     grilled: grillingFailure === undefined,
+    ...(registryFailure !== undefined && { registryFailure }),
     message: recapLine({
       repo,
       directory,
@@ -174,6 +195,7 @@ export async function newProject(
       paused,
       proposal,
       grillingFailure,
+      registryFailure,
     }),
   };
 }
@@ -274,8 +296,34 @@ async function register(
     return false;
   }
 
-  await store.saveRegistry([...projects, { repo, paused, turbo: false }]);
+  await store.saveRegistry([...projects, { repo, paused, turbo: true }]);
   return true;
+}
+
+/** What the commit of a new registry entry says. */
+function registryMessage(repo: RepoSlug): string {
+  return `Register ${repo} as turbo`;
+}
+
+/**
+ * Commits and pushes the entry just written, so the manager home is never left
+ * dirty. A failure is returned, not thrown: the project is already registered
+ * locally and the grilling must still start. It says where the entry stayed,
+ * since a rejected push leaves it committed and a failed commit leaves it
+ * uncommitted.
+ */
+async function publishRegistry(
+  ports: NewProjectPorts,
+  repo: RepoSlug,
+): Promise<string | undefined> {
+  try {
+    await ports.host.commitAndPush(ports.managerHome, registryMessage(repo), [
+      REGISTRY_FILE,
+    ]);
+    return undefined;
+  } catch (error) {
+    return `The registry entry for ${repo} is not on the manager's remote; it stays in ${ports.managerHome}/${REGISTRY_FILE}. Re-run this command to retry it (${errorMessage(error)}).`;
+  }
 }
 
 /** Everything the one printed line has to account for. */
@@ -286,6 +334,7 @@ interface Recap {
   paused: boolean;
   proposal: Proposal | undefined;
   grillingFailure: string | undefined;
+  registryFailure: string | undefined;
 }
 
 /**
@@ -302,6 +351,9 @@ function recapLine(recap: Recap): string {
   const harness = harnessSentence(recap.proposal);
   if (harness !== undefined) {
     sentences.push(harness);
+  }
+  if (recap.registryFailure !== undefined) {
+    sentences.push(recap.registryFailure);
   }
   if (recap.grillingFailure !== undefined) {
     sentences.push(

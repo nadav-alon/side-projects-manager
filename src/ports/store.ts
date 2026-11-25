@@ -622,6 +622,9 @@ export function hasAnnouncedOn(
   return announcedOn === day;
 }
 
+/** The file the registry lives in, under the manager home. */
+export const REGISTRY_FILE = "registry.json";
+
 /**
  * Reads the developer's registry, budget and model defaults, and reads and
  * writes the state document alongside them.

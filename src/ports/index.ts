@@ -335,6 +335,7 @@ export {
   recordWorked,
   runSpanCovers,
   runSpanFor,
+  REGISTRY_FILE,
   runSpanInProgress,
   salvageFor,
   ticketKey,

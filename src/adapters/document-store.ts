@@ -53,6 +53,7 @@ import type {
 } from "../ports/index.ts";
 import {
   PULL_REQUEST_KIND_KEYS,
+  REGISTRY_FILE,
   DEFAULT_BUDGET,
   DISCOVERY_KINDS,
   GRANT_LABELS,
@@ -97,7 +98,6 @@ import { MANAGER_HOME } from "./manager-home.ts";
 import { errorMessage } from "../error-message.ts";
 import { summaryFileName } from "../summary.ts";
 
-const REGISTRY_FILE = "registry.json";
 const BUDGET_FILE = "budget.json";
 const STATE_FILE = "state.json";
 const MODELS_FILE = "models.json";
