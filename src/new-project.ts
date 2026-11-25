@@ -274,7 +274,7 @@ async function register(
     return false;
   }
 
-  await store.saveRegistry([...projects, { repo, paused, turbo: false }]);
+  await store.saveRegistry([...projects, { repo, paused, turbo: true }]);
   return true;
 }
 

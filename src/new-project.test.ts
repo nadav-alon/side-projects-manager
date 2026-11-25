@@ -115,7 +115,7 @@ describe("starting a new project", () => {
 
     assert.deepEqual(await ports.store.loadRegistry(), [
       { repo: MANAGER, paused: false, turbo: false, priority: priority(1) },
-      { repo: PILOT, paused: false, turbo: false },
+      { repo: PILOT, paused: false, turbo: true },
     ]);
   });
 
@@ -127,7 +127,7 @@ describe("starting a new project", () => {
 
     assert.deepEqual(await ports.store.loadRegistry(), [
       { repo: MANAGER, paused: false, turbo: true },
-      { repo: PILOT, paused: false, turbo: false },
+      { repo: PILOT, paused: false, turbo: true },
     ]);
   });
 
@@ -258,7 +258,7 @@ describe("registering a repo that already exists", () => {
     const report = await newProject(ports, { ...IDEA, existing: true });
 
     assert.deepEqual(await ports.store.loadRegistry(), [
-      { repo: PILOT, paused: true, turbo: false },
+      { repo: PILOT, paused: true, turbo: true },
     ]);
     assert.match(report.message, /unpause/);
   });
@@ -271,7 +271,7 @@ describe("registering a repo that already exists", () => {
     const report = await newProject(ports, { ...IDEA, existing: true });
 
     assert.deepEqual(await ports.store.loadRegistry(), [
-      { repo: PILOT, paused: false, turbo: false },
+      { repo: PILOT, paused: false, turbo: true },
     ]);
     assert.doesNotMatch(report.message, /unpause/);
   });
