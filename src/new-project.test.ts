@@ -95,8 +95,8 @@ describe("starting a new project", () => {
 
     await newProject(ports, IDEA);
 
-    assert.equal(ports.host.pushes.length, 1);
-    assert.equal(ports.host.pushes[0]?.directory, PILOT_CHECKOUT);
+    const inProject = ports.host.pushes.filter((push) => push.directory === PILOT_CHECKOUT);
+    assert.equal(inProject.length, 1);
   });
 
   it("commits what it scaffolded and nothing else in the checkout", async () => {
@@ -129,6 +129,43 @@ describe("starting a new project", () => {
       { repo: MANAGER, paused: false, turbo: true },
       { repo: PILOT, paused: false, turbo: true },
     ]);
+  });
+
+  it("commits and pushes the registry entry from the manager home", async () => {
+    const ports = fakeNewProjectPorts();
+
+    await newProject(ports, IDEA);
+
+    assert.deepEqual(ports.host.pushes[1], {
+      directory: ports.managerHome,
+      message: `Register ${PILOT} as turbo`,
+      paths: ["registry.json"],
+    });
+  });
+
+  it("commits nothing in the manager home when the project is registered already", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.store.register(PILOT, {});
+    ports.host.alreadyExists(PILOT);
+
+    await newProject(ports, { ...IDEA, existing: true });
+
+    assert.equal(
+      ports.host.pushes.some((push) => push.directory === ports.managerHome),
+      false,
+    );
+  });
+
+  it("fails, naming the entry left behind, when the registry push fails", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.commitAndPush = async (directory) => {
+      if (directory === ports.managerHome) throw new Error("rejected");
+    };
+
+    await assert.rejects(
+      newProject(ports, IDEA),
+      /registry entry for nadav-alon\/pilot.*left uncommitted.*rejected/,
+    );
   });
 
   it("hands off to an interactive grilling session in the checkout", async () => {
@@ -224,7 +261,10 @@ describe("registering a repo that already exists", () => {
 
     const report = await newProject(ports, { ...IDEA, existing: true });
 
-    assert.deepEqual(ports.host.pushes, []);
+    assert.deepEqual(
+      ports.host.pushes.filter((push) => push.directory === PILOT_CHECKOUT),
+      [],
+    );
     assert.equal(ports.host.proposals.length, 1);
     assert.equal(ports.host.proposals[0]?.directory, PILOT_CHECKOUT);
     assert.deepEqual(report.proposal, {

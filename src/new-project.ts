@@ -27,6 +27,12 @@ export interface NewProjectPorts {
   harness: Harness;
   grilling: Grilling;
   store: Store;
+  /**
+   * The manager's own checkout, where the registry lives. A registry entry
+   * left uncommitted there blocks every later pull of it, so the entry is
+   * committed and pushed from this checkout.
+   */
+  managerHome: Checkout;
 }
 
 /** An idea, as the developer brought it to the command. */
@@ -154,6 +160,9 @@ export async function newProject(
   // without them. A proposal that changed nothing means they are already there.
   const paused = proposal !== undefined && proposal.kind !== "unchanged";
   const registered = await register(ports.store, repo, paused);
+  if (registered) {
+    await publishRegistry(ports, repo);
+  }
   const grillingFailure = await startGrilling(ports.grilling, {
     directory,
     existing,
@@ -277,6 +286,35 @@ async function register(
   await store.saveRegistry([...projects, { repo, paused, turbo: true }]);
   return true;
 }
+
+/** What the commit of a new registry entry says. */
+function registryMessage(repo: RepoSlug): string {
+  return `Register ${repo} as turbo`;
+}
+
+/**
+ * Commits and pushes the entry just written, so the manager home is never left
+ * dirty. A failure names the entry left behind rather than passing silently:
+ * it is in the local registry but not on the remote.
+ */
+async function publishRegistry(
+  ports: NewProjectPorts,
+  repo: RepoSlug,
+): Promise<void> {
+  try {
+    await ports.host.commitAndPush(
+      ports.managerHome,
+      registryMessage(repo),
+      [REGISTRY_FILE],
+    );
+  } catch (error) {
+    throw new Error(
+      `Could not commit and push the registry entry for ${repo}, which is left uncommitted in ${ports.managerHome}/${REGISTRY_FILE}: ${errorMessage(error)}`,
+    );
+  }
+}
+
+const REGISTRY_FILE = "registry.json";
 
 /** Everything the one printed line has to account for. */
 interface Recap {

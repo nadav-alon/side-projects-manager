@@ -1,3 +1,4 @@
+import { checkout } from "../ports/index.ts";
 import type { NewProjectPorts } from "../new-project.ts";
 import { FakeGrilling } from "./fake-grilling.ts";
 import { FakeHarness } from "./fake-harness.ts";
@@ -12,6 +13,9 @@ export interface FakeNewProjectPorts extends NewProjectPorts {
   store: FakeStore;
 }
 
+/** Where the fake manager's registry lives. */
+export const FAKE_MANAGER_HOME = checkout("/manager-home");
+
 /**
  * A machine on which nothing exists yet: no repos on the host, no clones, no
  * registered projects. Tests arrange from here by putting things into the
@@ -23,5 +27,6 @@ export function fakeNewProjectPorts(): FakeNewProjectPorts {
     harness: new FakeHarness(),
     grilling: new FakeGrilling(),
     store: new FakeStore(),
+    managerHome: FAKE_MANAGER_HOME,
   };
 }

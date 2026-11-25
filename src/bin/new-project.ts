@@ -2,8 +2,10 @@
 import { agentGrilling } from "../adapters/agent-grilling.ts";
 import { directoryHarness } from "../adapters/directory-harness.ts";
 import { documentStore } from "../adapters/document-store.ts";
+import { MANAGER_HOME } from "../adapters/manager-home.ts";
 import { githubRepoHost } from "../adapters/github-repo-host.ts";
 import { errorMessage } from "../error-message.ts";
+import { checkout } from "../ports/index.ts";
 import { newProject, type NewProjectRequest } from "../new-project.ts";
 import { parseRequest } from "./new-project-request.ts";
 
@@ -38,6 +40,7 @@ async function main(): Promise<void> {
       harness: directoryHarness(),
       grilling: agentGrilling,
       store: documentStore(),
+      managerHome: checkout(MANAGER_HOME),
     },
     request,
   );
