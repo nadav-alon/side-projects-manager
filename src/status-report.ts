@@ -203,6 +203,9 @@ function scheduleLine(schedule: ScheduleRegistration, managerHome: string): stri
   if (!isArmed(schedule, managerHome)) {
     return `Schedule: registered, but pointing at ${schedule.managerHome} rather than this manager home (${managerHome}). Run \`${INSTALLER_COMMAND}\` to re-arm it.`;
   }
+  if (!schedule.current) {
+    return `Schedule: registered, but its cron line is older than the one the installer writes now, so it is stale. Run \`${INSTALLER_COMMAND}\` to re-arm it.`;
+  }
   return `Schedule: armed, firing every ${schedule.step === "1" ? "minute" : `${schedule.step} minutes`}.`;
 }
 
