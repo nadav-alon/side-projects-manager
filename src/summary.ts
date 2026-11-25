@@ -782,8 +782,8 @@ function limitRefusalLeftSomethingToName(iteration: IterationOutcome): boolean {
  * publishing, the issue body.
  *
  * An invocation that landed something, freed a ticket a dead invocation had
- * recorded, carries an unannounced self-update failure, or had a limit refusal that left a branch behind or filed a
- * discovery, always publishes — a freed ticket nobody else will mention must
+ * recorded, carries an unannounced self-update failure, or had a limit
+ * refusal that left a branch behind or filed a discovery, always publishes — a freed ticket nobody else will mention must
  * be named somewhere, never only erased from the state document; a branch
  * left in the checkout, or a discovery filed, must reach the developer today
  * rather than wait a day. A quiet or broken one publishes only when today has

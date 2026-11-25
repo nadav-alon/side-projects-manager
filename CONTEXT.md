@@ -99,7 +99,9 @@ next. "Landed something" excludes a run the provider limit refused, alongside a 
 ahead of the gate: neither ran, so an invocation whose iterations were only those, however many, is a
 stand-down like any other — unless one of those limit refusals left a branch in the project
 checkout, kept because git refused to delete it or salvaged on purpose, or filed a discovery, in
-which case the invocation still always publishes. A hand-back beside an infrastructure or provider
+which case the invocation still always publishes. An invocation that finds the manager home's
+self-update pull failing, a streak not yet announced, also always publishes, naming git's reason
+under Waiting on you; the summary that carries it marks the streak announced. A hand-back beside an infrastructure or provider
 failure is part of an invocation where nothing landed, so it publishes only once a day, as it does
 beside a stand-down; a hand-back on its own always publishes. The title carries the local time to the
 minute beside the date, since more than one summary can land on one day. A summary the invocation

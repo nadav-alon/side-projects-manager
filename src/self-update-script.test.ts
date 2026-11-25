@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  documentStore,
   SELF_UPDATE_FAILURE_ANNOUNCED_FILE,
   SELF_UPDATE_FAILURE_FILE,
 } from "./adapters/document-store.ts";
@@ -39,11 +40,12 @@ async function conflictedCheckout(): Promise<{ checkout: string; upstream: strin
   return { checkout, upstream, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
-function run(checkout: string): void {
-  execFileSync(SCRIPT, [checkout], {
+function run(checkout: string): { output: string } {
+  const result = spawnSync(SCRIPT, [checkout], {
     env: { ...GIT_ENV, SIDE_PROJECTS_MANAGER_HOME: checkout },
-    stdio: "pipe",
+    encoding: "utf8",
   });
+  return { output: result.stdout + result.stderr };
 }
 
 describe("scripts/self-update.sh", () => {
@@ -53,8 +55,17 @@ describe("scripts/self-update.sh", () => {
       run(checkout);
       assert.match(await readFile(path.join(checkout, SELF_UPDATE_FAILURE_FILE), "utf8"), /registry\.json/);
 
+      // The real handoff: the store marks it announced, and the next failing pull writes nothing.
+      const store = documentStore(checkout);
+      const failure = await store.loadSelfUpdateFailure();
+      assert.ok(failure !== undefined);
+      await store.markSelfUpdateFailureAnnounced(failure);
+      run(checkout);
+      assert.equal(await store.loadSelfUpdateFailure(), undefined);
+      await rm(path.join(checkout, SELF_UPDATE_FAILURE_ANNOUNCED_FILE));
+
       // The loop announced it: the streak's later failures leave nothing new.
-      await rm(path.join(checkout, SELF_UPDATE_FAILURE_FILE));
+      await rm(path.join(checkout, SELF_UPDATE_FAILURE_FILE), { force: true });
       await writeFile(path.join(checkout, SELF_UPDATE_FAILURE_ANNOUNCED_FILE), "");
       run(checkout);
       assert.ok(!(await readdir(checkout)).includes(SELF_UPDATE_FAILURE_FILE));
@@ -74,7 +85,8 @@ describe("scripts/self-update.sh", () => {
     try {
       git(checkout, "checkout", "--", "registry.json");
       const before = await readdir(checkout);
-      run(checkout);
+      // Nothing on stdout or stderr, so nothing reaches trigger.log.
+      assert.equal(run(checkout).output, "");
       assert.deepEqual(await readdir(checkout), before);
     } finally {
       await cleanup();

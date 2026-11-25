@@ -2255,9 +2255,13 @@ describe("keeping a summary that could not be published", () => {
     await writeFile(path.join(directory, SELF_UPDATE_FAILURE_FILE), "error: pull failed\n");
     assert.equal(await store.loadSelfUpdateFailure(), "error: pull failed\n");
 
-    await store.markSelfUpdateFailureAnnounced();
+    // A newer streak than the one announced is left for its own notice.
+    await store.markSelfUpdateFailureAnnounced("error: an older streak\n");
+    assert.equal(await store.loadSelfUpdateFailure(), "error: pull failed\n");
+
+    await store.markSelfUpdateFailureAnnounced("error: pull failed\n");
     assert.equal(await store.loadSelfUpdateFailure(), undefined);
-    await store.markSelfUpdateFailureAnnounced();
+    await store.markSelfUpdateFailureAnnounced("error: pull failed\n");
     assert.ok((await readdir(directory)).includes(SELF_UPDATE_FAILURE_ANNOUNCED_FILE));
   });
 

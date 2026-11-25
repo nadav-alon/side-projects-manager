@@ -18,6 +18,7 @@
   if reason="$(git -C "$repo_dir" pull --ff-only -q 2>&1)"; then
     rm -f "$failure" "$announced"
   else
+    [ -n "$reason" ] || reason="git exited non-zero with no message"
     printf '%s\n' "$reason" >&2
     [ -e "$announced" ] || printf '%s\n' "$reason" >"$failure"
   fi

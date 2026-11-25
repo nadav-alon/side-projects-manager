@@ -753,9 +753,12 @@ export interface Store {
   /**
    * Records the failing streak `loadSelfUpdateFailure` answered as announced,
    * so no later invocation names it again. Not an error when there is none.
-   * The streak ends when the cron line's next pull succeeds and clears it.
+   * `failure` is what that call answered: a failure file holding anything
+   * else is a newer streak, one the summary never named, and is left to be
+   * announced. The streak ends when the cron line's next pull succeeds and
+   * clears it.
    */
-  markSelfUpdateFailureAnnounced(): Promise<void>;
+  markSelfUpdateFailureAnnounced(failure: string): Promise<void>;
   /**
    * Every discovery the manager filed and still keeps in the manager home,
    * oldest first. Empty when none is kept, or the document does not exist.

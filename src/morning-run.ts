@@ -371,7 +371,10 @@ export async function morningLoop(
   let announcedOn: Day | undefined;
   // Read before anything can throw past it, and tolerated unreadable: the
   // notice is an aside that must never cost the invocation its own work.
-  const selfUpdateFailure = await ports.store.loadSelfUpdateFailure().catch(() => undefined);
+  const selfUpdateFailure = await ports.store.loadSelfUpdateFailure().catch((error: unknown) => {
+    console.warn(`Could not read the self-update failure: ${errorMessage(error)}`);
+    return undefined;
+  });
   let saveState: (() => Promise<void>) | undefined;
   try {
     const stored = await ports.store.loadState();
@@ -689,7 +692,7 @@ export async function morningLoop(
   // Only once the summary naming it is out: a publish that failed leaves the
   // streak unannounced, so the next firing says it again.
   if (report.summaryLocation !== undefined && selfUpdateFailure !== undefined) {
-    await ports.store.markSelfUpdateFailureAnnounced().catch((error: unknown) => {
+    await ports.store.markSelfUpdateFailureAnnounced(selfUpdateFailure).catch((error: unknown) => {
       console.warn(`Could not mark the self-update failure announced: ${errorMessage(error)}`);
     });
   }

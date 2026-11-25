@@ -376,8 +376,10 @@ export class FakeStore implements Store {
     return this.selfUpdateFailure;
   }
 
-  async markSelfUpdateFailureAnnounced(): Promise<void> {
-    this.selfUpdateFailure = undefined;
+  async markSelfUpdateFailureAnnounced(failure: string): Promise<void> {
+    if (this.selfUpdateFailure === failure) {
+      this.selfUpdateFailure = undefined;
+    }
   }
 
   async loadRecordedDiscoveries(): Promise<RecordedDiscovery[]> {

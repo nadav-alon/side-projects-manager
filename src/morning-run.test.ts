@@ -502,6 +502,21 @@ describe("morningLoop", () => {
 
       assert.equal(await ports.store.loadSelfUpdateFailure(), REASON);
     });
+
+    it("leaves a newer streak's failure unannounced when it replaced the one the summary named", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.store.selfUpdateFailure = REASON;
+      const publish = ports.tracker.publishSummary.bind(ports.tracker);
+      ports.tracker.publishSummary = async (...args: Parameters<typeof publish>) => {
+        ports.store.selfUpdateFailure = "error: a newer streak";
+        return publish(...args);
+      };
+
+      await morningLoop(ports);
+
+      assert.equal(await ports.store.loadSelfUpdateFailure(), "error: a newer streak");
+    });
   });
 
   describe("a truncated backlog", () => {

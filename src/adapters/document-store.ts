@@ -93,7 +93,6 @@ import {
   spendCeilingFor,
   ticketKey,
 } from "../ports/index.ts";
-import { isErrorWithCode } from "./error-code.ts";
 import { expectField } from "./expect-field.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import { errorMessage } from "../error-message.ts";
@@ -301,24 +300,18 @@ export function documentStore(home: string = MANAGER_HOME): Store {
     },
 
     async loadSelfUpdateFailure(): Promise<string | undefined> {
-      try {
-        return await readFile(path.join(home, SELF_UPDATE_FAILURE_FILE), "utf8");
-      } catch (error: unknown) {
-        if (isErrorWithCode(error, "ENOENT")) {
-          return undefined;
-        }
-        throw error;
-      }
+      return readOptionalText(path.join(home, SELF_UPDATE_FAILURE_FILE));
     },
 
-    async markSelfUpdateFailureAnnounced(): Promise<void> {
+    async markSelfUpdateFailureAnnounced(failure: string): Promise<void> {
+      const file = path.join(home, SELF_UPDATE_FAILURE_FILE);
+      if ((await readOptionalText(file)) !== failure) {
+        return;
+      }
       try {
-        await rename(
-          path.join(home, SELF_UPDATE_FAILURE_FILE),
-          path.join(home, SELF_UPDATE_FAILURE_ANNOUNCED_FILE),
-        );
+        await rename(file, path.join(home, SELF_UPDATE_FAILURE_ANNOUNCED_FILE));
       } catch (error: unknown) {
-        if (!isErrorWithCode(error, "ENOENT")) {
+        if (!isNotFound(error)) {
           throw error;
         }
       }
@@ -399,6 +392,17 @@ async function readDocument(file: string): Promise<unknown> {
     return JSON.parse(text);
   } catch (error) {
     throw new Error(`${file} is not valid JSON: ${errorMessage(error)}`);
+  }
+}
+
+async function readOptionalText(file: string): Promise<string | undefined> {
+  try {
+    return await readFile(file, "utf8");
+  } catch (error: unknown) {
+    if (isNotFound(error)) {
+      return undefined;
+    }
+    throw error;
   }
 }
 
