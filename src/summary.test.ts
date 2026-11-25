@@ -3402,6 +3402,25 @@ describe("composeInvocationReport", () => {
     assert.equal(tracker.published.length, 0);
   });
 
+  it("publishes a quiet morning that carries a self-update failure even when today is already announced, naming git's reason under Waiting on you", async () => {
+    const tracker = recordingTracker();
+
+    await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([]),
+        selfUpdateFailure: "error: Your local changes to registry.json would be overwritten by merge.",
+      },
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(tracker.published.length, 1);
+    const body = tracker.published[0]!.body;
+    const waiting = body.slice(body.indexOf("## Waiting on you"));
+    assert.match(waiting, /self-update pull failed/);
+    assert.match(waiting, /Your local changes to registry\.json would be overwritten/);
+  });
+
   it("does not publish a quiet morning when today is already announced", async () => {
     const tracker = recordingTracker();
 

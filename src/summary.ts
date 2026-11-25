@@ -460,6 +460,12 @@ export interface SummaryFacts {
   settledReadies: SettledReady[];
   /** Every ticket freed because a dead in-flight invocation had recorded it. */
   freedFromDeadInvocation: FreedWorkedTicket[];
+  /**
+   * Git's reason the manager home's self-update pull failed, when the failing
+   * streak it belongs to has not yet been announced. Absent when the last
+   * pull succeeded or this streak was already told.
+   */
+  selfUpdateFailure?: string | undefined;
 }
 
 /**
@@ -580,7 +586,7 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
     facts.iterations.length === 0
       ? undefined
       : attemptsSection(facts.iterations),
-    waitingSection(facts.iterations, facts.projects),
+    waitingSection(facts.iterations, facts.projects, facts.selfUpdateFailure),
     discoveriesSection(facts.iterations),
     conflictSweepSection(facts.conflictSweeps),
     specReviewSweepSection(facts.specReviewSweeps),
@@ -776,7 +782,7 @@ function limitRefusalLeftSomethingToName(iteration: IterationOutcome): boolean {
  * publishing, the issue body.
  *
  * An invocation that landed something, freed a ticket a dead invocation had
- * recorded, or had a limit refusal that left a branch behind or filed a
+ * recorded, carries an unannounced self-update failure, or had a limit refusal that left a branch behind or filed a
  * discovery, always publishes — a freed ticket nobody else will mention must
  * be named somewhere, never only erased from the state document; a branch
  * left in the checkout, or a discovery filed, must reach the developer today
@@ -798,6 +804,7 @@ export async function composeInvocationReport(
   if (
     outcome === "work-selected" ||
     facts.freedFromDeadInvocation.length > 0 ||
+    facts.selfUpdateFailure !== undefined ||
     facts.iterations.some(limitRefusalLeftSomethingToName) ||
     !alreadyAnnouncedToday
   ) {
@@ -1411,6 +1418,7 @@ function repeatedStopShortWaitingLine(
 function waitingSection(
   iterations: IterationOutcome[],
   projects: ProjectOutcome[],
+  selfUpdateFailure: string | undefined,
 ): string | undefined {
   const reviewOutcomes = workedReviewOutcomes(iterations);
   const iterationLines = iterations.flatMap((iteration): string[] => {
@@ -1532,10 +1540,20 @@ function waitingSection(
       : [backlogTruncatedLine(project.repo)],
   );
 
-  const bullets = [...iterationLines, ...backlogLines];
+  const bullets = [
+    ...iterationLines,
+    ...backlogLines,
+    ...(selfUpdateFailure === undefined ? [] : [selfUpdateFailureLine(selfUpdateFailure)]),
+  ];
   return bullets.length === 0
     ? undefined
     : ["## Waiting on you", ...bullets].join("\n");
+}
+
+/** The manager home could not fast-forward itself, so the loop runs on code and a registry that may be stale. */
+function selfUpdateFailureLine(reason: string): string {
+  const indented = reason.trim().split("\n").join("\n  ");
+  return `- the manager home's self-update pull failed, so the loop is running on a stale checkout — git said:\n  ${indented}`;
 }
 
 /** A backlog too long to read in full: the bullet names the project, since the tickets it left unread are too many to name. */
