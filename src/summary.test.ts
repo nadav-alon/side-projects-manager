@@ -21,6 +21,7 @@ import { modelProblem } from "./model-resolution.ts";
 import { sizeProblem } from "./size-resolution.ts";
 import {
   branch,
+  checkRunUrl,
   commitSha,
   issueNumber,
   issueUrl,
@@ -678,6 +679,7 @@ function facts(iterations: IterationOutcome[]): SummaryFacts {
     conflictSweeps: [],
     specReviewSweeps: [],
     uniformSyncSweeps: [],
+    failingWorkflows: [],
     settledMerges: [],
     settledReadies: [],
     freedFromDeadInvocation: [],
@@ -1990,6 +1992,7 @@ describe("summaryLine", () => {
         conflictSweeps: [],
         specReviewSweeps: [],
         uniformSyncSweeps: [],
+    failingWorkflows: [],
         settledMerges: [],
         settledReadies: [],
         freedFromDeadInvocation: [],
@@ -2138,6 +2141,7 @@ describe("summaryLine", () => {
       conflictSweeps: [],
       specReviewSweeps: [],
       uniformSyncSweeps: [],
+    failingWorkflows: [],
       settledMerges: [],
       settledReadies: [],
       freedFromDeadInvocation: [],
@@ -2203,6 +2207,7 @@ describe("summaryLine", () => {
       conflictSweeps: [],
       specReviewSweeps: [],
       uniformSyncSweeps: [],
+    failingWorkflows: [],
       settledMerges: [],
       settledReadies: [],
       freedFromDeadInvocation: [],
@@ -3419,6 +3424,36 @@ describe("composeInvocationReport", () => {
     const waiting = body.slice(body.indexOf("## Waiting on you"));
     assert.match(waiting, /self-update pull failed/);
     assert.match(waiting, /Your local changes to registry\.json would be overwritten/);
+  });
+
+  describe("a project's failing workflow", () => {
+    const FAILING = {
+      repo: REPO,
+      name: "Deploy to GitHub Pages",
+      url: checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/9"),
+    };
+
+    function waitingOn(failingWorkflows: SummaryFacts["failingWorkflows"]): string | undefined {
+      const body = summaryBody({ ...facts([]), failingWorkflows }, "line");
+      const at = body.indexOf("## Waiting on you");
+      return at === -1 ? undefined : body.slice(at);
+    }
+
+    it("is named under Waiting on you with its repo, workflow and the run's url", () => {
+      const waiting = waitingOn([FAILING]);
+
+      assert.match(waiting ?? "", /- nadav-alon\/pilot: the "Deploy to GitHub Pages" workflow's latest run on the default branch failed — https:\/\/github\.com\/nadav-alon\/pilot\/actions\/runs\/9/);
+    });
+
+    it("gets one line per failing workflow", () => {
+      const waiting = waitingOn([FAILING, { ...FAILING, name: "Test" }]);
+
+      assert.equal((waiting ?? "").split("\n").filter((line) => line.startsWith("- ")).length, 2);
+    });
+
+    it("adds no Waiting on you section when nothing is failing", () => {
+      assert.equal(waitingOn([]), undefined);
+    });
   });
 
   it("does not publish a quiet morning when today is already announced", async () => {

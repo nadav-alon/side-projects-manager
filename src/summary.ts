@@ -64,6 +64,7 @@ import type {
   PullRequestTicket,
   PullRequestUrl,
   RebaseTicket,
+  CheckRunUrl,
   RepoSlug,
   ReviewTicket,
   RunFinished,
@@ -439,6 +440,13 @@ export type InvocationStandDown =
   | ProviderFailureStandDown
   | DeveloperStandDown;
 
+/** A workflow of `repo` whose latest run on the default branch failed, and the run's page. */
+export interface ProjectFailingWorkflow {
+  repo: RepoSlug;
+  name: string;
+  url: CheckRunUrl;
+}
+
 /**
  * Everything the summary is built from: the outcome of every registered
  * project, every attempt this invocation made, why it stood down, if it did,
@@ -460,6 +468,8 @@ export interface SummaryFacts {
   settledReadies: SettledReady[];
   /** Every ticket freed because a dead in-flight invocation had recorded it. */
   freedFromDeadInvocation: FreedWorkedTicket[];
+  /** Every registered project's workflow whose latest default-branch run failed, in registry order. */
+  failingWorkflows: ProjectFailingWorkflow[];
   /**
    * Git's reason the manager home's self-update pull failed, when the failing
    * streak it belongs to has not yet been announced. Absent when the last
@@ -586,7 +596,7 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
     facts.iterations.length === 0
       ? undefined
       : attemptsSection(facts.iterations),
-    waitingSection(facts.iterations, facts.projects, facts.selfUpdateFailure),
+    waitingSection(facts.iterations, facts.projects, facts.failingWorkflows, facts.selfUpdateFailure),
     discoveriesSection(facts.iterations),
     conflictSweepSection(facts.conflictSweeps),
     specReviewSweepSection(facts.specReviewSweeps),
@@ -1418,6 +1428,7 @@ function repeatedStopShortWaitingLine(
 function waitingSection(
   iterations: IterationOutcome[],
   projects: ProjectOutcome[],
+  failingWorkflows: ProjectFailingWorkflow[],
   selfUpdateFailure: string | undefined,
 ): string | undefined {
   const reviewOutcomes = workedReviewOutcomes(iterations);
@@ -1543,11 +1554,17 @@ function waitingSection(
   const bullets = [
     ...iterationLines,
     ...backlogLines,
+    ...failingWorkflows.map(failingWorkflowLine),
     ...(selfUpdateFailure === undefined ? [] : [selfUpdateFailureLine(selfUpdateFailure)]),
   ];
   return bullets.length === 0
     ? undefined
     : ["## Waiting on you", ...bullets].join("\n");
+}
+
+/** A workflow whose latest run on the default branch failed: nothing else the developer reads says so. */
+function failingWorkflowLine({ repo, name, url }: ProjectFailingWorkflow): string {
+  return `- ${repo}: the "${name}" workflow's latest run on the default branch failed — ${url}`;
 }
 
 /** The manager home could not fast-forward itself, so the loop runs on code and a registry that may be stale. */

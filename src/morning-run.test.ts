@@ -470,6 +470,45 @@ describe("morningLoop", () => {
     assert.match(report.message, /Check for a missed supertask label: .*#66/);
   });
 
+  describe("a project's failing workflow", () => {
+    const RUN = checkRunUrl("https://github.com/nadav-alon/pilot/actions/runs/9");
+
+    it("is named under Waiting on you with the run's url", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.repoHost.setFailingWorkflows(PILOT, [{ name: "Deploy", url: RUN }]);
+
+      await morningLoop(ports);
+
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.match(body.slice(body.indexOf("## Waiting on you")), /nadav-alon\/pilot: the "Deploy" workflow.*actions\/runs\/9/);
+    });
+
+    it("is not read for a paused project", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT, { paused: true });
+      ports.repoHost.setFailingWorkflows(PILOT, [{ name: "Deploy", url: RUN }]);
+
+      await morningLoop(ports);
+
+      assert.doesNotMatch(ports.tracker.summaries[0]?.body ?? "", /Deploy/);
+    });
+
+    it("leaves the summary intact when the workflows cannot be read", async (t) => {
+      t.mock.method(console, "warn", () => {});
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.repoHost.listFailingWorkflows = async () => {
+        throw new Error("gh is down");
+      };
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.outcome, "dry-queue");
+      assert.doesNotMatch(ports.tracker.summaries[0]?.body ?? "", /Waiting on you/);
+    });
+  });
+
   describe("a failed self-update pull", () => {
     const REASON = "error: Your local changes to registry.json would be overwritten by merge.";
 
