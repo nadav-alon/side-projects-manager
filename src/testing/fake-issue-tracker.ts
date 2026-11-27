@@ -35,6 +35,8 @@ import {
   carriesReadyForAgent,
   carriesSpecReviewLabel,
   carriesUxReviewLabel,
+  carriesDesignReviewLabel,
+  DESIGN_REVIEW_LABEL,
   carriesSupertaskLabel,
   discoveredBody,
   discoveredTicketLabels,
@@ -114,7 +116,7 @@ export interface FakeDiscoveredTicket {
 /**
  * An open issue as the fake holds it: its ticket facts and its links, flat,
  * without what the fake works out on each listing — no `eligible`,
- * `modelLabel`, `sizeLabel`, `supertask`, `specReview`, `uxReview` or
+ * `modelLabel`, `sizeLabel`, `supertask`, `specReview`, `uxReview`, `designReview` or
  * `readyDiscovery`, which come from the labels it carries — and `openBlockerNumbers` optional,
  * since most tests give none.
  */
@@ -125,6 +127,7 @@ type StoredIssue = Omit<
   | "supertask"
   | "specReview"
   | "uxReview"
+  | "designReview"
   | "readyDiscovery"
 > &
   Partial<Pick<OpenIssue, "parent" | "openBlockerNumbers">>;
@@ -141,6 +144,7 @@ type TicketInput = Omit<StoredIssue, "repo"> & {
   supertask?: never;
   specReview?: never;
   uxReview?: never;
+  designReview?: never;
   readyDiscovery?: never;
 };
 
@@ -275,6 +279,16 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     const uxReview = this.#add(repo, ticket, READY_FOR_AGENT_LABEL);
     this.addLabel(uxReview, UX_REVIEW_LABEL);
     return uxReview;
+  }
+
+  /**
+   * Puts a design review ticket — carrying `READY_FOR_AGENT_LABEL` and the
+   * design-review label — in `repo`'s backlog and returns it.
+   */
+  addDesignReviewTicket(repo: RepoSlug, ticket: TicketInput): Ticket {
+    const designReview = this.#add(repo, ticket, READY_FOR_AGENT_LABEL);
+    this.addLabel(designReview, DESIGN_REVIEW_LABEL);
+    return designReview;
   }
 
   /**
@@ -425,6 +439,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     const supertask = carriesSupertaskLabel(entry.labels);
     const specReview = carriesSpecReviewLabel(entry.labels);
     const uxReview = carriesUxReviewLabel(entry.labels);
+    const designReview = carriesDesignReviewLabel(entry.labels);
     const readyDiscovery = carriesReadyDiscoveryLabel(entry.labels);
     return {
       ...ticket,
@@ -433,6 +448,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       ...(supertask && { supertask }),
       ...(specReview && { specReview }),
       ...(uxReview && { uxReview }),
+      ...(designReview && { designReview }),
       ...(readyDiscovery && { readyDiscovery }),
     };
   }

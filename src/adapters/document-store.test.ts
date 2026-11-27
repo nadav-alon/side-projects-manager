@@ -812,6 +812,14 @@ describe("the model defaults document", () => {
     assert.equal((await store.loadModelDefaults())["ux-review"], modelName("fable"));
   });
 
+  it("reads fable as the checked-in default for a design review", async () => {
+    const store = documentStore(
+      await home({ models: await readFile(new URL("../../models.json", import.meta.url), "utf8") }),
+    );
+
+    assert.equal((await store.loadModelDefaults())["design-review"], modelName("fable"));
+  });
+
   /**
    * Every kind is optional, so a misspelt kind is indistinguishable from one
    * left out — and would silently run on the image's model instead.

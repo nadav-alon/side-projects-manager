@@ -421,6 +421,7 @@ describe("giving the project its labels", () => {
       "turboable",
       "needs-grilling",
       "ux-review",
+      "design-review",
     ]) {
       assert.ok(NAMES.includes(name), name);
     }

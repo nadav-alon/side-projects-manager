@@ -39,6 +39,7 @@ import {
   carriesReadyForAgent,
   carriesSpecReviewLabel,
   carriesUxReviewLabel,
+  carriesDesignReviewLabel,
   carriesSupertaskLabel,
   discoveredBody,
   discoveredTicketLabels,
@@ -1110,7 +1111,7 @@ function parseUrlPath(url: string): string[] | undefined {
  * The ticket fields `listOpenIssues` and `subIssuesIn` both read the same way
  * from an issue's own body and labels: whether it is bound to a pull request,
  * its model, priority and size labels, and whether it carries the supertask,
- * spec review or ux-review label. The one place both readers build them, so a
+ * spec review, ux-review or design-review label. The one place both readers build them, so a
  * label-derived fact added to only one of them can't happen.
  *
  * `specReview` is only meaningful where `pullRequest` is absent —
@@ -1134,6 +1135,7 @@ function labelDerivedTicketFields(
   | "supertask"
   | "specReview"
   | "uxReview"
+  | "designReview"
   | "readyDiscovery"
 > {
   const pullRequest = pullRequestBoundIn(body);
@@ -1143,11 +1145,13 @@ function labelDerivedTicketFields(
   const supertask = carriesSupertaskLabel(labels);
   const specReview = carriesSpecReviewLabel(labels);
   const uxReview = carriesUxReviewLabel(labels);
+  const designReview = carriesDesignReviewLabel(labels);
   const readyDiscovery = carriesReadyDiscoveryLabel(labels);
   return {
     ...(supertask && { supertask }),
     ...(specReview && { specReview }),
     ...(uxReview && { uxReview }),
+    ...(designReview && { designReview }),
     ...(readyDiscovery && { readyDiscovery }),
     ...(pullRequest !== undefined && { pullRequest }),
     ...(modelLabel !== undefined && { modelLabel }),
