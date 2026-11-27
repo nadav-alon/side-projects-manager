@@ -93,11 +93,9 @@ export async function packageBumpSweep(
     try {
       latest = await ports.repoHost.readLatestRelease(published);
     } catch (error) {
-      outcomes.push({
-        publisher: published,
-        project: published,
-        result: { kind: "refused", error: errorMessage(error) },
-      });
+      // No project's pin was involved, so the publisher stands as the
+      // project the refusal is filed against.
+      outcomes.push(refused(published, published, error));
       continue;
     }
     if (latest === undefined) {
@@ -113,11 +111,7 @@ export async function packageBumpSweep(
           outcomes.push({ publisher: published, project, result });
         }
       } catch (error) {
-        outcomes.push({
-          publisher: published,
-          project,
-          result: { kind: "refused", error: errorMessage(error) },
-        });
+        outcomes.push(refused(published, project, error));
       }
     }
   }
@@ -153,4 +147,9 @@ async function bumpIn(
   }
   await ports.tracker.rewriteTicket(open, title, body);
   return { kind: "updated", ticket: { ...open, title } };
+}
+
+/** The outcome of a read or write refused for `published`'s release and `project`. */
+function refused(published: RepoSlug, project: RepoSlug, error: unknown): PackageBumpOutcome {
+  return { publisher: published, project, result: { kind: "refused", error: errorMessage(error) } };
 }
