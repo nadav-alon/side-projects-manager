@@ -2987,3 +2987,76 @@ describe("ensuring a label", () => {
     );
   });
 });
+
+describe("listing a repo's failing workflows", () => {
+  const RUN = "https://github.com/nadav-alon/pilot/actions/runs";
+
+  async function listedFrom(t: { after: (fn: () => void) => void }, runs: unknown[]) {
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$1" in`,
+        `  repo) echo main ;;`,
+        `  run) cat <<'JSON'`,
+        JSON.stringify(runs),
+        `JSON`,
+        `  ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+    return { gh, failing: await githubRepoHost().listFailingWorkflows(PILOT) };
+  }
+
+  it("names a workflow whose latest default-branch run failed, with the run's url", async (t) => {
+    const { failing } = await listedFrom(t, [
+      { workflowName: "Deploy", conclusion: "failure", url: `${RUN}/3` },
+    ]);
+
+    assert.deepEqual(failing, [{ name: "Deploy", url: `${RUN}/3` }]);
+  });
+
+  it("reads runs from the default branch's name", async (t) => {
+    const { gh } = await listedFrom(t, []);
+
+    const run = callWith(await gh.calls(), "run", "list");
+    assert.equal(valueOf(run, "--repo"), PILOT);
+    assert.equal(valueOf(run, "--branch"), "main");
+  });
+
+  it("does not name a workflow whose latest run succeeded after earlier failures", async (t) => {
+    const { failing } = await listedFrom(t, [
+      { workflowName: "Deploy", conclusion: "success", url: `${RUN}/3` },
+      { workflowName: "Deploy", conclusion: "failure", url: `${RUN}/2` },
+    ]);
+
+    assert.deepEqual(failing, []);
+  });
+
+  it("judges a workflow by its latest run that has concluded, passing over one still running", async (t) => {
+    const { failing } = await listedFrom(t, [
+      { workflowName: "Deploy", conclusion: "", url: `${RUN}/4` },
+      { workflowName: "Deploy", conclusion: "failure", url: `${RUN}/3` },
+      { workflowName: "Deploy", conclusion: "failure", url: `${RUN}/2` },
+    ]);
+
+    assert.deepEqual(failing, [{ name: "Deploy", url: `${RUN}/3` }]);
+  });
+
+  it("names each failing workflow once, and not one that only cancelled", async (t) => {
+    const { failing } = await listedFrom(t, [
+      { workflowName: "Deploy", conclusion: "failure", url: `${RUN}/5` },
+      { workflowName: "Test", conclusion: "failure", url: `${RUN}/4` },
+      { workflowName: "Lint", conclusion: "cancelled", url: `${RUN}/3` },
+      { workflowName: "Deploy", conclusion: "failure", url: `${RUN}/2` },
+    ]);
+
+    assert.deepEqual(failing, [
+      { name: "Deploy", url: `${RUN}/5` },
+      { name: "Test", url: `${RUN}/4` },
+    ]);
+  });
+
+  it("throws naming the run when gh answers outside the declared shape", async (t) => {
+    await assert.rejects(listedFrom(t, [{ conclusion: "failure" }]), /run 1.*"workflowName"/);
+  });
+});

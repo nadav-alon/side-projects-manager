@@ -13,6 +13,7 @@ import type {
   ChecksStatus,
   CheckRunUrl,
   FailingCheck,
+  FailingWorkflow,
   ClosingIssue,
   ClosingPullRequest,
   DraftPullRequestOpening,
@@ -817,6 +818,31 @@ export function githubRepoHost(
         String(CLOSING_PULL_REQUEST_LIMIT),
       ]);
       return closingPullRequestsFrom(stdout, repo);
+    },
+
+    async listFailingWorkflows(repo: RepoSlug): Promise<FailingWorkflow[]> {
+      const { stdout: defaultBranch } = await run("gh", [
+        "repo",
+        "view",
+        repo,
+        "--json",
+        "defaultBranchRef",
+        "--jq",
+        ".defaultBranchRef.name",
+      ]);
+      const { stdout } = await run("gh", [
+        "run",
+        "list",
+        "--repo",
+        repo,
+        "--branch",
+        defaultBranch.trim(),
+        "--limit",
+        String(WORKFLOW_RUN_LIMIT),
+        "--json",
+        "workflowName,conclusion,url",
+      ]);
+      return failingWorkflowsFrom(stdout, repo);
     },
 
     async mergePullRequest(pullRequest: PullRequestUrl, head?: string): Promise<void> {
@@ -1704,6 +1730,46 @@ function closingPullRequestsFrom(
       closesIssues: closingIssuesIn(closingIssuesReferences, at),
     };
   });
+}
+
+/**
+ * How many of a repo's latest default-branch runs `listFailingWorkflows`
+ * reads. A workflow whose latest run is older than this many runs is not seen.
+ */
+const WORKFLOW_RUN_LIMIT = 100;
+
+/**
+ * The failing workflows in `gh run list`'s JSON, which lists newest first:
+ * each workflow is judged by its first run that has concluded, and named
+ * once when that conclusion is `failure`.
+ */
+function failingWorkflowsFrom(stdout: string, repo: RepoSlug): FailingWorkflow[] {
+  const where = `gh run list for ${repo}`;
+  const payload = jsonIn(stdout, where);
+  if (!Array.isArray(payload)) {
+    throw new Error(`${where}: expected an array.`);
+  }
+  const judged = new Set<string>();
+  const failing: FailingWorkflow[] = [];
+  payload.forEach((raw, index) => {
+    const at = `${where}: run ${index + 1}`;
+    const { workflowName, conclusion, url } = objectAt(raw, at);
+    const name = expectField(workflowName, "string", "workflowName", at);
+    const concluded = expectField(conclusion, "string", "conclusion", at);
+    if (concluded === "" || judged.has(name)) {
+      return;
+    }
+    judged.add(name);
+    if (concluded !== "failure") {
+      return;
+    }
+    const link = expectField(url, "string", "url", at);
+    if (!isCheckRunUrl(link)) {
+      throw new Error(`${at}: "url" is not an http(s) URL: ${link}`);
+    }
+    failing.push({ name, url: link });
+  });
+  return failing;
 }
 
 /** `value`, as the issue number `field` names it at `at`: a positive integer. */
