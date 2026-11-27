@@ -23,6 +23,7 @@ on:
       - .claude/skills/apply-pr-review/SKILL.md
       - .claude/skills/rebase-pr/SKILL.md
       - .claude/skills/ux-review/SKILL.md
+      - .claude/skills/design-review/SKILL.md
   pull_request:
     paths:
       - Dockerfile
@@ -42,6 +43,7 @@ on:
       - .claude/skills/apply-pr-review/SKILL.md
       - .claude/skills/rebase-pr/SKILL.md
       - .claude/skills/ux-review/SKILL.md
+      - .claude/skills/design-review/SKILL.md
   # The likeliest way the harness disappears changes no file here: the image
   # installs the CLI, the plugin and @playwright/mcp (with the Chromium it
   # pulls in) unpinned, so a marketplace that drops the plugin, a CLI release
