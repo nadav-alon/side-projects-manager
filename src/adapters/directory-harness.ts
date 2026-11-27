@@ -6,11 +6,12 @@ import { promisify } from "node:util";
 import type {
   Checkout,
   Harness,
+  InstallOptions,
   Scaffold,
   StandardsPreset,
   UniformComparison,
 } from "../ports/index.ts";
-import { CI_FILE, STANDARDS_FILE, UNIFORM_FILES, UnknownPreset } from "../ports/index.ts";
+import { CI_FILE, PAGES_FILE, STANDARDS_FILE, UNIFORM_FILES, UnknownPreset } from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
 /** Where the generated, project-specific instructions go. */
@@ -66,6 +67,65 @@ jobs:
 `;
 
 /**
+ * What a project that deploys to GitHub Pages starts with: build with
+ * `npm run build`, upload `dist/`, deploy on every push to main. Only `main`
+ * is supported: a repo whose default branch is named otherwise gets Pages
+ * enabled but never deploys until the trigger is edited. Every step after
+ * checkout is guarded on a `package.json`, like the CI workflow's, so the
+ * scaffold push, which carries no code yet, does not fail the build. Pages
+ * itself is enabled on the repo separately; `configure-pages` finds no site
+ * until it is.
+ */
+const PAGES_WORKFLOW = `name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: \${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - if: hashFiles('package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - if: hashFiles('package.json') != ''
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      - if: hashFiles('package.json') != ''
+        run: npm run build
+
+      - if: hashFiles('package.json') != ''
+        uses: actions/configure-pages@v5
+
+      - if: hashFiles('package.json') != ''
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - if: hashFiles('package.json') != ''
+        id: deployment
+        uses: actions/deploy-pages@v4
+`;
+
+/**
  * The harness as files copied out of `source`, which is the manager's own
  * checkout unless a test says otherwise.
  *
@@ -78,25 +138,24 @@ jobs:
  */
 export function directoryHarness(source: string = MANAGER_HOME): Harness {
   return {
-    async deploysToPages(directory: Checkout): Promise<boolean> {
-      const workflows = path.join(directory, WORKFLOWS_DIRECTORY);
-      for (const name of await presetFiles(workflows)) {
-        if (!/\.ya?ml$/i.test(name)) {
-          continue;
-        }
-        const text = await readFile(path.join(workflows, name), "utf8");
-        if (/uses:\s*actions\/deploy-pages\b/.test(text)) {
-          return true;
-        }
-      }
-      return false;
-    },
+    deploysToPages,
 
     async install(
       directory: Checkout,
       instructions: string,
       standards: string,
+      options: InstallOptions = {},
     ): Promise<Scaffold> {
+      if (
+        options.pages === true &&
+        (await exists(path.join(directory, PAGES_FILE))) &&
+        !(await deploysToPages(directory))
+      ) {
+        throw new Error(
+          `${PAGES_FILE} already exists and does not deploy with actions/deploy-pages, so --pages cannot write its workflow. Rename or remove it, or deploy Pages from it and enable Pages yourself.`,
+        );
+      }
+
       const paths: string[] = [];
       const overwritten: string[] = [];
 
@@ -128,6 +187,9 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
       await writeOnce(STANDARDS_FILE, standards);
       if (!hadWorkflows) {
         await writeOnce(CI_FILE, CI_WORKFLOW);
+      }
+      if (options.pages === true && !(await deploysToPages(directory))) {
+        await writeOnce(PAGES_FILE, PAGES_WORKFLOW);
       }
 
       return { paths, overwritten };
@@ -184,6 +246,20 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
       return "different";
     },
   };
+}
+
+async function deploysToPages(directory: Checkout): Promise<boolean> {
+  const workflows = path.join(directory, WORKFLOWS_DIRECTORY);
+  for (const name of await presetFiles(workflows)) {
+    if (!/\.ya?ml$/i.test(name)) {
+      continue;
+    }
+    const text = await readFile(path.join(workflows, name), "utf8");
+    if (/uses:\s*actions\/deploy-pages\b/.test(text)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** The files in the presets directory; none when the manager has no such directory yet. */

@@ -1,17 +1,19 @@
 import type {
   Checkout,
   Harness,
+  InstallOptions,
   Scaffold,
   StandardsPreset,
   UniformComparison,
 } from "../ports/index.ts";
-import { STANDARDS_FILE, UNIFORM_FILES, UnknownPreset } from "../ports/index.ts";
+import { PAGES_FILE, STANDARDS_FILE, UNIFORM_FILES, UnknownPreset } from "../ports/index.ts";
 
 /** One scaffolding, as the command asked for it. */
 export interface FakeInstall {
   directory: Checkout;
   instructions: string;
   standards: string;
+  options: InstallOptions;
 }
 
 /**
@@ -85,13 +87,18 @@ export class FakeHarness implements Harness {
     directory: Checkout,
     instructions: string,
     standards: string,
+    options: InstallOptions = {},
   ): Promise<Scaffold> {
-    this.installs.push({ directory, instructions, standards });
+    this.installs.push({ directory, instructions, standards, options });
+    if (options.pages === true) {
+      this.#deployingCheckouts.add(directory);
+    }
     return {
       paths: [
         ...FakeHarness.UNIFORM_FILES,
         FakeHarness.INSTRUCTIONS_FILE,
         FakeHarness.STANDARDS_FILE,
+        ...(options.pages === true ? [PAGES_FILE] : []),
       ],
       overwritten: [...this.overwrites],
     };

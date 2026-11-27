@@ -18,6 +18,7 @@ export function parseRequest(argv: string[]): NewProjectRequest {
     options: {
       existing: { type: "boolean", default: false },
       public: { type: "boolean", default: false },
+      pages: { type: "boolean", default: false },
       standards: { type: "string" },
     },
     allowPositionals: true,
@@ -43,6 +44,7 @@ export function parseRequest(argv: string[]): NewProjectRequest {
     description,
     existing: values.existing,
     public: values.public,
+    pages: values.pages,
     ...(values.standards !== undefined && { standards: standardsPreset(values.standards) }),
   };
 }

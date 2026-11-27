@@ -54,6 +54,12 @@ export interface NewProjectRequest {
    * `docs/project-standards.md` starts as. Undefined writes the stub.
    */
   standards?: StandardsPreset;
+  /**
+   * Give the project a GitHub Pages deploy workflow and enable Pages for it,
+   * so its first push to the default branch deploys. Works with `existing`
+   * too, where the workflow is proposed with the rest of the harness.
+   */
+  pages?: boolean;
 }
 
 export type NewProjectOutcome =
@@ -140,12 +146,14 @@ export async function newProject(
   await ensureLabels(ports.host, repo);
 
   const directory = await ports.host.clone(repo);
-  await enablePagesIfDeployed(ports, repo, directory);
   const scaffold = await ports.harness.install(
     directory,
     agentInstructions({ repo, description }),
     standards,
+    { pages: request.pages ?? false },
   );
+  // After the install, so a workflow it just wrote counts as one the checkout has.
+  await enablePagesIfDeployed(ports, repo, directory);
 
   // A repo created moments ago has nothing to disturb, so its harness lands
   // where the loop will read it. A repo that predates the manager has history

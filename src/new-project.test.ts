@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { newProject } from "./new-project.ts";
-import { checkout, priority, repoSlug, standardsPreset } from "./ports/index.ts";
+import { PAGES_FILE, checkout, priority, repoSlug, standardsPreset } from "./ports/index.ts";
 import { PROJECT_LABELS } from "./project-labels.ts";
 import { FakeRepoHost, fakeNewProjectPorts } from "./testing/index.ts";
 
@@ -490,5 +490,36 @@ describe("enabling GitHub Pages", () => {
       newProject(ports, { ...IDEA, existing: true }),
       new RegExp(`enable GitHub Pages in ${PILOT}.*403`),
     );
+  });
+});
+
+describe("starting a project with --pages", () => {
+  it("asks the harness for a Pages workflow and enables Pages on the new repo", async () => {
+    const ports = fakeNewProjectPorts();
+
+    const report = await newProject(ports, { ...IDEA, pages: true });
+
+    assert.equal(ports.harness.installs[0]?.options.pages, true);
+    assert.ok(report.scaffolded.includes(PAGES_FILE));
+    assert.deepEqual(ports.host.pagesEnabled, [PILOT]);
+  });
+
+  it("also works on an existing repo", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.alreadyExists(PILOT);
+
+    await newProject(ports, { ...IDEA, existing: true, pages: true });
+
+    assert.deepEqual(ports.host.pagesEnabled, [PILOT]);
+  });
+
+  it("writes no workflow and enables nothing without it", async () => {
+    const ports = fakeNewProjectPorts();
+
+    const report = await newProject(ports, IDEA);
+
+    assert.equal(ports.harness.installs[0]?.options.pages, false);
+    assert.ok(!report.scaffolded.includes(PAGES_FILE));
+    assert.deepEqual(ports.host.pagesEnabled, []);
   });
 });

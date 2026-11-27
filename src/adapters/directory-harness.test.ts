@@ -6,7 +6,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import type { Checkout } from "../ports/index.ts";
-import { CI_FILE, STANDARDS_FILE, UNIFORM_FILES, checkout, standardsPreset } from "../ports/index.ts";
+import { CI_FILE, PAGES_FILE, STANDARDS_FILE, UNIFORM_FILES, checkout, standardsPreset } from "../ports/index.ts";
 import { NAMES_THE_MANAGER } from "../testing/names-the-manager.ts";
 import { directoryHarness } from "./directory-harness.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
@@ -374,5 +374,82 @@ describe("telling whether a checkout deploys to Pages", () => {
 
   it("is false for a checkout with no workflows", async () => {
     assert.equal(await directoryHarness().deploysToPages(await checkoutWith()), false);
+  });
+});
+
+describe("scaffolding a Pages deploy workflow", () => {
+  it("writes one that builds and deploys dist/ when asked for pages", async () => {
+    const directory = await emptyCheckout();
+
+    const scaffold = await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS, {
+      pages: true,
+    });
+
+    const workflow = await contentsOf(directory, PAGES_FILE);
+    assert.match(workflow, /uses: actions\/deploy-pages@/);
+    assert.match(workflow, /run: npm run build/);
+    assert.match(workflow, /path: dist/);
+    assert.match(workflow, /url: \$\{\{ steps\.deployment\.outputs\.page_url \}\}/);
+    assert.ok(scaffold.paths.includes(PAGES_FILE));
+    assert.equal(await directoryHarness().deploysToPages(directory), true);
+  });
+
+  it("guards every step after checkout on a package.json, so a push of the bare scaffold stays green", async () => {
+    const directory = await emptyCheckout();
+
+    await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS, { pages: true });
+
+    const workflow = await contentsOf(directory, PAGES_FILE);
+    const steps = workflow.split("\n      - ").slice(1);
+    assert.equal(steps.length, 7);
+    assert.match(steps[0] ?? "", /^uses: actions\/checkout@/);
+    for (const step of steps.slice(1)) {
+      assert.match(step, /^if: hashFiles\('package\.json'\) != ''/);
+    }
+  });
+
+  it("refuses, rather than skipping silently, a pages.yml that does not deploy", async () => {
+    const directory = await emptyCheckout();
+    await mkdir(path.join(directory, ".github", "workflows"), { recursive: true });
+    await writeFile(path.join(directory, PAGES_FILE), "name: mine\n");
+
+    await assert.rejects(
+      directoryHarness().install(directory, INSTRUCTIONS, STANDARDS, { pages: true }),
+      /already exists/,
+    );
+  });
+
+  it("writes none without pages", async () => {
+    const directory = await emptyCheckout();
+
+    const scaffold = await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS);
+
+    assert.ok(!scaffold.paths.includes(PAGES_FILE));
+    assert.equal(await directoryHarness().deploysToPages(directory), false);
+  });
+
+  it("leaves a checkout that already deploys to Pages with the workflow it has", async () => {
+    const directory = await emptyCheckout();
+    await mkdir(path.join(directory, ".github", "workflows"), { recursive: true });
+    await writeFile(
+      path.join(directory, ".github", "workflows", "site.yml"),
+      "steps:\n  - uses: actions/deploy-pages@v4\n",
+    );
+
+    const scaffold = await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS, {
+      pages: true,
+    });
+
+    assert.ok(!scaffold.paths.includes(PAGES_FILE));
+  });
+
+  it("still gives a project with no CI its CI workflow", async () => {
+    const directory = await emptyCheckout();
+
+    const scaffold = await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS, {
+      pages: true,
+    });
+
+    assert.ok(scaffold.paths.includes(CI_FILE));
   });
 });
