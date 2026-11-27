@@ -492,3 +492,34 @@ describe("enabling GitHub Pages", () => {
     );
   });
 });
+
+describe("starting a project with --pages", () => {
+  it("asks the harness for a Pages workflow and enables Pages on the new repo", async () => {
+    const ports = fakeNewProjectPorts();
+
+    const report = await newProject(ports, { ...IDEA, pages: true });
+
+    assert.equal(ports.harness.installs[0]?.options.pages, true);
+    assert.ok(report.scaffolded.includes(".github/workflows/pages.yml"));
+    assert.deepEqual(ports.host.pagesEnabled, [PILOT]);
+  });
+
+  it("also works on an existing repo", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.alreadyExists(PILOT);
+
+    await newProject(ports, { ...IDEA, existing: true, pages: true });
+
+    assert.deepEqual(ports.host.pagesEnabled, [PILOT]);
+  });
+
+  it("writes no workflow and enables nothing without it", async () => {
+    const ports = fakeNewProjectPorts();
+
+    const report = await newProject(ports, IDEA);
+
+    assert.equal(ports.harness.installs[0]?.options.pages, false);
+    assert.ok(!report.scaffolded.includes(".github/workflows/pages.yml"));
+    assert.deepEqual(ports.host.pagesEnabled, []);
+  });
+});
