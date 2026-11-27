@@ -23,6 +23,7 @@ import type {
   GrantConsent,
 } from "../ports/index.ts";
 import {
+  BUMP_TICKET_LABELS,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   SPEC_REVIEW_LABEL,
@@ -75,6 +76,12 @@ export interface FakeSpecReviewTicket {
   body: string;
   /** The spec review ticket itself, as the fake numbered it. */
   ticket: Ticket;
+}
+
+/** One bump ticket the sweep opened or rewrote, in the order the fake received it. */
+export interface FakeBumpTicket {
+  ticket: Ticket;
+  body: string;
 }
 
 /** One ticket given back to the developer, and what it was told. */
@@ -196,6 +203,11 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   readonly specReviewTickets: FakeSpecReviewTicket[] = [];
   /** The spec review tickets linked to a supertask without being opened, in link order — see {@link linkSpecReviewTicket}. */
   readonly linkedSpecReviewTickets: FakeSpecReviewTicket[] = [];
+  /** Bump tickets opened, in the order they were opened. */
+  readonly bumpTickets: FakeBumpTicket[] = [];
+  /** Tickets rewritten, in rewrite order, with the title and body each now carries. */
+  readonly rewrittenTickets: { ticket: IssueReference; title: string; body: string }[] = [];
+
   /** Tickets handed back, in the order they were handed back. */
   readonly handbacks: FakeHandback[] = [];
 
@@ -711,6 +723,33 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       body: await body(),
       ticket: { ...specReview, specReview: true },
     });
+  }
+
+  /**
+   * Opens a ticket in `repo` carrying `BUMP_TICKET_LABELS`, numbered above
+   * every ticket the repo has.
+   */
+  async createBumpTicket(repo: RepoSlug, title: string, body: string): Promise<Ticket> {
+    const numbers = (this.#issues.get(repo) ?? []).map((entry) => entry.issue.number);
+    const ticket = this.addEligibleTicket(repo, {
+      number: issueNumber(Math.max(0, ...numbers) + 1),
+      title,
+    });
+    for (const label of BUMP_TICKET_LABELS) {
+      this.addLabel(ticket, label);
+    }
+    this.bumpTickets.push({ ticket, body });
+    return ticket;
+  }
+
+  /** Retitles the open ticket `ticket` names, leaving its labels as they are. Throws where the fake holds none. */
+  async rewriteTicket(ticket: IssueReference, title: string, body: string): Promise<void> {
+    const entry = this.#find(ticket);
+    if (entry === undefined) {
+      throw new Error(`#${ticket.number} in ${ticket.repo} is not a known ticket`);
+    }
+    entry.issue.title = title;
+    this.rewrittenTickets.push({ ticket, title, body });
   }
 
   async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {

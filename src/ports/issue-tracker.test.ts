@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { releaseTag } from "./release-tag.ts";
 import { issueNumber } from "./issue-number.ts";
 import {
+  bumpTicketTitle,
+  isBumpTicketFor,
   MODEL_LABEL_PREFIX,
   READY_DISCOVERY_LABEL,
   READY_FOR_AGENT_LABEL,
@@ -873,4 +876,20 @@ describe("parseTicketReference", () => {
       assert.throws(() => parseTicketReference(text), /Not a ticket reference/);
     });
   }
+});
+
+describe("bump ticket titles", () => {
+  it("names the package and the release it asks for", () => {
+    assert.equal(bumpTicketTitle("household-ui", releaseTag("v0.5.1")), "Bump household-ui to v0.5.1");
+  });
+
+  it("recognises a bump ticket for the package whatever release it asks for", () => {
+    assert.equal(isBumpTicketFor({ title: "Bump household-ui to v0.2.0" }, "household-ui"), true);
+  });
+
+  it("does not take another package's bump ticket, or any other ticket, for it", () => {
+    assert.equal(isBumpTicketFor({ title: "Bump data-platform to v0.2.0" }, "household-ui"), false);
+    assert.equal(isBumpTicketFor({ title: "Bump household-ui to main" }, "household-ui"), false);
+    assert.equal(isBumpTicketFor({ title: "Fix household-ui" }, "household-ui"), false);
+  });
 });

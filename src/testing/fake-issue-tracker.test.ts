@@ -1148,3 +1148,36 @@ describe("FakeIssueTracker.listOpenDiscoveredTickets", () => {
     assert.deepEqual(await tracker.listOpenDiscoveredTickets({ ...ticket, number: issueNumber(99) }), []);
   });
 });
+
+describe("FakeIssueTracker bump tickets", () => {
+  it("opens a ticket born ready-for-agent, turboable and enhancement, numbered above the repo's own", async () => {
+    const tracker = new FakeIssueTracker();
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(9), title: "Existing" });
+
+    const bump = await tracker.createBumpTicket(PILOT, "Bump ui to v2.0.0", "Body");
+
+    assert.equal(bump.number, 10);
+    for (const label of [READY_FOR_AGENT_LABEL, TURBOABLE_LABEL, ENHANCEMENT_LABEL]) {
+      assert.equal(tracker.carriesLabel(bump, label), true);
+    }
+    assert.deepEqual(tracker.bumpTickets, [{ ticket: bump, body: "Body" }]);
+  });
+
+  it("rewrites a ticket's title, leaving its labels", async () => {
+    const tracker = new FakeIssueTracker();
+    const bump = await tracker.createBumpTicket(PILOT, "Bump ui to v2.0.0", "Body");
+
+    await tracker.rewriteTicket(bump, "Bump ui to v3.0.0", "Newer");
+
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    assert.equal(issues[0]?.ticket.title, "Bump ui to v3.0.0");
+    assert.equal(issues[0]?.eligible, true);
+  });
+
+  it("refuses to rewrite a ticket it does not hold", async () => {
+    await assert.rejects(
+      new FakeIssueTracker().rewriteTicket({ repo: PILOT, number: issueNumber(1) }, "t", "b"),
+      /not a known ticket/,
+    );
+  });
+});
