@@ -17,7 +17,7 @@ For every repo in `registry.json`:
   gh api graphql -f query='{repository(owner:"O",name:"R"){issue(number:N){blockedBy(first:10){nodes{number state repository{name}}}}}}'
   ```
 
-- For every repo `registry.json` marks `ui: true`, the UI changes since its last UX review. The last review is the most recently closed `ux-review` ticket (`gh issue list --repo O/R --label ux-review --state closed --json number,closedAt`). A UX review ticket ends in hand-back as `ready-for-human`, so it counts only once the developer closes it. With none closed, `<base>` is the repo's first commit (`git rev-list --max-parents=0 <default>` on a clone, or the last page of `commits`). Otherwise `<base>` is the commit on the default branch (`<default>`, from `gh repo view O/R --json defaultBranchRef`) at that ticket's `closedAt`. List and diff only the UI files (`.tsx`, `.css`, `.html`, the one set this bullet names):
+- For every repo `registry.json` marks `ui: true`, the UI changes since its last UX review and, separately, since its last design review. Each kind has its own base: the last review of a kind is the most recently closed ticket carrying its label, `ux-review` or `design-review` (`gh issue list --repo O/R --label ux-review --state closed --json number,closedAt`, and the same with `design-review`). Either kind ends in hand-back as `ready-for-human`, so it counts only once the developer closes it. Run the steps below once per kind. With none of that kind closed, `<base>` is the repo's first commit (`git rev-list --max-parents=0 <default>` on a clone, or the last page of `commits`). Otherwise `<base>` is the commit on the default branch (`<default>`, from `gh repo view O/R --json defaultBranchRef`) at that ticket's `closedAt`. List and diff only the UI files (`.tsx`, `.css`, `.html`, the one set this bullet names):
 
   ```sh
   gh api -X GET repos/O/R/commits -f sha=<default> -f until=<closedAt> -f per_page=1 --jq '.[0].sha'
@@ -45,7 +45,7 @@ Three buckets, each item a link-worthy `repo#n` with the one fact that makes it 
 
 Rounds of `AskUserQuestion`, up to four questions each, ordered by how much each answer unblocks. Every option is a concrete action with the recommended one first, marked `(Rec)`. Covers `needs-triage`, `ready-for-human` that an agent could take, discovery questions, duplicates, and housekeeping (closing read summaries). `needs-grilling` issues get offered to the `grilling` skill instead: they are trees, not one question.
 
-For each `ui: true` project with any UI-file change since its last UX review, offer a UX review: show the diff of the UI files and your summary of which screens changed, and let the developer decide. Only a UI-file change triggers an offer, so a project with none gets none. Offer none either where a `ux-review` ticket is already open.
+For each `ui: true` project with any UI-file change since its last UX review, offer a UX review: show the diff of the UI files and your summary of which screens changed, and let the developer decide. Offer a design review the same way, from the diff since its last design review; the two are separate offers, each answered on its own, though one question for the project may carry both. Only a UI-file change triggers an offer, so a project with none gets none. Offer none of a kind either where a ticket of that label is already open.
 
 Before asking, read the whole issue and verify its premise is still live. A ticket may already record its decision (a `## Decision` section), or the release it waits on may already exist; then the question dissolves into an action and is never asked.
 
@@ -56,7 +56,7 @@ When an answer is "don't understand", re-ask in plain words with the concrete in
 After each round, before the next:
 
 - Record the decision on the issue: `Decision (developer, <date>): …` carrying only the points the developer's answer covered. Everything you filled in yourself (scope, which file first, an edge case) goes under `Still assumed:` in the same comment; a blanket "do the rest" answers none of it.
-- An approved UX review is filed as a new issue in that project, naming the screens to walk, in this order: create it labelled `ux-review`; link every implementation ticket already `ready-for-agent` in that project (not itself a `ux-review`) as a blocker with the `blocked_by` call below; grant `turboable` with `npm run grant`, as below; only then add `ready-for-agent`, so the ticket is never ready while unblocked.
+- An approved UX review or design review is filed as a new issue in that project, naming the screens to walk, in this order: create it labelled `ux-review` or `design-review`; link every implementation ticket already `ready-for-agent` in that project (not itself a `ux-review` or `design-review`) as a blocker with the `blocked_by` call below; grant `turboable` with `npm run grant`, as below; only then add `ready-for-agent`, so the ticket is never ready while unblocked.
 - Relabel `needs-triage` / `ready-for-human` → `ready-for-agent` once the ticket is one seam (`docs/agents/ticket-scope.md`).
 - A decision spanning repos splits: a new ticket in the repo that owns the change, and the original narrowed and blocked by it:
 
