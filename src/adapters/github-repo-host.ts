@@ -127,20 +127,15 @@ export function githubRepoHost(
     },
 
     async readLatestRelease(repo: RepoSlug): Promise<ReleaseTag | undefined> {
-      try {
+      return undefinedIfNotFound(async () => {
         const { stdout } = await run("gh", ["api", `repos/${repo}/releases/latest`, "--jq", ".tag_name"]);
         const tag = stdout.trim();
         return isReleaseTag(tag) ? tag : undefined;
-      } catch (error) {
-        if (isNotFound(error)) {
-          return undefined;
-        }
-        throw error;
-      }
+      });
     },
 
     async readFile(repo: RepoSlug, filePath: string): Promise<string | undefined> {
-      try {
+      return undefinedIfNotFound(async () => {
         const { stdout } = await run("gh", [
           "api",
           "-H",
@@ -148,12 +143,7 @@ export function githubRepoHost(
           `repos/${repo}/contents/${filePath}`,
         ]);
         return stdout;
-      } catch (error) {
-        if (isNotFound(error)) {
-          return undefined;
-        }
-        throw error;
-      }
+      });
     },
 
     async clone(repo: RepoSlug): Promise<Checkout> {
@@ -2109,6 +2099,18 @@ function isAlreadyExists(error: unknown): boolean {
 }
 
 /** Whether `gh api` failed because what it asked for is not there: HTTP 404. */
+/** What `read` answers, or `undefined` where GitHub answers that what it reads is not there; any other failure still throws. */
+async function undefinedIfNotFound<T>(read: () => Promise<T | undefined>): Promise<T | undefined> {
+  try {
+    return await read();
+  } catch (error) {
+    if (isNotFound(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 function isNotFound(error: unknown): boolean {
   return /HTTP 404/i.test(stderrOf(error));
 }
