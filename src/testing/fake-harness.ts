@@ -70,6 +70,17 @@ export class FakeHarness implements Harness {
     return `${preset} standards`;
   }
 
+  readonly #deployingCheckouts = new Set<Checkout>();
+
+  /** Marks the checkout as carrying a workflow that deploys to Pages. */
+  deploysToPagesIn(directory: Checkout): void {
+    this.#deployingCheckouts.add(directory);
+  }
+
+  async deploysToPages(directory: Checkout): Promise<boolean> {
+    return this.#deployingCheckouts.has(directory);
+  }
+
   async install(
     directory: Checkout,
     instructions: string,

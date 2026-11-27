@@ -107,6 +107,23 @@ export function githubRepoHost(
       await createLabelUnlessPresent(repo, label.name, label.description);
     },
 
+    async enablePages(repo: RepoSlug): Promise<void> {
+      try {
+        await run("gh", [
+          "api",
+          "-X",
+          "POST",
+          `repos/${repo}/pages`,
+          "-f",
+          "build_type=workflow",
+        ]);
+      } catch (error) {
+        if (!isPagesAlreadyEnabled(error)) {
+          throw error;
+        }
+      }
+    },
+
     async clone(repo: RepoSlug): Promise<Checkout> {
       const directory = checkout(path.join(location, repo));
       await mkdir(path.dirname(directory), { recursive: true });
@@ -1483,10 +1500,7 @@ async function returnTo(
  * process wrote to its error stream instead.
  */
 function commandFailureMessage(error: unknown): string {
-  const stderr =
-    typeof error === "object" && error !== null && "stderr" in error
-      ? String(error.stderr).trim()
-      : "";
+  const stderr = stderrOf(error).trim();
   return stderr !== "" ? stderr : errorMessage(error);
 }
 
@@ -2033,10 +2047,7 @@ async function hasUpstream(directory: Checkout): Promise<boolean> {
  * apart. Callers say both in the one sentence rather than asserting the first.
  */
 function isUnresolvable(error: unknown): boolean {
-  const stderr =
-    typeof error === "object" && error !== null && "stderr" in error
-      ? String(error.stderr)
-      : "";
+  const stderr = stderrOf(error);
   return /could not resolve to a repository|HTTP 404/i.test(stderr);
 }
 
@@ -2061,9 +2072,19 @@ async function createLabelUnlessPresent(
 }
 
 function isAlreadyExists(error: unknown): boolean {
-  const stderr =
-    typeof error === "object" && error !== null && "stderr" in error
-      ? String(error.stderr)
-      : "";
+  const stderr = stderrOf(error);
   return /already exists/i.test(stderr);
+}
+
+/** Whether `gh api` failed because the repo's Pages site is already there. */
+function isPagesAlreadyEnabled(error: unknown): boolean {
+  const stderr = stderrOf(error);
+  return /GitHub Pages is already enabled/i.test(stderr);
+}
+
+/** What a failed `gh` or `git` call wrote to stderr; empty when the error carries none. */
+function stderrOf(error: unknown): string {
+  return typeof error === "object" && error !== null && "stderr" in error
+    ? String(error.stderr)
+    : "";
 }

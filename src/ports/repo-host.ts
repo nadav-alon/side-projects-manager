@@ -585,6 +585,12 @@ export interface RepoHost {
    */
   ensureLabel(repo: RepoSlug, label: ProjectLabel): Promise<void>;
   /**
+   * Enables GitHub Pages on `repo`, built by a workflow rather than from a
+   * branch. A repo whose Pages is already enabled is left as it is, settings
+   * included. Rejects on any other failure.
+   */
+  enablePages(repo: RepoSlug): Promise<void>;
+  /**
    * Ensures a checkout of `repo` in the managed location, and returns it.
    * A clone already sitting there is reused rather than replaced, which is
    * what makes a missing clone self-healing and an existing one safe.

@@ -245,6 +245,13 @@ export class FakeRepoHost implements RepoHost {
     this.labelsCreated.push({ repo, name, description });
   }
 
+  /** Every repo `enablePages` was asked to enable, in order. */
+  readonly pagesEnabled: RepoSlug[] = [];
+
+  async enablePages(repo: RepoSlug): Promise<void> {
+    this.pagesEnabled.push(repo);
+  }
+
   /** Marks `repo` as already on the host, as a project predating the manager. */
   alreadyExists(repo: RepoSlug): void {
     this.#existing.add(repo);

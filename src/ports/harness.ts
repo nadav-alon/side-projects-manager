@@ -95,6 +95,12 @@ export interface Scaffold {
  */
 export interface Harness {
   /**
+   * Whether the checkout carries a workflow that deploys to GitHub Pages: one
+   * under `.github/workflows` using `actions/deploy-pages`.
+   */
+  deploysToPages(directory: Checkout): Promise<boolean>;
+
+  /**
    * Installs the uniform files into the checkout at `directory` and writes
    * `instructions` as the project's own agent instructions and `standards` as
    * its own standards file. Neither of those two is a uniform file: each is

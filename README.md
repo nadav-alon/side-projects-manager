@@ -142,6 +142,10 @@ The repo is created private unless you pass `--public`, which a project needs wh
 has to serve on the free plan, or when a `github:<owner>/<repo>#tag` dependency has to install
 without a token.
 
+When the checkout already has a workflow using `actions/deploy-pages` (an `--existing` repo that
+deploys), it also enables GitHub Pages with build type `workflow`, so that workflow has a site to
+deploy to; a repo whose Pages is already enabled is left as it is.
+
 Pass `--standards typescript` to start the project's own rules from a preset:
 
 ```sh

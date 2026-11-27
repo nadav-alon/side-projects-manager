@@ -3097,3 +3097,35 @@ describe("listing a repo's failing workflows", () => {
     await assert.rejects(listedFrom(t, [{ event: "push", conclusion: "failure" }]), /run 1.*"workflowName"/);
   });
 });
+
+describe("enabling Pages", () => {
+  it("posts the workflow build type to the repo's pages", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await githubRepoHost().enablePages(PILOT);
+
+    assert.deepEqual(callWith(await gh.calls(), "api"), [
+      "api",
+      "-X",
+      "POST",
+      `repos/${PILOT}/pages`,
+      "-f",
+      "build_type=workflow",
+    ]);
+  });
+
+  it("resolves when Pages is already enabled", async (t) => {
+    await recordingGh(
+      t,
+      [`echo 'GitHub Pages is already enabled. (HTTP 409)' >&2`, `exit 1`].join("\n"),
+    );
+
+    await assert.doesNotReject(githubRepoHost().enablePages(PILOT));
+  });
+
+  it("rejects with gh's own error when it is refused for any other reason", async (t) => {
+    await recordingGh(t, [`echo 'HTTP 403: forbidden' >&2`, `exit 1`].join("\n"));
+
+    await assert.rejects(githubRepoHost().enablePages(PILOT), /HTTP 403/);
+  });
+});

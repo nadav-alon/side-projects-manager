@@ -78,6 +78,20 @@ jobs:
  */
 export function directoryHarness(source: string = MANAGER_HOME): Harness {
   return {
+    async deploysToPages(directory: Checkout): Promise<boolean> {
+      const workflows = path.join(directory, WORKFLOWS_DIRECTORY);
+      for (const name of await presetFiles(workflows)) {
+        if (!/\.ya?ml$/i.test(name)) {
+          continue;
+        }
+        const text = await readFile(path.join(workflows, name), "utf8");
+        if (/uses:\s*actions\/deploy-pages\b/.test(text)) {
+          return true;
+        }
+      }
+      return false;
+    },
+
     async install(
       directory: Checkout,
       instructions: string,
