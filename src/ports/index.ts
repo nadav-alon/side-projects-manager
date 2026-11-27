@@ -231,8 +231,8 @@ export type {
   ReviewFinding,
   Visibility,
 } from "./repo-host.ts";
-export { isRepoSlug, repoName, repoSlug, sameRepo } from "./repo-slug.ts";
-export type { RepoSlug } from "./repo-slug.ts";
+export { isRepoSlug, repoName, repoOwner, repoSlug, sameRepo } from "./repo-slug.ts";
+export type { RepoOwner, RepoSlug } from "./repo-slug.ts";
 export { isOlderTag, isReleaseTag, releaseTag } from "./release-tag.ts";
 export type { ReleaseTag } from "./release-tag.ts";
 export { isReserveFraction, reserveFraction } from "./reserve-fraction.ts";

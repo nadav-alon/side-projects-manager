@@ -1,4 +1,5 @@
 declare const repoSlugBrand: unique symbol;
+declare const repoOwnerBrand: unique symbol;
 
 /**
  * A GitHub repository, as `owner/repo`. The one name projects go by, in the
@@ -9,6 +10,13 @@ declare const repoSlugBrand: unique symbol;
  * checked.
  */
 export type RepoSlug = string & { readonly [repoSlugBrand]: true };
+
+/**
+ * The `owner` half of a `RepoSlug`: the account or organisation a repo
+ * belongs to. Branded, and only `repoOwner` makes one, from a slug that has
+ * already been checked.
+ */
+export type RepoOwner = string & { readonly [repoOwnerBrand]: true };
 
 /** GitHub owners: alphanumerics and single interior hyphens, up to 39 chars. */
 const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
@@ -37,6 +45,11 @@ export function isRepoSlug(value: string): value is RepoSlug {
  */
 export function repoName(repo: RepoSlug): string {
   return repo.slice(repo.indexOf("/") + 1);
+}
+
+/** The `owner` half of `owner/repo`. */
+export function repoOwner(repo: RepoSlug): RepoOwner {
+  return repo.slice(0, repo.indexOf("/")) as RepoOwner;
 }
 
 /** Narrows `value` to a `RepoSlug`, throwing if it is not shaped like one. */

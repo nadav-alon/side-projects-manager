@@ -1,4 +1,4 @@
-import { isReleaseTag, type ReleaseTag } from "./ports/index.ts";
+import { isReleaseTag, type ReleaseTag, type RepoOwner } from "./ports/index.ts";
 
 /** One dependency a `package.json` pins to a release of a GitHub repo. */
 export interface PackagePin {
@@ -14,7 +14,7 @@ export interface PackagePin {
  * pin. Text that is not a JSON object yields none: a project whose manifest
  * cannot be read pins nothing this loop can bump.
  */
-export function packagePins(packageJson: string, owner: string): PackagePin[] {
+export function packagePins(packageJson: string, owner: RepoOwner): PackagePin[] {
   let manifest: unknown;
   try {
     manifest = JSON.parse(packageJson);

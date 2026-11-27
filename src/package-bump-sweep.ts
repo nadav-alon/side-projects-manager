@@ -7,6 +7,7 @@ import {
   isBumpTicketFor,
   isOlderTag,
   repoName,
+  repoOwner,
 } from "./ports/index.ts";
 
 /** The verbs a package bump sweep calls. */
@@ -135,8 +136,7 @@ async function bumpIn(
     return undefined;
   }
   const pkg = repoName(published);
-  const owner = published.slice(0, published.indexOf("/"));
-  const pinned = packagePins(manifest, owner).find((pin) => pin.package === pkg)?.tag;
+  const pinned = packagePins(manifest, repoOwner(published)).find((pin) => pin.package === pkg)?.tag;
   if (pinned === undefined || !isOlderTag(pinned, latest)) {
     return undefined;
   }
