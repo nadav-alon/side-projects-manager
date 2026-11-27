@@ -66,8 +66,8 @@ const MANIFEST = "package.json";
  * latest release yield no outcome. A project with an open bump ticket for the
  * package that names an earlier release has that ticket rewritten instead of
  * a second one opened. The open ticket is found among the newest open issues
- * the tracker lists, so a backlog it truncated can hide one and see a second
- * opened.
+ * the tracker lists, so where it truncated the backlog and none was found, one
+ * may be hidden: that is a `refused` outcome, never a second ticket.
  *
  * Never throws: a read or a write refused for one package and project is a
  * `refused` outcome, and the sweep carries on, so one project's trouble never
@@ -137,9 +137,15 @@ async function bumpIn(
 
   const title = bumpTicketTitle(pkg, latest);
   const body = bumpTicketBody(pkg, latest, pinned);
-  const { issues } = await ports.tracker.listOpenIssues(project);
+  const { issues, truncated } = await ports.tracker.listOpenIssues(project);
   const open = issues.find((issue) => isBumpTicketFor(issue.ticket, pkg))?.ticket;
   if (open === undefined) {
+    if (truncated) {
+      return {
+        kind: "refused",
+        error: `${project}'s open issues were truncated, so an open bump ticket for ${pkg} may be hidden; not opening a second`,
+      };
+    }
     return { kind: "opened", ticket: await ports.tracker.createBumpTicket(project, title, body) };
   }
   if (open.title === title) {

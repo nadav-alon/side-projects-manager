@@ -152,4 +152,18 @@ describe("packageBumpSweep", () => {
       ],
     );
   });
+
+  it("refuses rather than opening a second ticket where a truncated backlog may hide the open one", async () => {
+    const { repoHost, tracker, ports } = arrange();
+    repoHost.setFile(CATALOGUE, "package.json", manifest({ "household-ui": "github:nadav-alon/household-ui#v0.1.0" }));
+    tracker.truncateBacklog(CATALOGUE);
+
+    const outcomes = await packageBumpSweep(ports, [UI, CATALOGUE]);
+
+    assert.deepEqual(
+      outcomes.map((o) => [o.project, o.result.kind]),
+      [[CATALOGUE, "refused"]],
+    );
+    assert.deepEqual(tracker.bumpTickets, []);
+  });
 });
