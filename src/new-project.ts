@@ -140,7 +140,7 @@ export async function newProject(
   await ensureLabels(ports.host, repo);
 
   const directory = await ports.host.clone(repo);
-  await enablePagesIfDeployed(ports.host, repo, directory);
+  await enablePagesIfDeployed(ports, repo, directory);
   const scaffold = await ports.harness.install(
     directory,
     agentInstructions({ repo, description }),
@@ -224,15 +224,15 @@ async function ensureLabels(host: RepoHost, repo: RepoSlug): Promise<void> {
  * `configure-pages` finds no site. A repo with no such workflow is left alone.
  */
 async function enablePagesIfDeployed(
-  host: RepoHost,
+  ports: Pick<NewProjectPorts, "harness" | "host">,
   repo: RepoSlug,
   directory: Checkout,
 ): Promise<void> {
-  if (!(await host.deploysToPages(directory))) {
+  if (!(await ports.harness.deploysToPages(directory))) {
     return;
   }
   try {
-    await host.enablePages(repo);
+    await ports.host.enablePages(repo);
   } catch (error) {
     throw new Error(
       `Could not enable GitHub Pages in ${repo}: ${errorMessage(error)}`,

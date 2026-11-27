@@ -585,11 +585,6 @@ export interface RepoHost {
    */
   ensureLabel(repo: RepoSlug, label: ProjectLabel): Promise<void>;
   /**
-   * Whether the checkout carries a workflow that deploys to GitHub Pages: one
-   * under `.github/workflows` using `actions/deploy-pages`.
-   */
-  deploysToPages(directory: Checkout): Promise<boolean>;
-  /**
    * Enables GitHub Pages on `repo`, built by a workflow rather than from a
    * branch. A repo whose Pages is already enabled is left as it is, settings
    * included. Rejects on any other failure.

@@ -349,3 +349,30 @@ describe("the standards a new project starts with", () => {
     }
   });
 });
+
+describe("telling whether a checkout deploys to Pages", () => {
+  async function checkoutWith(file?: string, text = ""): Promise<Checkout> {
+    const directory = await emptyCheckout();
+    if (file !== undefined) {
+      await mkdir(path.join(directory, ".github", "workflows"), { recursive: true });
+      await writeFile(path.join(directory, ".github", "workflows", file), text);
+    }
+    return directory;
+  }
+
+  it("is true for a workflow using actions/deploy-pages", async () => {
+    const directory = await checkoutWith("pages.yml", "steps:\n  - uses: actions/deploy-pages@v4\n");
+
+    assert.equal(await directoryHarness().deploysToPages(directory), true);
+  });
+
+  it("is false for a workflow that does not", async () => {
+    const directory = await checkoutWith("ci.yml", "steps:\n  - run: npm test\n");
+
+    assert.equal(await directoryHarness().deploysToPages(directory), false);
+  });
+
+  it("is false for a checkout with no workflows", async () => {
+    assert.equal(await directoryHarness().deploysToPages(await checkoutWith()), false);
+  });
+});

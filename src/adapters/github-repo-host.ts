@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readdir, readFile, realpath } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -105,26 +105,6 @@ export function githubRepoHost(
 
     async ensureLabel(repo: RepoSlug, label: ProjectLabel): Promise<void> {
       await createLabelUnlessPresent(repo, label.name, label.description);
-    },
-
-    async deploysToPages(directory: Checkout): Promise<boolean> {
-      const workflows = path.join(directory, ".github", "workflows");
-      const names = await readdir(workflows).catch((error: unknown) => {
-        if (isMissingFile(error)) {
-          return [];
-        }
-        throw error;
-      });
-      for (const name of names) {
-        if (!/\.ya?ml$/i.test(name)) {
-          continue;
-        }
-        const text = await readFile(path.join(workflows, name), "utf8");
-        if (/uses:\s*actions\/deploy-pages\b/.test(text)) {
-          return true;
-        }
-      }
-      return false;
     },
 
     async enablePages(repo: RepoSlug): Promise<void> {
@@ -1520,10 +1500,7 @@ async function returnTo(
  * process wrote to its error stream instead.
  */
 function commandFailureMessage(error: unknown): string {
-  const stderr =
-    typeof error === "object" && error !== null && "stderr" in error
-      ? String(error.stderr).trim()
-      : "";
+  const stderr = stderrOf(error).trim();
   return stderr !== "" ? stderr : errorMessage(error);
 }
 
@@ -2070,10 +2047,7 @@ async function hasUpstream(directory: Checkout): Promise<boolean> {
  * apart. Callers say both in the one sentence rather than asserting the first.
  */
 function isUnresolvable(error: unknown): boolean {
-  const stderr =
-    typeof error === "object" && error !== null && "stderr" in error
-      ? String(error.stderr)
-      : "";
+  const stderr = stderrOf(error);
   return /could not resolve to a repository|HTTP 404/i.test(stderr);
 }
 
@@ -2098,28 +2072,19 @@ async function createLabelUnlessPresent(
 }
 
 function isAlreadyExists(error: unknown): boolean {
-  const stderr =
-    typeof error === "object" && error !== null && "stderr" in error
-      ? String(error.stderr)
-      : "";
+  const stderr = stderrOf(error);
   return /already exists/i.test(stderr);
 }
 
 /** Whether `gh api` failed because the repo's Pages site is already there. */
 function isPagesAlreadyEnabled(error: unknown): boolean {
-  const stderr =
-    typeof error === "object" && error !== null && "stderr" in error
-      ? String(error.stderr)
-      : "";
-  return /HTTP 409|already exists/i.test(stderr);
+  const stderr = stderrOf(error);
+  return /GitHub Pages is already enabled/i.test(stderr);
 }
 
-/** Whether a filesystem call failed because the path is not there. */
-function isMissingFile(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "ENOENT"
-  );
+/** What a failed `gh` or `git` call wrote to stderr; empty when the error carries none. */
+function stderrOf(error: unknown): string {
+  return typeof error === "object" && error !== null && "stderr" in error
+    ? String(error.stderr)
+    : "";
 }

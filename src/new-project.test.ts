@@ -462,9 +462,10 @@ describe("giving the project its labels", () => {
 describe("enabling GitHub Pages", () => {
   it("enables it on a repo whose checkout deploys to Pages", async () => {
     const ports = fakeNewProjectPorts();
-    ports.host.deploysToPagesIn(checkout(PILOT_CHECKOUT));
+    ports.host.alreadyExists(PILOT);
+    ports.harness.deploysToPagesIn(checkout(PILOT_CHECKOUT));
 
-    await newProject(ports, IDEA);
+    await newProject(ports, { ...IDEA, existing: true });
 
     assert.deepEqual(ports.host.pagesEnabled, [PILOT]);
   });
@@ -479,11 +480,15 @@ describe("enabling GitHub Pages", () => {
 
   it("fails naming the repo when Pages cannot be enabled", async () => {
     const ports = fakeNewProjectPorts();
-    ports.host.deploysToPagesIn(checkout(PILOT_CHECKOUT));
+    ports.host.alreadyExists(PILOT);
+    ports.harness.deploysToPagesIn(checkout(PILOT_CHECKOUT));
     ports.host.enablePages = async () => {
       throw new Error("HTTP 403");
     };
 
-    await assert.rejects(newProject(ports, IDEA), /enable GitHub Pages in nadav-alon\/pilot.*403/);
+    await assert.rejects(
+      newProject(ports, { ...IDEA, existing: true }),
+      new RegExp(`enable GitHub Pages in ${PILOT}.*403`),
+    );
   });
 });
