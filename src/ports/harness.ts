@@ -7,6 +7,9 @@ export const STANDARDS_FILE = "docs/project-standards.md";
 /** Where a new project's CI goes. Written once, like the standards: the project owns its checks. */
 export const CI_FILE = ".github/workflows/ci.yml";
 
+/** Where a `--pages` project's deploy workflow goes. Written once: the project owns it afterwards. */
+export const PAGES_FILE = ".github/workflows/pages.yml";
+
 /** A `--standards` name that has no preset file, naming the ones that do. */
 export class UnknownPreset extends Error {
   constructor(preset: string, names: readonly string[]) {
@@ -68,6 +71,11 @@ export function uniformFilesAmong(changed: Iterable<string>): string[] {
 export type UniformComparison = "current" | "earlier" | "different";
 
 /** What one scaffolding put into a checkout. */
+export interface InstallOptions {
+  /** Give the project a GitHub Pages deploy workflow. */
+  pages?: boolean;
+}
+
 export interface Scaffold {
   /** Every path written, relative to the checkout, in the order written. */
   paths: string[];
@@ -105,8 +113,17 @@ export interface Harness {
    * `instructions` as the project's own agent instructions and `standards` as
    * its own standards file. Neither of those two is a uniform file: each is
    * written only when the checkout has none, and is the project's from then on.
+   *
+   * With `pages`, a workflow that builds with `npm run build` and deploys
+   * `dist/` to GitHub Pages is written too, unless the checkout already has
+   * one deploying to Pages.
    */
-  install(directory: Checkout, instructions: string, standards: string): Promise<Scaffold>;
+  install(
+    directory: Checkout,
+    instructions: string,
+    standards: string,
+    options?: InstallOptions,
+  ): Promise<Scaffold>;
 
   /**
    * The text a new project's `docs/project-standards.md` starts as: the stub
