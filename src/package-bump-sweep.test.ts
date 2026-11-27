@@ -39,7 +39,7 @@ describe("packageBumpSweep", () => {
     const outcomes = await packageBumpSweep(ports, [UI, DATA, CATALOGUE, RECIPES]);
 
     assert.deepEqual(
-      outcomes.map((o) => [o.package, o.project, o.result.kind]),
+      outcomes.map((o) => [o.publisher, o.project, o.result.kind]),
       [
         [UI, CATALOGUE, "opened"],
         [DATA, RECIPES, "opened"],

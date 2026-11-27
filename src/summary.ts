@@ -1252,7 +1252,7 @@ function uniformSyncSweepSection(
 /** What one package bump outcome says happened, worded for either the aside or the body. */
 function packageBumpPhrase(outcome: PackageBumpOutcome): string {
   const { result } = outcome;
-  const pkg = repoName(outcome.package);
+  const pkg = repoName(outcome.publisher);
   switch (result.kind) {
     case "opened":
       return `opened ${ticketReference(result.ticket)} to bump ${pkg}`;

@@ -43,11 +43,11 @@ export type PackageBumpResult = PackageBumpOpened | PackageBumpUpdated | Package
 
 /**
  * One package's release, one project's pin of it, and what the sweep did.
- * `package` is the registered project that publishes the release and
+ * `publisher` is the registered project that publishes the release and
  * `project` the one pinning it.
  */
 export interface PackageBumpOutcome {
-  package: RepoSlug;
+  publisher: RepoSlug;
   project: RepoSlug;
   result: PackageBumpResult;
 }
@@ -94,7 +94,7 @@ export async function packageBumpSweep(
       latest = await ports.repoHost.readLatestRelease(published);
     } catch (error) {
       outcomes.push({
-        package: published,
+        publisher: published,
         project: published,
         result: { kind: "refused", error: errorMessage(error) },
       });
@@ -110,11 +110,11 @@ export async function packageBumpSweep(
       try {
         const result = await bumpIn(ports, await manifestOf(project), published, project, latest);
         if (result !== undefined) {
-          outcomes.push({ package: published, project, result });
+          outcomes.push({ publisher: published, project, result });
         }
       } catch (error) {
         outcomes.push({
-          package: published,
+          publisher: published,
           project,
           result: { kind: "refused", error: errorMessage(error) },
         });

@@ -3679,9 +3679,9 @@ describe("the package bump sweep in the summary", () => {
       {
         ...facts([]),
         packageBumpSweeps: [
-          { package: UI, project: REPO, result: { kind: "opened", ticket } },
-          { package: UI, project: REPO, result: { kind: "updated", ticket } },
-          { package: UI, project: REPO, result: { kind: "refused", error: "HTTP 403." } },
+          { publisher: UI, project: REPO, result: { kind: "opened", ticket } },
+          { publisher: UI, project: REPO, result: { kind: "updated", ticket } },
+          { publisher: UI, project: REPO, result: { kind: "refused", error: "HTTP 403." } },
         ],
       },
       "line",
