@@ -413,9 +413,9 @@ function isNotFound(error: unknown): boolean {
 }
 
 /**
- * `{ "projects": [{ "repo": "owner/repo", "paused": true, "turbo": true, "priority": 1, "manager": true }] }`
+ * `{ "projects": [{ "repo": "owner/repo", "paused": true, "turbo": true, "priority": 1, "manager": true, "ui": true }] }`
  *
- * `paused`, `turbo`, `priority` and `manager` are optional: a project is
+ * `paused`, `turbo`, `priority`, `manager` and `ui` are optional: a project is
  * registered active, without standing consent to apply its own reviews,
  * without an explicit priority, and not the manager's own repo, unless the
  * developer says otherwise.
@@ -461,9 +461,15 @@ function parseRegistry(
       throw new Error(`${where}: "manager" must be true, or omitted.`);
     }
 
+    const ui = fieldOf(entry, "ui", where);
+    if (ui !== undefined && ui !== true) {
+      throw new Error(`${where}: "ui" must be true, or omitted.`);
+    }
+
     const mounts = mountsField(entry, where);
     const extras = {
       ...(manager === true && { manager: true as const }),
+      ...(ui === true && { ui: true as const }),
       ...(mounts !== undefined && { mounts }),
     };
 
@@ -1169,6 +1175,7 @@ function formatRegistry(projects: RegisteredProject[]): string {
     ...(project.turbo && { turbo: true }),
     ...(project.priority !== undefined && { priority: project.priority }),
     ...(project.manager === true && { manager: true }),
+    ...(project.ui === true && { ui: true }),
     ...(project.mounts !== undefined && { mounts: project.mounts }),
   }));
 
