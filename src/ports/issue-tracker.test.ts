@@ -9,6 +9,7 @@ import {
   SIZE_LABEL_PREFIX,
   SPEC_REVIEW_LABEL,
   UX_REVIEW_LABEL,
+  DESIGN_REVIEW_LABEL,
   SUPERTASK_LABEL,
   LIVE_WRITE_LABEL,
   TURBOABLE_LABEL,
@@ -17,6 +18,8 @@ import {
   carriesReadyForAgent,
   carriesSpecReviewLabel,
   carriesUxReviewLabel,
+  carriesDesignReviewLabel,
+  isDesignReviewTicket,
   carriesSupertaskLabel,
   declaredSize,
   grantConsentAt,
@@ -333,6 +336,40 @@ describe("ticketKind", () => {
     };
 
     assert.equal(ticketKind(ticket), "review");
+  });
+});
+
+describe("design review tickets", () => {
+  const base = { repo: PILOT, number: issueNumber(19), title: "Review the design" };
+
+  it("reads a ticket naming no pull request but carrying the design-review label as a design review", () => {
+    assert.equal(ticketKind({ ...base, designReview: true }), "design-review");
+  });
+
+  it("prefers every other kind over the design-review label", () => {
+    assert.equal(ticketKind({ ...base, designReview: true, uxReview: true }), "ux-review");
+    assert.equal(ticketKind({ ...base, designReview: true, specReview: true }), "spec-review");
+    assert.equal(
+      ticketKind({
+        ...base,
+        designReview: true,
+        pullRequest: { kind: "review", url: PULL_REQUEST },
+      }),
+      "review",
+    );
+  });
+
+  it("is a design review only with the fact and none of the kinds that outrank it", () => {
+    assert.equal(isDesignReviewTicket({ ...base, designReview: true }), true);
+    assert.equal(isDesignReviewTicket(base), false);
+    assert.equal(isDesignReviewTicket({ ...base, designReview: true, uxReview: true }), false);
+    assert.equal(isDesignReviewTicket({ ...base, designReview: true, specReview: true }), false);
+  });
+
+  it("finds the label among others, whatever its case", () => {
+    assert.equal(carriesDesignReviewLabel(["bug", DESIGN_REVIEW_LABEL]), true);
+    assert.equal(carriesDesignReviewLabel(["Design-Review"]), true);
+    assert.equal(carriesDesignReviewLabel(["ux-review"]), false);
   });
 });
 

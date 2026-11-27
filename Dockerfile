@@ -45,7 +45,7 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cac
 # Playwright MCP server that speaks to it. It lives in this one shared image
 # rather than a second one because this image is the base every run's image is
 # layered on (one to build, verify and keep in step with the checkout), and
-# only a run that enables the server (`ux-review`) ever starts the browser —
+# only a run that enables the server (`ux-review`, `design-review`) ever starts the browser —
 # for every other run it is dead weight on disk, never a process.
 #
 # Version is a build argument for the reason CLAUDE_CODE_VERSION's is: an
@@ -127,6 +127,10 @@ COPY --chown=node:node .claude/skills/rebase-pr/SKILL.md $HOME/.claude/skills/re
 # The skill for a run that reviews how a project's app feels in a browser. Same
 # reasoning as apply-pr-review above.
 COPY --chown=node:node .claude/skills/ux-review/SKILL.md $HOME/.claude/skills/ux-review/SKILL.md
+
+# The skill for a run that judges a project's visual design against Material 3
+# in a browser. Same reasoning as apply-pr-review above.
+COPY --chown=node:node .claude/skills/design-review/SKILL.md $HOME/.claude/skills/design-review/SKILL.md
 
 # A run's whole product is commits, and git refuses to make one without an
 # identity. Set in the image rather than per run, so every run's commits are

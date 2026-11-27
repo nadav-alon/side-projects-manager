@@ -51,6 +51,7 @@ import {
   type Reviewed,
   type SpecReviewed,
   type UxReviewed,
+  type DesignReviewed,
 } from "./iteration-outcome.ts";
 import { modelProblem } from "./model-resolution.ts";
 import { sizeProblem } from "./size-resolution.ts";
@@ -71,6 +72,7 @@ import type {
   Salvaged,
   SpecReviewTicket,
   UxReviewTicket,
+  DesignReviewTicket,
   Ticket,
   TokenCount,
   TranscriptPath,
@@ -698,6 +700,7 @@ function landedSomething(iteration: IterationOutcome): boolean {
     case "rebased":
     case "spec-reviewed":
     case "ux-reviewed":
+    case "design-reviewed":
     case "pull-request-resolved":
     case "budget-exhausted":
     case "discovery-blocked":
@@ -864,6 +867,7 @@ export function discoveryReportOf(iteration: Iteration): DiscoveryReport | undef
     case "rebased":
     case "spec-reviewed":
     case "ux-reviewed":
+    case "design-reviewed":
     case "limit-refused":
     case "provider-failed":
       return iteration.discoveryReport;
@@ -1471,6 +1475,7 @@ function waitingSection(
         return [rebasedWaitingLine(iteration)];
       case "spec-reviewed":
       case "ux-reviewed":
+      case "design-reviewed":
         return reportedReviewWaitingLine(iteration);
       // Closed outright, so nothing here waits on the developer — unless the
       // close itself failed, which leaves the ticket eligible and waiting the
@@ -1836,6 +1841,7 @@ function describeIteration(iteration: IterationOutcome): string {
       return `${rebasedSummary(iteration)}${transcriptNote(iteration.rebase?.transcript)}`;
     case "spec-reviewed":
     case "ux-reviewed":
+    case "design-reviewed":
       return `${reportedReviewSummary(iteration)}${transcriptNote(iteration.review.transcript)}`;
     case "pull-request-resolved":
       return pullRequestResolvedSummary(iteration);
@@ -2323,17 +2329,18 @@ function rebasedWaitingLine(iteration: RebasedIteration): string {
   }
 }
 
-/** A spec review or ux review iteration, with the ticket it worked. */
+/** A spec review, ux review or design review iteration, with the ticket it worked. */
 type ReportedReviewIteration =
   | (Attempt<SpecReviewTicket> & SpecReviewed)
-  | (Attempt<UxReviewTicket> & UxReviewed);
+  | (Attempt<UxReviewTicket> & UxReviewed)
+  | (Attempt<DesignReviewTicket> & DesignReviewed);
 
 /**
- * How a spec review or ux review ticket's iteration reads to the developer:
+ * How a spec review, ux review or design review ticket's iteration reads to the developer:
  * that it ran and reported. Unlike a review, apply-review or rebase ticket's
- * own success, neither closes its ticket — its findings are the hand-back
- * comment itself, per CONTEXT.md's "Spec review ticket" and "UX review
- * ticket" — so this names only that it ran, plus whatever `handedBackNow` says
+ * own success, none closes its ticket — its findings are the hand-back
+ * comment itself, per CONTEXT.md's "Spec review ticket", "UX review
+ * ticket" and "Design review ticket" — so this names only that it ran, plus whatever `handedBackNow` says
  * when the hand-back itself was refused.
  */
 function reportedReviewSummary(iteration: ReportedReviewIteration): string {
@@ -2342,12 +2349,16 @@ function reportedReviewSummary(iteration: ReportedReviewIteration): string {
     handedBack.outcome === "refused"
       ? ` ${handedBackNow(ticketReference(ticket), handedBack)}`
       : "";
-  const verb = iteration.kind === "spec-reviewed" ? "Spec-reviewed" : "UX-reviewed";
+  const verb = {
+    "spec-reviewed": "Spec-reviewed",
+    "ux-reviewed": "UX-reviewed",
+    "design-reviewed": "Design-reviewed",
+  }[iteration.kind];
   return `${verb} ${repo}#${ticket.number}: its findings are on the ticket.${now}`;
 }
 
 /**
- * The Waiting-on-you line for a spec review or ux review iteration: relabelled for a
+ * The Waiting-on-you line for a spec review, ux review or design review iteration: relabelled for a
  * human with its findings on the ticket, or still eligible when the
  * hand-back itself failed. Nothing when an overlapping run had already
  * closed the ticket — left exactly as it found it.

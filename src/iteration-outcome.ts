@@ -30,6 +30,7 @@ import type {
   TokenCount,
   TranscriptPath,
   UxReviewTicket,
+  DesignReviewTicket,
 } from "./ports/index.ts";
 
 /**
@@ -215,6 +216,7 @@ export type Iteration =
   | Rebased
   | SpecReviewed
   | UxReviewed
+  | DesignReviewed
   | PullRequestResolved
   | LimitRefused
   | ProviderFailed
@@ -577,6 +579,7 @@ export type IterationOutcome =
   | (Attempt<RebaseTicket> & Rebased)
   | (Attempt<SpecReviewTicket> & SpecReviewed)
   | (Attempt<UxReviewTicket> & UxReviewed)
+  | (Attempt<DesignReviewTicket> & DesignReviewed)
   | (Attempt<PullRequestTicket> & PullRequestResolved)
   | (Attempt & LimitRefused)
   | (Attempt & ProviderFailed)
@@ -964,6 +967,23 @@ export interface UxReviewed {
 }
 
 /**
+ * A design review ticket's own run that finished without the agent giving up.
+ * Ends in hand-back exactly as `UxReviewed` does, per CONTEXT.md's "Design
+ * review ticket": `review`'s own output is the comment, and the ticket never
+ * closes. A run that gave up is `Failed` instead.
+ */
+export interface DesignReviewed {
+  kind: "design-reviewed";
+  review: ReviewFinished;
+  /** As `SpecReviewed.tokensUsed`. */
+  tokensUsed: TokenCount;
+  /** What became of the ticket's own hand-back. */
+  handedBack: HandBackRecord;
+  /** As `Finished.discoveryReport`. */
+  discoveryReport?: DiscoveryReport;
+}
+
+/**
  * An iteration whose run filed a correction or a prerequisite — a blocking
  * discovery, per CONTEXT.md's "Discovery" and "Hand back". The run's own
  * ticket is handed back exactly as a gave-up run's is, whatever the agent
@@ -1057,6 +1077,7 @@ export function handedBackAheadOfGate(iteration: Iteration): boolean {
     case "rebased":
     case "spec-reviewed":
     case "ux-reviewed":
+    case "design-reviewed":
     case "pull-request-resolved":
     case "limit-refused":
     case "provider-failed":
@@ -1103,6 +1124,7 @@ export function countsAsWork(iteration: Iteration): boolean {
     case "rebased":
     case "spec-reviewed":
     case "ux-reviewed":
+    case "design-reviewed":
     case "pull-request-resolved":
     case "provider-failed":
     case "budget-exhausted":
@@ -1134,6 +1156,7 @@ export function ranNothing(iteration: Iteration): boolean {
     case "reviewed":
     case "spec-reviewed":
     case "ux-reviewed":
+    case "design-reviewed":
     case "limit-refused":
     case "provider-failed":
     case "budget-exhausted":
@@ -1164,6 +1187,7 @@ export function failedOnInfrastructure(iteration: Iteration): boolean {
     case "rebased":
     case "spec-reviewed":
     case "ux-reviewed":
+    case "design-reviewed":
     case "pull-request-resolved":
     case "limit-refused":
     case "provider-failed":
@@ -1181,7 +1205,7 @@ export function failedOnInfrastructure(iteration: Iteration): boolean {
  *
  * An infrastructure failure, a limit refusal or a provider failure says
  * nothing about the ticket at all, so it always frees it. A finished, a
- * spec-reviewed, a ux-reviewed, a discovery-blocked or a failed run frees it exactly when
+ * spec-reviewed, a ux-reviewed, a design-reviewed, a discovery-blocked or a failed run frees it exactly when
  * its own hand-back landed — `"handed-back"` or `"already-closed"` — and
  * leaves it recorded when the tracker refused the call. A review, an
  * apply-review, a rebase or a resolved pull request frees it exactly when it
@@ -1203,6 +1227,7 @@ export function freesTicketToday(iteration: Iteration): boolean {
     case "finished":
     case "spec-reviewed":
     case "ux-reviewed":
+    case "design-reviewed":
     case "discovery-blocked":
       return iteration.handedBack.outcome !== "refused";
     case "failed":

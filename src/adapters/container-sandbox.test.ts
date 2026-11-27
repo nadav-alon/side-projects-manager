@@ -79,6 +79,7 @@ import {
   type SpecReviewTicket,
   type Ticket,
   type UxReviewTicket,
+  type DesignReviewTicket,
 } from "../ports/index.ts";
 import {
   AGENT_BRIEF_BODY,
@@ -183,6 +184,13 @@ const UX_REVIEW_TICKET: UxReviewTicket = {
   number: issueNumber(51),
   title: "Review how the app feels",
   uxReview: true,
+};
+
+const DESIGN_REVIEW_TICKET: DesignReviewTicket = {
+  repo: repoSlug("nadav-alon/pilot"),
+  number: issueNumber(52),
+  title: "Review how the app looks",
+  designReview: true,
 };
 
 const BRANCH = "issue-7-run-a-ticket-in-the-sandbox";
@@ -3907,6 +3915,81 @@ describe("containerSandbox.uxReview", () => {
   });
 });
 
+describe("containerSandbox.designReview", () => {
+  it("mounts a clone of its own writable, credentialled as a review, with a browser", async () => {
+    const directory = await project();
+    const seen: string[] = [];
+    const options: { mount?: Mount; credential?: Credential; playwrightMcp?: true }[] = [];
+    const sandbox = testSandbox(async ({ directory: mounted, mount, credential, playwrightMcp }) => {
+      seen.push(mounted);
+      options.push({ mount, credential, ...(playwrightMcp && { playwrightMcp }) });
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.designReview({
+      image: TEST_IMAGE,
+      ticket: DESIGN_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(seen.length, 1);
+    assert.notEqual(seen[0], directory);
+    assert.deepEqual(options, [{ mount: "rw", credential: "review", playwrightMcp: true }]);
+  });
+
+  it("invokes the design-review skill on the ticket, forbids committing, and gives the discovery instructions", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.designReview({
+      image: TEST_IMAGE,
+      ticket: DESIGN_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.ok(
+      asked.startsWith(
+        `/design-review https://github.com/nadav-alon/pilot/issues/${DESIGN_REVIEW_TICKET.number}`,
+      ),
+    );
+    assert.match(asked, /do not commit or push/);
+    assert.match(asked, /unattended/);
+    assertDiscoveryInstructions(asked);
+  });
+
+  it("passes the model along and hands the agent's own output back, leaving the checkout as it was", async () => {
+    const directory = await project();
+    const before = (await run("git", ["-C", directory, "branch", "--list"])).stdout;
+    let seenModel: string | undefined;
+    const sandbox = testSandbox(async ({ directory: mounted, model }) => {
+      seenModel = model;
+      await writeFile(path.join(mounted, "scratch.txt"), "built here\n");
+      return { output: "The type scale skips a role.", tokensUsed: tokenCount(3) };
+    });
+
+    const result = await sandbox.designReview({
+      image: TEST_IMAGE,
+      ticket: DESIGN_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("fable"),
+    });
+
+    assert.equal(seenModel, "fable");
+    assert.equal(result.kind, "finished");
+    assert.equal(variant(result, "finished")?.output, "The type scale skips a role.");
+    assert.equal((await run("git", ["-C", directory, "branch", "--list"])).stdout, before);
+    assert.equal(await exists(path.join(directory, "scratch.txt")), false);
+  });
+
+});
+
 describe("containerSandbox.applyReview", () => {
   const checkoutStates = {
     "detached at a commit off the default branch": async (directory: Checkout) => {
@@ -7324,12 +7407,13 @@ describe("containerSandbox's prompts for the issues already discovered", () => {
 describe("containerSandbox's project image", () => {
   const PROJECT_IMAGE = imageTag("side-projects-sandbox:nadav-alon-pilot");
 
-  /** The six kinds, each as a call that needs only a checkout. */
+  /** The seven kinds, each as a call that needs only a checkout. */
   const KINDS: [string, (sandbox: Sandbox, directory: Checkout, image: ImageTag) => Promise<unknown>][] = [
     ["run", (sandbox, checkout, image) => sandbox.run({ ticket: TICKET, checkout, spendCeiling: CEILING, image })],
     ["review", (sandbox, checkout, image) => sandbox.review({ ticket: REVIEW_TICKET, checkout, spendCeiling: CEILING, image })],
     ["spec-review", (sandbox, checkout, image) => sandbox.specReview({ ticket: SPEC_REVIEW_TICKET, checkout, spendCeiling: CEILING, image })],
     ["ux-review", (sandbox, checkout, image) => sandbox.uxReview({ ticket: UX_REVIEW_TICKET, checkout, spendCeiling: CEILING, image })],
+    ["design-review", (sandbox, checkout, image) => sandbox.designReview({ ticket: DESIGN_REVIEW_TICKET, checkout, spendCeiling: CEILING, image })],
     ["apply-review", applyReviewOn],
     ["rebase", rebaseOn],
   ];

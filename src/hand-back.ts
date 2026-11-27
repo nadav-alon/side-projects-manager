@@ -131,6 +131,7 @@ type GaveUpContext =
   | { ticketKind: "review"; output: string; transcript?: TranscriptPath }
   | { ticketKind: "spec-review"; output: string; transcript?: TranscriptPath }
   | { ticketKind: "ux-review"; output: string; transcript?: TranscriptPath }
+  | { ticketKind: "design-review"; output: string; transcript?: TranscriptPath }
   | {
       ticketKind: "apply-review";
       output: string;
@@ -176,7 +177,7 @@ type UniformFilesTouchedContext =
  * settled, a finished run's handover failed part way, or a run finished, with
  * or without a handover.
  *
- * Every kind but `"finished"`, `"spec-review-finished"` and `"ux-review-finished"` is
+ * Every kind but `"finished"`, `"spec-review-finished"`, `"ux-review-finished"` and `"design-review-finished"` is
  * exactly the `RunFailure` its own iteration is built from, plus only what
  * the comment needs beyond `reason` — never a second description of the same
  * failure a caller has to keep in step with the one it builds for
@@ -202,6 +203,7 @@ export type HandBackEnding =
   | { kind: "finished"; run: RunFinished; handover?: Handover }
   | { kind: "spec-review-finished"; output: string; transcript?: TranscriptPath }
   | { kind: "ux-review-finished"; output: string; transcript?: TranscriptPath }
+  | { kind: "design-review-finished"; output: string; transcript?: TranscriptPath }
   | {
       kind: "discovery-blocked";
       /** The correction and/or prerequisite discoveries that stopped this ticket's run from finishing normally, in the order the agent filed them. */
@@ -350,6 +352,8 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
       return findingsComment("spec review", ending);
     case "ux-review-finished":
       return findingsComment("ux review", ending);
+    case "design-review-finished":
+      return findingsComment("design review", ending);
     case "discovery-blocked":
       return discoveryBlockedComment(ticket, ending, discard);
   }
@@ -364,6 +368,7 @@ function gaveUpCommentFor(ending: GaveUp & GaveUpContext, discard: Discard): str
       case "review":
       case "spec-review":
       case "ux-review":
+      case "design-review":
         return [[], ending.transcript];
       case "apply-review":
         // A pull request is marked ready for review only once every thread on
@@ -551,7 +556,7 @@ function handoverComment(pullRequest: PullRequestUrl, reviewTicket: Ticket): str
  * ticket" and "UX review ticket".
  */
 function findingsComment(
-  kind: "spec review" | "ux review",
+  kind: "spec review" | "ux review" | "design review",
   ending: { output: string; transcript?: TranscriptPath },
 ): string {
   if (ending.output.trim() === "") {

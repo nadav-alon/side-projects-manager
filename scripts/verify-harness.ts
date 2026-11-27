@@ -101,8 +101,15 @@ const REBASE_SKILL = "rebase-pr";
  */
 const UX_REVIEW_SKILL = "ux-review";
 
+/**
+ * The skill for a run that judges a project's visual design against Material 3
+ * in a browser, copied into the same personal-skill directory for the same
+ * reason as APPLY_REVIEW_SKILL above (`/design-review <ticket>`).
+ */
+const DESIGN_REVIEW_SKILL = "design-review";
+
 /** Every skill copied into the personal-skill directory rather than shipped by a plugin. */
-const PERSONAL_SKILLS = [APPLY_REVIEW_SKILL, REBASE_SKILL, UX_REVIEW_SKILL];
+const PERSONAL_SKILLS = [APPLY_REVIEW_SKILL, REBASE_SKILL, UX_REVIEW_SKILL, DESIGN_REVIEW_SKILL];
 
 /**
  * Skill names as `claude plugin details` prints them: `Skills (25)  a, b, c`.

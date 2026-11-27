@@ -320,6 +320,10 @@ export interface PullRequestBinding {
  * review: whether the ticket carries the ux-review label, read only where
  * `pullRequest` is absent. Absent, never `false`, where it carries none.
  *
+ * `designReview` is the fact `isDesignReviewTicket` reads, as `uxReview` is for a
+ * ux review: whether the ticket carries the design-review label, read only where
+ * `pullRequest` is absent. Absent, never `false`, where it carries none.
+ *
  * `openBlockers` is the fact `isBlocked` reads: how many of the tickets
  * marked as blocking this one are still open, from that same listing. Absent
  * or zero means nothing open blocks it.
@@ -352,6 +356,7 @@ export interface Ticket {
   supertask?: true;
   specReview?: true;
   uxReview?: true;
+  designReview?: true;
   openBlockers?: number;
   modelLabel?: ModelLabel;
   priority?: TicketPriority;
@@ -595,6 +600,20 @@ export function carriesUxReviewLabel(labels: Iterable<string>): boolean {
 }
 
 /**
+ * The label that declares a ticket a design review, per `CONTEXT.md`'s "Design
+ * review ticket". The one place the literal lives; every adapter reads it from here.
+ */
+export const DESIGN_REVIEW_LABEL = "design-review";
+
+/**
+ * Whether `labels` include the design-review label. Beside the port so the real
+ * tracker and the fake read it alike.
+ */
+export function carriesDesignReviewLabel(labels: Iterable<string>): boolean {
+  return carriesLabel(labels, DESIGN_REVIEW_LABEL);
+}
+
+/**
  * The label that marks a ticket as born from a ready discovery, per
  * `CONTEXT.md`'s "Ready discovery": what the chain guard reads to tell that
  * a ticket's own run declaring another discovery ready is one hop into a
@@ -818,6 +837,14 @@ export type UxReviewTicket = Ticket & {
   uxReview: true;
 };
 
+/** A ticket narrowed to the design review kind, once `isDesignReviewTicket` has said so. */
+export type DesignReviewTicket = Ticket & {
+  pullRequest?: undefined;
+  specReview?: undefined;
+  uxReview?: undefined;
+  designReview: true;
+};
+
 /** Whether `ticket` is a review ticket. */
 export function isReviewTicket(ticket: Ticket): ticket is ReviewTicket {
   return ticket.pullRequest?.kind === "review";
@@ -867,6 +894,22 @@ export function isUxReviewTicket(ticket: Ticket): ticket is UxReviewTicket {
 }
 
 /**
+ * Whether `ticket` is a design review ticket: bound to no pull request,
+ * carrying the design-review label and neither the spec review label nor the
+ * ux-review one, which win in that order where a ticket carries several.
+ */
+export function isDesignReviewTicket(
+  ticket: Ticket,
+): ticket is DesignReviewTicket {
+  return (
+    ticket.pullRequest === undefined &&
+    ticket.specReview !== true &&
+    ticket.uxReview !== true &&
+    ticket.designReview === true
+  );
+}
+
+/**
  * The size `ticket` itself declares, or `undefined` where it names none: an
  * unsized ticket, or any pull request ticket, which never inherits its
  * parent's size, per `CONTEXT.md`'s "Size label". Resolved once here so the
@@ -887,11 +930,12 @@ export const TICKET_KINDS = [
   "rebase",
   "spec-review",
   "ux-review",
+  "design-review",
 ] as const;
 
 export type TicketKind = (typeof TICKET_KINDS)[number];
 
-/** Whether `value` is one of the six ticket kinds. */
+/** Whether `value` is one of the seven ticket kinds. */
 export function isTicketKind(value: string): value is TicketKind {
   return (TICKET_KINDS as readonly string[]).includes(value);
 }
@@ -899,7 +943,8 @@ export function isTicketKind(value: string): value is TicketKind {
 /**
  * Which kind `ticket` is, decided in order: its pull request binding's kind,
  * else a spec review where it carries the spec review label, else a ux review
- * where it carries the ux-review label, else an implementation.
+ * where it carries the ux-review label, else a design review where it carries
+ * the design-review label, else an implementation.
  */
 export function ticketKind<T extends Ticket>(
   ticket: T,
@@ -913,7 +958,9 @@ export function ticketKind<T extends Ticket>(
         ? "spec-review"
         : T extends UxReviewTicket
           ? "ux-review"
-          : TicketKind;
+          : T extends DesignReviewTicket
+            ? "design-review"
+            : TicketKind;
 export function ticketKind(ticket: Ticket): TicketKind {
   if (ticket.pullRequest !== undefined) {
     return ticket.pullRequest.kind;
@@ -921,7 +968,10 @@ export function ticketKind(ticket: Ticket): TicketKind {
   if (ticket.specReview === true) {
     return "spec-review";
   }
-  return ticket.uxReview === true ? "ux-review" : "implementation";
+  if (ticket.uxReview === true) {
+    return "ux-review";
+  }
+  return ticket.designReview === true ? "design-review" : "implementation";
 }
 
 /**
@@ -933,12 +983,14 @@ export function ticketKind(ticket: Ticket): TicketKind {
  */
 export function targetNoun(
   ticket: Ticket,
-): "supertask" | "ux review ticket" | "implementation ticket" {
+): "supertask" | "ux review ticket" | "design review ticket" | "implementation ticket" {
   switch (ticketKind(ticket)) {
     case "spec-review":
       return "supertask";
     case "ux-review":
       return "ux review ticket";
+    case "design-review":
+      return "design review ticket";
     default:
       return "implementation ticket";
   }

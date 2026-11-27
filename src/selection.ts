@@ -554,6 +554,7 @@ const SELECTION_RANK: Readonly<Record<TicketKind, number>> = {
   review: 2,
   "spec-review": 3,
   "ux-review": 4,
+  "design-review": 4,
   implementation: 5,
 };
 

@@ -1,4 +1,5 @@
 import {
+  DESIGN_REVIEW_LABEL,
   ENHANCEMENT_LABEL,
   LIVE_WRITE_LABEL,
   NEEDS_TRIAGE_LABEL,
@@ -20,8 +21,8 @@ export interface ProjectLabel {
 
 /**
  * What every label the manager's docs and skills tell people to apply says
- * about itself, as `docs/agents/triage-labels.md` describes it, plus the two
- * skills apply on their own (`needs-grilling`, `ux-review`). The one place the
+ * about itself, as `docs/agents/triage-labels.md` describes it, plus the
+ * a label a skill applies on its own (`needs-grilling`) and the review kinds a person applies by hand (`ux-review`, `design-review`). The one place the
  * descriptions live: `new-project` creates every label from it, and the issue
  * tracker creates the ones it applies itself, lazily, from the same entries, so
  * the two cannot drift apart.
@@ -49,6 +50,7 @@ export const LABEL_DESCRIPTIONS = {
   [TURBOABLE_LABEL]: "Consents to the manager merging this ticket's pull request",
   "needs-grilling": "Needs a grilling before it can be specified",
   [UX_REVIEW_LABEL]: "Needs a review of its user experience",
+  [DESIGN_REVIEW_LABEL]: "Needs a review of its visual design against Material 3",
 } as const;
 
 /**

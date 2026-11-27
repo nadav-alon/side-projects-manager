@@ -695,7 +695,23 @@ of its own — filed against the ticket itself, since it names no supertask. It 
 a spec review ticket: its findings are the hand-back comment, and the ticket moves to
 ready-for-human. It takes its estimate from its own size label, charges the unsized default where it
 carries none, and is never turboable. Its default model in `models.json` is `fable`.
-_Avoid_: design review, usability ticket, UI audit
+_Avoid_: usability ticket, UI audit
+
+**Design review ticket**:
+A ticket carrying the design-review label and bound to no pull request: asks for how a project's app
+looks to be judged against Material 3 in a browser — hierarchy, type roles, spacing and density,
+colour roles and tones, elevation and surfaces, component choice, touch targets. `ticketKind` reads
+the label only where a ticket carries no pull request binding, and neither the spec-review nor the
+ux-review label, so every other kind wins over it. Selected where a UX review ticket is: after a spec
+review ticket and before an implementation ticket. Its run is a UX review ticket's — a writable
+throwaway clone credentialled with `GH_REVIEW_TOKEN`, never fetched back, Playwright MCP — told to
+invoke the `design-review` skill instead, which walks the app through its `ux` script and stops with
+a hand-back when the project has none. Each finding names the screen, repro, what is off, the Material 3
+rule or value it breaks (or flags a judgement call M3 does not settle), a suggested fix, and the repo
+the fix belongs in. It reports; it never commits, and the findings stay in the hand-back comment for
+the developer to triage into tickets. It ends in hand-back like a UX review ticket, takes its estimate
+from its own size label, and is never turboable. Its default model in `models.json` is `fable`.
+_Avoid_: UX review ticket (that judges how the app feels), visual QA ticket
 
 **Spec review sweep**:
 A pass, before every selection, over one project's open issues, done alongside the conflict sweep

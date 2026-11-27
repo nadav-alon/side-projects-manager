@@ -153,6 +153,7 @@ function ranWith(iteration: IterationOutcome | undefined) {
     iteration.kind === "rebased" ||
     iteration.kind === "spec-reviewed" ||
     iteration.kind === "ux-reviewed" ||
+    iteration.kind === "design-reviewed" ||
     iteration.kind === "pull-request-resolved" ||
     iteration.kind === "discovery-blocked" ||
     iteration.kind === "blocked-on-existing"
@@ -4359,6 +4360,119 @@ describe("morningLoop", () => {
           [{ repo: implementation.repo, number: implementation.number }],
         );
       });
+    });
+  });
+
+  describe("a design review ticket, selected", () => {
+    /** Queues one design review ticket in PILOT. */
+    function queuedDesignReview(ports: FakePorts): Ticket {
+      ports.store.register(PILOT);
+      return ports.tracker.addDesignReviewTicket(PILOT, {
+        number: issueNumber(62),
+        title: "Review how the app looks",
+      });
+    }
+
+    it("runs a design-reviewing agent rather than any other kind, with the kind's default model", async (t) => {
+      const ports = fakePorts();
+      ports.store.modelDefaults = { "design-review": modelName("fable") };
+      const ticket = queuedDesignReview(ports);
+      const run = t.mock.method(ports.sandbox, "run");
+      const uxReview = t.mock.method(ports.sandbox, "uxReview");
+
+      await morningLoop(ports);
+
+      assert.equal(run.mock.callCount(), 0);
+      assert.equal(uxReview.mock.callCount(), 0);
+      assert.deepEqual(withoutProgress(ports.sandbox.designReviews), [
+        {
+          ticket: { ...ticket, designReview: true },
+          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          spendCeiling: DEFAULT_BUDGET.spendCeiling,
+          image: FAKE_IMAGE,
+          model: modelName("fable"),
+        },
+      ]);
+    });
+
+    it("works it where a ux review is worked: after a spec review and before an implementation", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+      ports.tracker.addDesignReviewTicket(PILOT, { number: issueNumber(8), title: "Review the look" });
+      ports.tracker.addSpecReviewTicket(PILOT, { number: issueNumber(9), title: "Review the spec" });
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(
+        report.iterations.map((iteration) => [iteration.ticket.number, iteration.kind]),
+        [
+          [9, "spec-reviewed"],
+          [8, "design-reviewed"],
+          [7, "finished"],
+        ],
+      );
+    });
+
+    it("hands the ticket back with its own findings as the comment, as a ux review's is", async () => {
+      const ports = fakePorts();
+      const ticket = queuedDesignReview(ports);
+      ports.sandbox.designReviewResult = () => ({
+        kind: "finished",
+        output: "the headline uses the body type role",
+        tokensUsed: tokenCount(9_000),
+      });
+
+      const report = await morningLoop(ports);
+      const tomorrow = await morningLoop(ports);
+
+      const outcome = report.iterations[0];
+      assert.equal(outcome?.kind, "design-reviewed");
+      assert.equal(
+        outcome?.kind === "design-reviewed" ? outcome.handedBack.outcome : undefined,
+        "handed-back",
+      );
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, ticket.number);
+      assert.match(handback?.comment ?? "", /the headline uses the body type role/);
+      assert.match(handback?.comment ?? "", /design review ticket/);
+      assert.equal(ports.tracker.carriesLabel(ticket, READY_FOR_HUMAN_LABEL), true);
+      assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("reads in the summary as a design review with its findings on the ticket", async () => {
+      const ports = fakePorts();
+      const ticket = queuedDesignReview(ports);
+
+      await morningLoop(ports);
+
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.match(body, new RegExp(`Design-reviewed .*#${ticket.number}: its findings are on the ticket`));
+      assert.match(
+        body.slice(body.indexOf("## Waiting on you")),
+        new RegExp(`#${ticket.number}: relabelled`),
+      );
+    });
+
+    it("hands back a design review whose agent gave up, rather than leaving it to come round again", async () => {
+      const ports = fakePorts();
+      const ticket = queuedDesignReview(ports);
+      ports.sandbox.designReviewResult = () => ({
+        kind: "gave-up",
+        output: "the project has no ux script",
+        tokensUsed: tokenCount(1_000),
+        reason: "nothing to drive",
+      });
+
+      const report = await morningLoop(ports);
+      const tomorrow = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
+      assert.equal(handedBackOf(report.iterations[0]), "handed-back");
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, ticket.number);
+      assert.match(handback?.comment ?? "", /the project has no ux script/);
+      assert.equal(tomorrow.outcome, "dry-queue");
     });
   });
 
