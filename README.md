@@ -144,7 +144,9 @@ without a token.
 
 When the checkout already has a workflow using `actions/deploy-pages` (an `--existing` repo that
 deploys), it also enables GitHub Pages with build type `workflow`, so that workflow has a site to
-deploy to; a repo whose Pages is already enabled is left as it is.
+deploy to; a repo whose Pages is already enabled is left as it is. Pass `--pages` to have the
+command write that workflow first (it runs `npm run build` and deploys `dist/`, and is skipped when
+the checkout already has a deploying workflow), so a new project's first push to main deploys.
 
 Pass `--standards typescript` to start the project's own rules from a preset:
 

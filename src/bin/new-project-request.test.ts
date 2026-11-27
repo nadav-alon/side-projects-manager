@@ -20,6 +20,11 @@ describe("parsing a new-project request", () => {
     assert.equal(request.public, false);
   });
 
+  it("carries --pages through as pages: true, and defaults it to false", () => {
+    assert.equal(parseRequest(["nadav-alon/pilot", "--pages"]).pages, true);
+    assert.equal(parseRequest(["nadav-alon/pilot"]).pages, false);
+  });
+
   it("carries --standards through as the preset's name", () => {
     const request = parseRequest(["nadav-alon/pilot", "--standards", "typescript"]);
 
