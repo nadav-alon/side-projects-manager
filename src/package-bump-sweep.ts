@@ -69,6 +69,12 @@ const MANIFEST = "package.json";
  * the tracker lists, so where it truncated the backlog and none was found, one
  * may be hidden: that is a `refused` outcome, never a second ticket.
  *
+ * Two limits remain. An open bump ticket is recognised by its title
+ * (`isBumpTicketFor`), so one a developer retitled is not found and a second
+ * is opened. And a project that already pins the latest release (bumped by
+ * hand) yields no outcome, so its open bump ticket is left open, asking for a
+ * bump already made.
+ *
  * Never throws: a read or a write refused for one package and project is a
  * `refused` outcome, and the sweep carries on, so one project's trouble never
  * stops the next.
