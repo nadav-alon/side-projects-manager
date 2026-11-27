@@ -64,6 +64,14 @@ function specReviewTicket() {
   };
 }
 
+function designReviewTicket() {
+  return {
+    number: issueNumber(13),
+    title: "Review how the app looks",
+    designReview: true as const,
+  };
+}
+
 function uxReviewTicket() {
   return {
     number: issueNumber(12),
@@ -844,6 +852,46 @@ describe("handBack", () => {
     assert.match(comment, /the project has no ux script/);
     assert.match(comment, /nothing to drive/);
     assert.match(comment, endsWithTranscript(TRANSCRIPT));
+  });
+
+  it("hands a design review ticket back with no branch to discard, on the agent's own reason", async () => {
+    const { tracker, repoHost } = ports();
+    const ticket = eligible(tracker, designReviewTicket());
+
+    const record = await handBack({ tracker, repoHost }, ticket, {
+      kind: "gave-up",
+      ticketKind: "design-review",
+      reason: "the project has no ux script",
+      output: "nothing to drive",
+      transcript: TRANSCRIPT,
+    });
+
+    assert.deepEqual(record, { outcome: "handed-back" });
+    assert.deepEqual(repoHost.discarded, []);
+    const comment = tracker.handbacks[0]?.comment ?? "";
+    assert.match(comment, /the project has no ux script/);
+    assert.match(comment, endsWithTranscript(TRANSCRIPT));
+  });
+
+  describe("a design review run that finished", () => {
+    it("carries its own report as the comment, naming the kind of ticket it ran", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, designReviewTicket());
+
+      const record = await handBack({ tracker, repoHost }, ticket, {
+        kind: "design-review-finished",
+        output: "the headline uses the body type role",
+        transcript: TRANSCRIPT,
+      });
+
+      assert.deepEqual(record, { outcome: "handed-back" });
+      assert.deepEqual(repoHost.discarded, []);
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /ran this design review ticket/);
+      assert.match(comment, /the headline uses the body type role/);
+      assert.match(comment, /will not be retried/);
+      assert.match(comment, endsWithTranscript(TRANSCRIPT));
+    });
   });
 
   describe("a ux review run that finished", () => {
