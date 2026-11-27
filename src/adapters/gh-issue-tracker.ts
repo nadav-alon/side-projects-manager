@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 
 import type {
   ApplyReviewTicket,
+  BumpTicketText,
   DiscoveredTicketRequest,
   DiscoveredTicketSummary,
   HandBackOutcome,
@@ -451,7 +452,7 @@ export function ghIssueTracker(
       await execFileAsync("gh", ["issue", "edit", ...issueArgs(ticket), "--add-label", label]);
     },
 
-    async createBumpTicket(repo: RepoSlug, title: string, body: string): Promise<Ticket> {
+    async createBumpTicket(repo: RepoSlug, { title, body }: BumpTicketText): Promise<Ticket> {
       for (const label of BUMP_TICKET_LABELS) {
         await ensureLabel(repo, label);
       }
@@ -469,7 +470,7 @@ export function ghIssueTracker(
       return { repo, number: issueNumberIn(stdout, repo), title };
     },
 
-    async rewriteTicket(ticket: IssueReference, title: string, body: string): Promise<void> {
+    async rewriteTicket(ticket: IssueReference, { title, body }: BumpTicketText): Promise<void> {
       await execFileAsync("gh", [
         "issue",
         "edit",

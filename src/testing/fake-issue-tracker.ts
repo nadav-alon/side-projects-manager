@@ -1,5 +1,6 @@
 import type {
   ApplyReviewTicket,
+  BumpTicketText,
   DiscoveredTicketRequest,
   DiscoveredTicketSummary,
   HandBackOutcome,
@@ -206,7 +207,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   /** Bump tickets opened, in the order they were opened. */
   readonly bumpTickets: FakeBumpTicket[] = [];
   /** Tickets rewritten, in rewrite order, with the title and body each now carries. */
-  readonly rewrittenTickets: { ticket: IssueReference; title: string; body: string }[] = [];
+  readonly rewrittenTickets: ({ ticket: IssueReference } & BumpTicketText)[] = [];
 
   /** Tickets handed back, in the order they were handed back. */
   readonly handbacks: FakeHandback[] = [];
@@ -729,7 +730,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * Opens a ticket in `repo` carrying `BUMP_TICKET_LABELS`, numbered above
    * every ticket the repo has.
    */
-  async createBumpTicket(repo: RepoSlug, title: string, body: string): Promise<Ticket> {
+  async createBumpTicket(repo: RepoSlug, { title, body }: BumpTicketText): Promise<Ticket> {
     const numbers = (this.#issues.get(repo) ?? []).map((entry) => entry.issue.number);
     const ticket = this.addEligibleTicket(repo, {
       number: issueNumber(Math.max(0, ...numbers) + 1),
@@ -743,7 +744,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /** Retitles the open ticket `ticket` names, leaving its labels as they are. Throws where the fake holds none. */
-  async rewriteTicket(ticket: IssueReference, title: string, body: string): Promise<void> {
+  async rewriteTicket(ticket: IssueReference, { title, body }: BumpTicketText): Promise<void> {
     const entry = this.#find(ticket);
     if (entry === undefined) {
       throw new Error(`#${ticket.number} in ${ticket.repo} is not a known ticket`);

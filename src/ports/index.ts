@@ -71,7 +71,7 @@ export {
   declaredSize,
   discoveredBody,
   BUMP_TICKET_LABELS,
-  bumpTicketBody,
+  bumpTicketText,
   bumpTicketTitle,
   isBumpTicketFor,
   discoveredTicketLabels,
@@ -105,6 +105,7 @@ export {
 export type {
   ApplyReviewTicket,
   Backlog,
+  BumpTicketText,
   DiscoveredTicketRequest,
   DiscoveredTicketSummary,
   HandBackOutcome,

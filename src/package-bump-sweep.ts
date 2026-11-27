@@ -2,8 +2,7 @@ import { errorMessage } from "./error-message.ts";
 import { packagePins } from "./package-pins.ts";
 import type { IssueTracker, ReleaseTag, RepoHost, RepoSlug, Ticket } from "./ports/index.ts";
 import {
-  bumpTicketBody,
-  bumpTicketTitle,
+  bumpTicketText,
   isBumpTicketFor,
   isOlderTag,
   repoName,
@@ -141,8 +140,7 @@ async function bumpIn(
     return undefined;
   }
 
-  const title = bumpTicketTitle(pkg, latest);
-  const body = bumpTicketBody(pkg, latest, pinned);
+  const text = bumpTicketText(pkg, latest, pinned);
   const { issues, truncated } = await ports.tracker.listOpenIssues(project);
   const open = issues.find((issue) => isBumpTicketFor(issue.ticket, pkg))?.ticket;
   if (open === undefined) {
@@ -152,13 +150,13 @@ async function bumpIn(
         error: `${project}'s open issues were truncated, so an open bump ticket for ${pkg} may be hidden; not opening a second`,
       };
     }
-    return { kind: "opened", ticket: await ports.tracker.createBumpTicket(project, title, body) };
+    return { kind: "opened", ticket: await ports.tracker.createBumpTicket(project, text) };
   }
-  if (open.title === title) {
+  if (open.title === text.title) {
     return undefined;
   }
-  await ports.tracker.rewriteTicket(open, title, body);
-  return { kind: "updated", ticket: { ...open, title } };
+  await ports.tracker.rewriteTicket(open, text);
+  return { kind: "updated", ticket: { ...open, title: text.title } };
 }
 
 /** The outcome of a read or write refused for `published`'s release and `project`. */

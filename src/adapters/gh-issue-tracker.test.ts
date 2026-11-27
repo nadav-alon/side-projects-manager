@@ -3080,7 +3080,7 @@ describe("ghIssueTracker.createBumpTicket", () => {
   it("opens the issue in the repo carrying ready-for-agent, turboable and enhancement", async (t) => {
     const gh = await recordingGh(t, `[ "$1 $2" = "issue create" ] && echo ${CREATED_URL}`);
 
-    const ticket = await ghIssueTracker().createBumpTicket(PILOT, "Bump ui to v2.0.0", "Please.");
+    const ticket = await ghIssueTracker().createBumpTicket(PILOT, { title: "Bump ui to v2.0.0", body: "Please." });
 
     const create = callWith(await gh.calls(), "issue", "create");
     assert.ok(create, "the ticket should be created with `gh issue create`");
@@ -3102,8 +3102,7 @@ describe("ghIssueTracker.rewriteTicket", () => {
 
     await ghIssueTracker().rewriteTicket(
       { repo: PILOT, number: issueNumber(7) },
-      "Bump ui to v3.0.0",
-      "Newer.",
+      { title: "Bump ui to v3.0.0", body: "Newer." },
     );
 
     const edit = callWith(await gh.calls(), "issue", "edit");

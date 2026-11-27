@@ -135,11 +135,11 @@ describe("packageBumpSweep", () => {
     repoHost.setFile(CATALOGUE, "package.json", manifest({ "household-ui": "github:nadav-alon/household-ui#v0.1.0" }));
     repoHost.setFile(RECIPES, "package.json", manifest({ "household-ui": "github:nadav-alon/household-ui#v0.1.0" }));
     const create = tracker.createBumpTicket.bind(tracker);
-    tracker.createBumpTicket = async (repo, title, body) => {
+    tracker.createBumpTicket = async (repo, text) => {
       if (repo === CATALOGUE) {
         throw new Error("HTTP 403");
       }
-      return create(repo, title, body);
+      return create(repo, text);
     };
 
     const outcomes = await packageBumpSweep(ports, [UI, CATALOGUE, RECIPES]);

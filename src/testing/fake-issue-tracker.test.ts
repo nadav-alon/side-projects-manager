@@ -1154,7 +1154,7 @@ describe("FakeIssueTracker bump tickets", () => {
     const tracker = new FakeIssueTracker();
     tracker.addEligibleTicket(PILOT, { number: issueNumber(9), title: "Existing" });
 
-    const bump = await tracker.createBumpTicket(PILOT, "Bump ui to v2.0.0", "Body");
+    const bump = await tracker.createBumpTicket(PILOT, { title: "Bump ui to v2.0.0", body: "Body" });
 
     assert.equal(bump.number, 10);
     for (const label of [READY_FOR_AGENT_LABEL, TURBOABLE_LABEL, ENHANCEMENT_LABEL]) {
@@ -1165,9 +1165,9 @@ describe("FakeIssueTracker bump tickets", () => {
 
   it("rewrites a ticket's title, leaving its labels", async () => {
     const tracker = new FakeIssueTracker();
-    const bump = await tracker.createBumpTicket(PILOT, "Bump ui to v2.0.0", "Body");
+    const bump = await tracker.createBumpTicket(PILOT, { title: "Bump ui to v2.0.0", body: "Body" });
 
-    await tracker.rewriteTicket(bump, "Bump ui to v3.0.0", "Newer");
+    await tracker.rewriteTicket(bump, { title: "Bump ui to v3.0.0", body: "Newer" });
 
     const { issues } = await tracker.listOpenIssues(PILOT);
     assert.equal(issues[0]?.ticket.title, "Bump ui to v3.0.0");
@@ -1176,7 +1176,7 @@ describe("FakeIssueTracker bump tickets", () => {
 
   it("refuses to rewrite a ticket it does not hold", async () => {
     await assert.rejects(
-      new FakeIssueTracker().rewriteTicket({ repo: PILOT, number: issueNumber(1) }, "t", "b"),
+      new FakeIssueTracker().rewriteTicket({ repo: PILOT, number: issueNumber(1) }, { title: "t", body: "b" }),
       /not a known ticket/,
     );
   });

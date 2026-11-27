@@ -1097,12 +1097,12 @@ export interface IssueTracker {
    * release, and a bump nobody labelled never runs on a morning nobody is
    * around.
    */
-  createBumpTicket(repo: RepoSlug, title: string, body: string): Promise<Ticket>;
+  createBumpTicket(repo: RepoSlug, text: BumpTicketText): Promise<Ticket>;
   /**
    * Replaces `ticket`'s title and body, leaving its labels, comments and
    * state exactly as they are.
    */
-  rewriteTicket(ticket: IssueReference, title: string, body: string): Promise<void>;
+  rewriteTicket(ticket: IssueReference, text: BumpTicketText): Promise<void>;
 
   /**
    * Gives `ticket` back to the developer once the loop has stopped working on
@@ -1337,13 +1337,20 @@ export function isBumpTicketFor(ticket: Pick<Ticket, "title">, pkg: string): boo
   return ticket.title.startsWith(prefix) && isReleaseTag(ticket.title.slice(prefix.length));
 }
 
-/** What a bump ticket for `pkg`, pinned at `pinned`, asks of the agent that works it. */
-export function bumpTicketBody(pkg: string, tag: ReleaseTag, pinned: ReleaseTag): string {
-  return [
+/** The title and body a bump ticket carries together. */
+export interface BumpTicketText {
+  title: string;
+  body: string;
+}
+
+/** What a bump ticket for `pkg`, pinned at `pinned`, is titled and asks of the agent that works it, for the `tag` release. */
+export function bumpTicketText(pkg: string, tag: ReleaseTag, pinned: ReleaseTag): BumpTicketText {
+  const body = [
     `This project pins ${pkg} at ${pinned}; its latest release is ${tag}.`,
     "",
     `Bump the pin to \`${tag}\`, refresh the lockfile, and fix whatever the bump breaks.`,
   ].join("\n");
+  return { title: bumpTicketTitle(pkg, tag), body };
 }
 
 /**
