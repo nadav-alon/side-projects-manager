@@ -35,6 +35,9 @@ import {
   SPEC_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
   TURBOABLE_LABEL,
+  UX_SCRIPT_TICKET_BODY,
+  UX_SCRIPT_TICKET_TITLE,
+  uxScriptTicketLabels,
   GRANT_LABELS,
   type GrantLabel,
   carriesReadyDiscoveryLabel,
@@ -227,6 +230,25 @@ export function ghIssueTracker(
         explanation: (created) =>
           `Opened #${created.number} in ${created.repo} to apply the review on ${pullRequest}, the draft pull request for #${ticket.number}`,
       });
+    },
+
+    async createUxScriptTicket(repo: RepoSlug): Promise<Ticket> {
+      const labels = uxScriptTicketLabels as unknown as Array<keyof typeof LABEL_DESCRIPTIONS>;
+      for (const label of labels) {
+        await ensureLabel(repo, label);
+      }
+      const { stdout } = await execFileAsync("gh", [
+        "issue",
+        "create",
+        "--repo",
+        repo,
+        "--title",
+        UX_SCRIPT_TICKET_TITLE,
+        ...labels.flatMap((label) => ["--label", label]),
+        "--body",
+        UX_SCRIPT_TICKET_BODY,
+      ]);
+      return { repo, number: issueNumberIn(stdout, repo), title: UX_SCRIPT_TICKET_TITLE };
     },
 
     async createSpecReviewTicket(ticket: Ticket, body: string): Promise<Ticket> {

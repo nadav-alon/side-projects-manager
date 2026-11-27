@@ -1069,6 +1069,13 @@ export interface IssueTracker {
     grants: readonly GrantRecord[],
   ): Promise<GrantConsent>;
   /**
+   * Opens, in `repo`, the ticket asking for its `ux` npm script, and answers
+   * with it: titled {@link UX_SCRIPT_TICKET_TITLE}, bodied {@link
+   * UX_SCRIPT_TICKET_BODY} and born carrying {@link uxScriptTicketLabels}.
+   * Whether `repo` needs one is the caller's to judge — see `ux-script-sweep.ts`.
+   */
+  createUxScriptTicket(repo: RepoSlug): Promise<Ticket>;
+  /**
    * Opens a spec review ticket against `ticket`, a supertask — a sub-issue
    * carrying `body` — and answers with it.
    *
@@ -1404,6 +1411,42 @@ export function bumpTicketText(pkg: string, tag: ReleaseTag, pinned: ReleaseTag)
   ].join("\n");
   return { title: bumpTicketTitle(pkg, tag), body };
 }
+
+/**
+ * The title of the ticket asking a UI project for its `ux` npm script. Fixed,
+ * not numbered: the ux-script sweep finds an open one by this title alone, so
+ * the tracker that files it and the sweep that looks for it agree on it here.
+ */
+export const UX_SCRIPT_TICKET_TITLE =
+  "Add a `ux` npm script that starts the app seeded with a named scenario";
+
+/** The size label the ux-script ticket is born carrying; see {@link uxScriptTicketLabels}. */
+export const SIZE_M_LABEL = `${SIZE_LABEL_PREFIX}M`;
+
+/**
+ * The labels `IssueTracker.createUxScriptTicket` opens a ticket with: eligible
+ * and turboable from birth, size:M. Beside the port so the real tracker and
+ * the fake agree.
+ */
+export const uxScriptTicketLabels = [
+  READY_FOR_AGENT_LABEL,
+  SIZE_M_LABEL,
+  ENHANCEMENT_LABEL,
+  TURBOABLE_LABEL,
+] as const;
+
+/** The body of the ux-script ticket, following nadav-alon/recipes#99. */
+export const UX_SCRIPT_TICKET_BODY = `## Current behavior
+A UX review (the ux-review skill) launches the app with \`npm run ux -- --scenario <name>\` (default scenario \`owner-with-items\`); this project's default branch has no \`ux\` script in \`package.json\`, so a review stops at once.
+
+## Acceptance criteria
+- \`npm run ux -- --scenario <name>\` starts the app against local emulators (no production data), seeded for the named scenario, and prints the URL it is served on.
+- If sign-in goes through an Auth emulator, the output names the account to pick for the scenario.
+- A scenario \`owner-with-items\` exists: a signed-in-able owner whose data fills every screen the project's UI shows, with enough variety that a review can walk each of them.
+
+---
+Filed by the loop: this project is registered \`ui: true\` and has no \`ux\` script.
+`;
 
 /**
  * The title a spec review ticket carries. Names the supertask it reviews, the

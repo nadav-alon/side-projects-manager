@@ -586,6 +586,12 @@ export interface RepoHost {
    */
   ensureLabel(repo: RepoSlug, label: ProjectLabel): Promise<void>;
   /**
+   * Whether `package.json` on `repo`'s default branch declares an npm script
+   * named `script`. A repo with no `package.json` declares none: `false`.
+   * Rejects on any other failure.
+   */
+  hasNpmScript(repo: RepoSlug, script: string): Promise<boolean>;
+  /**
    * Enables GitHub Pages on `repo`, built by a workflow rather than from a
    * branch. A repo whose Pages is already enabled is left as it is, settings
    * included. Rejects on any other failure.
