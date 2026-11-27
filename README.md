@@ -434,8 +434,8 @@ when the ticket carries no `model:<name>` label — the same for every project:
 { "implementation": "sonnet", "review": "opus" }
 ```
 
-The kinds are `implementation`, `review`, `apply-review`, `rebase`, `spec-review` and
-`ux-review`. Every kind is optional, and so is the file. A kind you leave out, and every kind on a machine with no
+The kinds are `implementation`, `review`, `apply-review`, `rebase`, `spec-review`,
+`ux-review` and `design-review`. Every kind is optional, and so is the file. A kind you leave out, and every kind on a machine with no
 `models.json`, runs on the model the sandbox image is pinned to. A name is passed to the agent CLI
 as written — an alias or a full model id — and never checked against a list of models, so a new
 model needs no change here; the only shape asked of it is a non-empty name without spaces that does
@@ -514,8 +514,9 @@ CI makes the same check on every push touching the image, and needs no token to 
 [`.github/workflows/sandbox-image.yml`](.github/workflows/sandbox-image.yml) builds the image, then
 runs [`scripts/verify-harness.ts`](scripts/verify-harness.ts) inside it to assert the plugin is
 installed, enabled, and enumerating its skills, and that the `apply-pr-review`, `rebase-pr` and
-`ux-review` skills the image carries — for applying a pull request's review, for rebasing a pull
-request's branch onto its base, and for reviewing how an app feels in a browser — are on disk at
+`ux-review` and `design-review` skills the image carries — for applying a pull request's review, for
+rebasing a pull request's branch onto its base, for reviewing how an app feels in a browser, and for
+judging its visual design against Material 3 — are on disk at
 the CLI's personal-skill path. Asking `claude` about an installed plugin reads it off disk with no
 Anthropic call in it, which is what lets the check run unauthenticated where the prompt above
 cannot. CI runs it through the same two npm scripts a local check does:

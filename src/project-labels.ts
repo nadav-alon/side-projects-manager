@@ -21,8 +21,8 @@ export interface ProjectLabel {
 
 /**
  * What every label the manager's docs and skills tell people to apply says
- * about itself, as `docs/agents/triage-labels.md` describes it, plus the two
- * skills apply on their own (`needs-grilling`, `ux-review`, `design-review`). The one place the
+ * about itself, as `docs/agents/triage-labels.md` describes it, plus the
+ * labels skills apply on their own (`needs-grilling`, `ux-review`, `design-review`). The one place the
  * descriptions live: `new-project` creates every label from it, and the issue
  * tracker creates the ones it applies itself, lazily, from the same entries, so
  * the two cannot drift apart.

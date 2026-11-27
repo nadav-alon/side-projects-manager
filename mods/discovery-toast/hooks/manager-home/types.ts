@@ -27,7 +27,7 @@ export type IssueNumber = number & { readonly [issueNumberBrand]: true }
 export type IssueUrl = string & { readonly [issueUrlBrand]: true }
 
 /** The kinds of ticket the loop runs, as the manager's journal names them. */
-export const TICKET_KINDS = ['implementation', 'review', 'apply-review', 'rebase', 'spec-review', 'ux-review'] as const
+export const TICKET_KINDS = ['implementation', 'review', 'apply-review', 'rebase', 'spec-review', 'ux-review', 'design-review'] as const
 
 export type TicketKind = (typeof TICKET_KINDS)[number]
 
