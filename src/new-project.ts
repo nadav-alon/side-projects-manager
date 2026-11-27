@@ -140,6 +140,7 @@ export async function newProject(
   await ensureLabels(ports.host, repo);
 
   const directory = await ports.host.clone(repo);
+  await enablePagesIfDeployed(ports.host, repo, directory);
   const scaffold = await ports.harness.install(
     directory,
     agentInstructions({ repo, description }),
@@ -214,6 +215,28 @@ async function ensureLabels(host: RepoHost, repo: RepoSlug): Promise<void> {
         `Could not create the label ${label.name} in ${repo}: ${errorMessage(error)}`,
       );
     }
+  }
+}
+
+/**
+ * Enables GitHub Pages, built by a workflow, on a repo whose checkout deploys
+ * to it. Without it the deploy workflow fails on every push, since
+ * `configure-pages` finds no site. A repo with no such workflow is left alone.
+ */
+async function enablePagesIfDeployed(
+  host: RepoHost,
+  repo: RepoSlug,
+  directory: Checkout,
+): Promise<void> {
+  if (!(await host.deploysToPages(directory))) {
+    return;
+  }
+  try {
+    await host.enablePages(repo);
+  } catch (error) {
+    throw new Error(
+      `Could not enable GitHub Pages in ${repo}: ${errorMessage(error)}`,
+    );
   }
 }
 

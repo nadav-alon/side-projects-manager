@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { newProject } from "./new-project.ts";
-import { priority, repoSlug, standardsPreset } from "./ports/index.ts";
+import { checkout, priority, repoSlug, standardsPreset } from "./ports/index.ts";
 import { PROJECT_LABELS } from "./project-labels.ts";
 import { FakeRepoHost, fakeNewProjectPorts } from "./testing/index.ts";
 
@@ -456,5 +456,34 @@ describe("giving the project its labels", () => {
 
     await assert.rejects(newProject(ports, IDEA), /label supertask/);
     assert.deepEqual(ports.host.clones, []);
+  });
+});
+
+describe("enabling GitHub Pages", () => {
+  it("enables it on a repo whose checkout deploys to Pages", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.deploysToPagesIn(checkout(PILOT_CHECKOUT));
+
+    await newProject(ports, IDEA);
+
+    assert.deepEqual(ports.host.pagesEnabled, [PILOT]);
+  });
+
+  it("leaves Pages alone on a repo that does not deploy to it", async () => {
+    const ports = fakeNewProjectPorts();
+
+    await newProject(ports, IDEA);
+
+    assert.deepEqual(ports.host.pagesEnabled, []);
+  });
+
+  it("fails naming the repo when Pages cannot be enabled", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.deploysToPagesIn(checkout(PILOT_CHECKOUT));
+    ports.host.enablePages = async () => {
+      throw new Error("HTTP 403");
+    };
+
+    await assert.rejects(newProject(ports, IDEA), /enable GitHub Pages in nadav-alon\/pilot.*403/);
   });
 });

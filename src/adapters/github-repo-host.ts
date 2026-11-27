@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, realpath } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -105,6 +105,43 @@ export function githubRepoHost(
 
     async ensureLabel(repo: RepoSlug, label: ProjectLabel): Promise<void> {
       await createLabelUnlessPresent(repo, label.name, label.description);
+    },
+
+    async deploysToPages(directory: Checkout): Promise<boolean> {
+      const workflows = path.join(directory, ".github", "workflows");
+      const names = await readdir(workflows).catch((error: unknown) => {
+        if (isMissingFile(error)) {
+          return [];
+        }
+        throw error;
+      });
+      for (const name of names) {
+        if (!/\.ya?ml$/i.test(name)) {
+          continue;
+        }
+        const text = await readFile(path.join(workflows, name), "utf8");
+        if (/uses:\s*actions\/deploy-pages\b/.test(text)) {
+          return true;
+        }
+      }
+      return false;
+    },
+
+    async enablePages(repo: RepoSlug): Promise<void> {
+      try {
+        await run("gh", [
+          "api",
+          "-X",
+          "POST",
+          `repos/${repo}/pages`,
+          "-f",
+          "build_type=workflow",
+        ]);
+      } catch (error) {
+        if (!isPagesAlreadyEnabled(error)) {
+          throw error;
+        }
+      }
     },
 
     async clone(repo: RepoSlug): Promise<Checkout> {
@@ -2066,4 +2103,23 @@ function isAlreadyExists(error: unknown): boolean {
       ? String(error.stderr)
       : "";
   return /already exists/i.test(stderr);
+}
+
+/** Whether `gh api` failed because the repo's Pages site is already there. */
+function isPagesAlreadyEnabled(error: unknown): boolean {
+  const stderr =
+    typeof error === "object" && error !== null && "stderr" in error
+      ? String(error.stderr)
+      : "";
+  return /HTTP 409|already exists/i.test(stderr);
+}
+
+/** Whether a filesystem call failed because the path is not there. */
+function isMissingFile(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT"
+  );
 }

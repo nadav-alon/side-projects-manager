@@ -245,6 +245,24 @@ export class FakeRepoHost implements RepoHost {
     this.labelsCreated.push({ repo, name, description });
   }
 
+  readonly #pagesWorkflows = new Set<Checkout>();
+
+  /** Every repo `enablePages` was asked to enable, in order. */
+  readonly pagesEnabled: RepoSlug[] = [];
+
+  /** Marks the checkout as carrying a workflow that deploys to Pages. */
+  deploysToPagesIn(directory: Checkout): void {
+    this.#pagesWorkflows.add(directory);
+  }
+
+  async deploysToPages(directory: Checkout): Promise<boolean> {
+    return this.#pagesWorkflows.has(directory);
+  }
+
+  async enablePages(repo: RepoSlug): Promise<void> {
+    this.pagesEnabled.push(repo);
+  }
+
   /** Marks `repo` as already on the host, as a project predating the manager. */
   alreadyExists(repo: RepoSlug): void {
     this.#existing.add(repo);

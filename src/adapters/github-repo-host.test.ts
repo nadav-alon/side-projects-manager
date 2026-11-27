@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
@@ -3095,5 +3095,65 @@ describe("listing a repo's failing workflows", () => {
 
   it("throws naming the run when gh answers outside the declared shape", async (t) => {
     await assert.rejects(listedFrom(t, [{ event: "push", conclusion: "failure" }]), /run 1.*"workflowName"/);
+  });
+});
+
+describe("enabling Pages", () => {
+  it("posts the workflow build type to the repo's pages", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await githubRepoHost().enablePages(PILOT);
+
+    assert.deepEqual(callWith(await gh.calls(), "api"), [
+      "api",
+      "-X",
+      "POST",
+      `repos/${PILOT}/pages`,
+      "-f",
+      "build_type=workflow",
+    ]);
+  });
+
+  it("resolves when Pages is already enabled", async (t) => {
+    await recordingGh(
+      t,
+      [`echo 'A GitHub Pages site already exists. (HTTP 409)' >&2`, `exit 1`].join("\n"),
+    );
+
+    await assert.doesNotReject(githubRepoHost().enablePages(PILOT));
+  });
+
+  it("rejects with gh's own error when it is refused for any other reason", async (t) => {
+    await recordingGh(t, [`echo 'HTTP 403: forbidden' >&2`, `exit 1`].join("\n"));
+
+    await assert.rejects(githubRepoHost().enablePages(PILOT), /HTTP 403/);
+  });
+});
+
+describe("telling whether a checkout deploys to Pages", () => {
+  async function checkoutWith(t: TestContext, file?: string, text = ""): Promise<Checkout> {
+    const directory = await mkdtemp(path.join(tmpdir(), "pages-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    if (file !== undefined) {
+      await mkdir(path.join(directory, ".github", "workflows"), { recursive: true });
+      await writeFile(path.join(directory, ".github", "workflows", file), text);
+    }
+    return toCheckout(directory);
+  }
+
+  it("is true for a workflow using actions/deploy-pages", async (t) => {
+    const directory = await checkoutWith(t, "pages.yml", "steps:\n  - uses: actions/deploy-pages@v4\n");
+
+    assert.equal(await githubRepoHost().deploysToPages(directory), true);
+  });
+
+  it("is false for a workflow that does not", async (t) => {
+    const directory = await checkoutWith(t, "ci.yml", "steps:\n  - run: npm test\n");
+
+    assert.equal(await githubRepoHost().deploysToPages(directory), false);
+  });
+
+  it("is false for a checkout with no workflows", async (t) => {
+    assert.equal(await githubRepoHost().deploysToPages(await checkoutWith(t)), false);
   });
 });
