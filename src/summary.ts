@@ -499,8 +499,9 @@ export function summaryLine(facts: SummaryFacts): string {
   const missingLabel = missingSupertaskLabelAside(projects);
   const sweeps = conflictSweepAside(facts.conflictSweeps);
   const specReviews = specReviewSweepAside(facts.specReviewSweeps);
-  const uniformSync = `${uniformSyncSweepAside(facts.uniformSyncSweeps)}${packageBumpAside(facts.packageBumpSweeps)}`;
-  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}${sweeps}${specReviews}${uniformSync}`;
+  const uniformSync = uniformSyncSweepAside(facts.uniformSyncSweeps);
+  const packageBumps = packageBumpAside(facts.packageBumpSweeps);
+  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}${sweeps}${specReviews}${uniformSync}${packageBumps}`;
 
   if (iterations.length > 0) {
     // A stand-down after the morning had already done some good is said after
@@ -520,7 +521,7 @@ export function summaryLine(facts: SummaryFacts): string {
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
-  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}${sweeps}${specReviews}${uniformSync}`;
+  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}${sweeps}${specReviews}${uniformSync}${packageBumps}`;
 }
 
 /**
