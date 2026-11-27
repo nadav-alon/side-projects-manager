@@ -282,6 +282,14 @@ or a write the host or tracker refuses is carried into the summary rather than f
 invocation.
 _Avoid_: dependency bump, release sweep
 
+**Ux-script sweep**:
+Once per invocation, ahead of selection, every non-paused registered project with `ui: true` whose
+default branch's `package.json` has no `ux` script is given one ticket asking for it — a UX review
+(`ux-review`, `design-review`) stops at once without the script. Filed ready-for-agent, turboable
+and `size:M`, with a fixed title; while a ticket with that title is open, none is filed again. A
+refused read or write is warned about rather than failing the invocation.
+_Avoid_: ux script ticket sweep
+
 **Agent instructions**:
 The per-project part of the harness: one file per project, generated for that project, saying what
 the project is and pointing at its own uniform files and at its own **Project standards**. Never
