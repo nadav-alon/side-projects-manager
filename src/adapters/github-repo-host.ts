@@ -96,6 +96,30 @@ export function githubRepoHost(
       }
     },
 
+    async hasNpmScript(repo: RepoSlug, script: string): Promise<boolean> {
+      let stdout: string;
+      try {
+        ({ stdout } = await run("gh", [
+          "api",
+          "-H",
+          "Accept: application/vnd.github.raw+json",
+          `repos/${repo}/contents/package.json`,
+        ]));
+      } catch (error) {
+        if (isUnresolvable(error)) {
+          return false;
+        }
+        throw error;
+      }
+      const scripts: unknown = objectAt(
+        jsonIn(stdout, `package.json of ${repo}`),
+        `package.json of ${repo}`,
+      ).scripts;
+      return (
+        typeof scripts === "object" && scripts !== null && Object.hasOwn(scripts, script)
+      );
+    },
+
     async create(
       repo: RepoSlug,
       description: string,

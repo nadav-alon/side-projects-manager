@@ -193,6 +193,7 @@ import { settledChecks } from "./settled-checks.ts";
 import { grantSweep } from "./grant-sweep.ts";
 import { recordedDiscoverySweep } from "./recorded-discovery-sweep.ts";
 import { packageBumpSweep, type PackageBumpOutcome } from "./package-bump-sweep.ts";
+import { uxScriptSweep } from "./ux-script-sweep.ts";
 import { uniformSyncSweep, type UniformSyncSweepOutcome } from "./uniform-sync-sweep.ts";
 import { SANDBOX_DIRECTORY } from "./sandbox-directory.ts";
 
@@ -431,6 +432,8 @@ export async function morningLoop(
     // any, this invocation goes on to select.
     uniformSyncSweepOutcomes = await uniformSyncSweepAll(ports);
     packageBumpOutcomes = await packageBumpSweepAll(ports);
+    // Before selection, so the ticket it files is one this very invocation can pick.
+    await uxScriptSweepAll(ports);
     failingWorkflows = await failingWorkflowsAll(ports);
     // Pruned on the same once-per-invocation footing: a closed ticket's grant
     // record says nothing about which ticket is selected next.
@@ -1283,6 +1286,23 @@ async function failingWorkflowsAll(ports: MorningLoopPorts): Promise<ProjectFail
     }
   }
   return failing;
+}
+
+/**
+ * A ux-script sweep of every non-paused `ui: true` project: one whose default
+ * branch has no `ux` script is asked for one, once. A refusal is warned
+ * about and the next project swept, as a failing-workflow read's is.
+ */
+async function uxScriptSweepAll(ports: MorningLoopPorts): Promise<void> {
+  for (const project of await ports.store.loadRegistry()) {
+    if (project.paused || project.ui !== true) {
+      continue;
+    }
+    const { result } = await uxScriptSweep(ports, project.repo);
+    if (result.kind === "refused") {
+      console.warn(`Could not sweep ${project.repo} for a ux script: ${result.error}`);
+    }
+  }
 }
 
 /**

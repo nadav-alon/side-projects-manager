@@ -49,6 +49,8 @@ import {
   applyReviewTitle,
   sizeLabelOf,
   specReviewTitle,
+  UX_SCRIPT_TICKET_TITLE,
+  uxScriptTicketLabels,
   ticketReference,
   grantConsentAt,
 } from "../ports/index.ts";
@@ -212,6 +214,8 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   readonly bumpTickets: FakeBumpTicket[] = [];
   /** Tickets rewritten, in rewrite order, with the title and body each now carries. */
   readonly rewrittenTickets: ({ ticket: IssueReference } & BumpTicketText)[] = [];
+  /** The ux-script tickets opened, in the order they were opened. */
+  readonly uxScriptTickets: Ticket[] = [];
 
   /** Tickets handed back, in the order they were handed back. */
   readonly handbacks: FakeHandback[] = [];
@@ -673,6 +677,20 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
     this.applyReviewTickets.push({ parent: ticket, pullRequest, ticket: applyReview });
     return applyReview;
+  }
+
+  /** Opens the ux-script ticket as the real tracker does; see {@link IssueTracker.createUxScriptTicket}. */
+  async createUxScriptTicket(repo: RepoSlug): Promise<Ticket> {
+    const numbers = (this.#issues.get(repo) ?? []).map((entry) => entry.issue.number);
+    const created = this.addEligibleTicket(repo, {
+      number: issueNumber(Math.max(0, ...numbers) + 1),
+      title: UX_SCRIPT_TICKET_TITLE,
+    });
+    for (const label of uxScriptTicketLabels) {
+      this.addLabel(created, label);
+    }
+    this.uxScriptTickets.push(created);
+    return created;
   }
 
   /**

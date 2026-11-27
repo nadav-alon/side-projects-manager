@@ -3187,3 +3187,40 @@ describe("githubRepoHost.readFile", () => {
     await assert.rejects(githubRepoHost().readFile(PILOT, "package.json"), /HTTP 403/);
   });
 });
+
+describe("githubRepoHost.hasNpmScript", () => {
+  /** A `gh` that answers the package.json read with `stdout`. */
+  const answering = (stdout: string) => `cat <<'JSON'\n${stdout}\nJSON`;
+
+  it("is true when package.json's scripts name it", async (t) => {
+    await recordingGh(t, answering('{"scripts":{"dev":"x","ux":"y"}}'));
+
+    assert.equal(await githubRepoHost().hasNpmScript(PILOT, "ux"), true);
+  });
+
+  it("is false when scripts do not name it, or there are none", async (t) => {
+    await recordingGh(t, answering('{"scripts":{"dev":"x"}}'));
+    assert.equal(await githubRepoHost().hasNpmScript(PILOT, "ux"), false);
+
+    await recordingGh(t, answering('{"name":"pilot"}'));
+    assert.equal(await githubRepoHost().hasNpmScript(PILOT, "ux"), false);
+  });
+
+  it("is false when the default branch has no package.json", async (t) => {
+    await recordingGh(t, "echo 'gh: Not Found (HTTP 404)' >&2\nexit 1");
+
+    assert.equal(await githubRepoHost().hasNpmScript(PILOT, "ux"), false);
+  });
+
+  it("refuses a package.json that is not an object", async (t) => {
+    await recordingGh(t, answering("null"));
+
+    await assert.rejects(githubRepoHost().hasNpmScript(PILOT, "ux"));
+  });
+
+  it("refuses any other failure", async (t) => {
+    await recordingGh(t, "echo 'gh: rate limited' >&2\nexit 1");
+
+    await assert.rejects(githubRepoHost().hasNpmScript(PILOT, "ux"));
+  });
+});

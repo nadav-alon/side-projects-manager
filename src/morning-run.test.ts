@@ -514,6 +514,43 @@ describe("morningLoop", () => {
     });
   });
 
+  describe("a ui project's missing ux script", () => {
+    it("is asked for in one ticket, which the same morning's loop may then pick", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT, { ui: true });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.tracker.uxScriptTickets.length, 1);
+      assert.equal(report.outcome, "work-selected");
+      assert.deepEqual(verdicts(report.projects), [[PILOT, "selected"]]);
+    });
+
+    it("is not asked for twice across two mornings", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT, { ui: true });
+
+      await morningLoop(ports);
+      await morningLoop(ports);
+
+      assert.equal(ports.tracker.uxScriptTickets.length, 1);
+    });
+
+    it("is not asked of a project that has the script, is not ui, or is paused", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT, { ui: true });
+      ports.repoHost.setNpmScripts(PILOT, ["ux"]);
+      const plain = repoSlug("nadav-alon/plain");
+      ports.store.register(plain);
+      const paused = repoSlug("nadav-alon/paused");
+      ports.store.register(paused, { ui: true, paused: true });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.tracker.uxScriptTickets, []);
+    });
+  });
+
   describe("a failed self-update pull", () => {
     const REASON = "error: Your local changes to registry.json would be overwritten by merge.";
 

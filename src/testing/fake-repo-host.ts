@@ -296,6 +296,17 @@ export class FakeRepoHost implements RepoHost {
     return this.#needsRebaseLabelled.has(pullRequest);
   }
 
+  readonly #npmScripts = new Map<RepoSlug, string[]>();
+
+  /** Sets the npm scripts `hasNpmScript` finds on `repo`'s default branch. None, unless a test says otherwise. */
+  setNpmScripts(repo: RepoSlug, scripts: string[]): void {
+    this.#npmScripts.set(repo, scripts);
+  }
+
+  async hasNpmScript(repo: RepoSlug, script: string): Promise<boolean> {
+    return this.#npmScripts.get(repo)?.includes(script) ?? false;
+  }
+
   async exists(repo: RepoSlug): Promise<boolean> {
     return this.#existing.has(repo);
   }
