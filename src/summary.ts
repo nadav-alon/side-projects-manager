@@ -1476,7 +1476,6 @@ function waitingSection(
       case "spec-reviewed":
       case "ux-reviewed":
       case "design-reviewed":
-    case "design-reviewed":
         return reportedReviewWaitingLine(iteration);
       // Closed outright, so nothing here waits on the developer — unless the
       // close itself failed, which leaves the ticket eligible and waiting the
@@ -2339,9 +2338,9 @@ type ReportedReviewIteration =
 /**
  * How a spec review, ux review or design review ticket's iteration reads to the developer:
  * that it ran and reported. Unlike a review, apply-review or rebase ticket's
- * own success, neither closes its ticket — its findings are the hand-back
- * comment itself, per CONTEXT.md's "Spec review ticket" and "UX review
- * ticket" — so this names only that it ran, plus whatever `handedBackNow` says
+ * own success, none closes its ticket — its findings are the hand-back
+ * comment itself, per CONTEXT.md's "Spec review ticket", "UX review
+ * ticket" and "Design review ticket" — so this names only that it ran, plus whatever `handedBackNow` says
  * when the hand-back itself was refused.
  */
 function reportedReviewSummary(iteration: ReportedReviewIteration): string {

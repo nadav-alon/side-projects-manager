@@ -26,8 +26,8 @@ Everything below is in the [`Dockerfile`](../../Dockerfile).
 | Temurin 21 JRE (`JAVA_HOME`, `PATH`) | `nadav-alon/home-catalogue` and `nadav-alon/data-platform` | Both `package.json`s have `test:rules`, which runs `firebase emulators:exec` (firebase-tools is a devDependency of both); both CI workflows add `actions/setup-java` 21 for that job. `home-catalogue` also needs it for `npm run ux`, whose `AGENTS.md` says "Java must be on the PATH" (it starts the emulators from `data-platform/local`). `data-platform/docs/local-kit.md` says the same of `data-platform/local`. The manager and `ltlf-external-knowledge` (C++) do not use it. |
 | `@anthropic-ai/claude-code` | Every run | It is the `ENTRYPOINT`; the manager parses its JSON output. |
 | Harness plugin `mattpocock-skills@claude-plugins-official`, `settings.json` model pin | Every run | The skills a run is told to follow; installed as `node` so any uid can read it (Dockerfile comments; `scripts/verify-harness.ts`). |
-| Personal skills `apply-pr-review`, `rebase-pr`, `ux-review` | One run kind each | Copied in so they are found whichever project is mounted. `apply-pr-review` and `rebase-pr` serve apply-review and rebase runs; `ux-review` serves ux-review runs. |
-| `@playwright/mcp` + Chromium + its system libraries, `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_MCP_BROWSER` | One run kind: ux review; one project today: `home-catalogue` | `src/adapters/container-sandbox.ts` starts `playwright-mcp` (`PLAYWRIGHT_MCP_CONFIG`) only for `uxReview`. `.claude/skills/ux-review/SKILL.md` stops at step 2 for a project with no `ux` script. `home-catalogue` has `"ux": "node scripts/ux.ts"`; `data-platform` has none, so a ux review there hands back having done nothing. |
+| Personal skills `apply-pr-review`, `rebase-pr`, `ux-review`, `design-review` | One run kind each | Copied in so they are found whichever project is mounted. `apply-pr-review` and `rebase-pr` serve apply-review and rebase runs; `ux-review` and `design-review` serve ux-review and design-review runs. |
+| `@playwright/mcp` + Chromium + its system libraries, `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_MCP_BROWSER` | Two run kinds: ux review and design review; one project today: `home-catalogue` | `src/adapters/container-sandbox.ts` starts `playwright-mcp` (`PLAYWRIGHT_MCP_CONFIG`) only for `uxReview` and `designReview`. `.claude/skills/ux-review/SKILL.md` stops at step 2 for a project with no `ux` script. `home-catalogue` has `"ux": "node scripts/ux.ts"`; `data-platform` has none, so a ux review there hands back having done nothing. |
 | Git identity, `safe.directory`, `HOME`, non-root `node`, byte-watchdog env | Every run | Needed for commits, for the bind-mounted clone, and for the CLI to run unattended. |
 
 ## What a move would cost
@@ -75,12 +75,12 @@ Per tool not needed by every run:
 - **Playwright + Chromium** — Declared by `home-catalogue` alone today (1 project); `data-platform`
   would not, having no `ux` script. A project image carrying it means ux-review runs for
   `home-catalogue` only. Moving it also requires the manager to stop assuming the browser is
-  there: `PLAYWRIGHT_MCP_CONFIG` names `playwright-mcp` unconditionally for `uxReview`,
+  there: `PLAYWRIGHT_MCP_CONFIG` names `playwright-mcp` unconditionally for `uxReview` and `designReview`,
   `scripts/verify-harness.ts` screenshots a page with it as part of `npm run sandbox:verify` (which
   CI runs), and `.claude/skills/ux-review/SKILL.md` assumes it. So the move is more than a Dockerfile
   edit: the verify step would have to run against a project image or drop the check, and a ux review
   on a project that has a `ux` script but no browser declared would fail mid-run.
-- **`ux-review`, `apply-pr-review`, `rebase-pr` skills** — A few kB each, and tied to run kinds
+- **`ux-review`, `design-review`, `apply-pr-review`, `rebase-pr` skills** — A few kB each, and tied to run kinds
   that the manager starts in any project. They cannot sensibly move to a project (a project's clone
   must not carry a skill about the manager's workflow, per the Dockerfile's comment).
 
@@ -89,7 +89,7 @@ Per tool not needed by every run:
 Split, by the two things the word could mean:
 
 - **The mechanism is the manager's.** The manager decides when a browser exists (`playwrightMcp`
-  only for `uxReview`), writes the MCP config, ships the `ux-review` skill (arguably the
+  only for `uxReview` and `designReview`), writes the MCP config, ships the `ux-review` and `design-review` skills (arguably the
   Harness's), and `npm run sandbox:verify` checks the browser in the built image. None of that is in any project's repo, and `scripts/verify-harness.ts` says the
   browser "is not part of the Harness" in the glossary sense but is checked there because it is the
   one script that runs in the built image.
@@ -108,7 +108,7 @@ The developer decides; these are one reader's recommendations.
 | Tool | Recommendation | Why |
 | --- | --- | --- |
 | `node:22-slim`, `git`, `gh`, `ca-certificates`, Claude CLI, harness plugin, settings, git identity, non-root user, watchdog env | **Keep** in the shared image | Every run needs them; no project could supply them without the manager's wiring. |
-| Personal skills `apply-pr-review`, `rebase-pr`, `ux-review` | **Keep** | They exist because a project's clone cannot carry them. |
+| Personal skills `apply-pr-review`, `rebase-pr`, `ux-review`, `design-review` | **Keep** | They exist because a project's clone cannot carry them. |
 | `jq` | **Keep** | The uniform `issue-tracker.md` has an agent pipe issue comments into it in any run kind, so every project would need it declared, for a small saving and a new failure path. |
 | `curl` | **Trim in place** (purge after the key fetch) | Not a move; no project declares it, and no run uses it. |
 | Temurin 21 JRE | **Move** to `home-catalogue` and `data-platform` `.sandbox/Dockerfile`s | The clearest per-project need: exactly two projects, both with the same `test:rules`, and a JRE on disk for every other run. Accept the duplicate declaration; keep the version in step by hand, or have the second project copy the first. Do it only after both projects' `.sandbox/` exist and one has built, since a missing JRE fails `test:rules` mid-run. |

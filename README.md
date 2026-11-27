@@ -513,7 +513,7 @@ A container with no token set fails cleanly (`Not logged in`) rather than fallin
 CI makes the same check on every push touching the image, and needs no token to do it:
 [`.github/workflows/sandbox-image.yml`](.github/workflows/sandbox-image.yml) builds the image, then
 runs [`scripts/verify-harness.ts`](scripts/verify-harness.ts) inside it to assert the plugin is
-installed, enabled, and enumerating its skills, and that the `apply-pr-review`, `rebase-pr` and
+installed, enabled, and enumerating its skills, and that the `apply-pr-review`, `rebase-pr`,
 `ux-review` and `design-review` skills the image carries — for applying a pull request's review, for
 rebasing a pull request's branch onto its base, for reviewing how an app feels in a browser, and for
 judging its visual design against Material 3 — are on disk at
