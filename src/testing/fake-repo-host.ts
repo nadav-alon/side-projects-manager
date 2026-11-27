@@ -19,6 +19,7 @@ import type {
   PullRequestState,
   PullRequestUrl,
   RepoHost,
+  ReleaseTag,
   RepoSlug,
   ReviewFinding,
   Ticket,
@@ -243,6 +244,28 @@ export class FakeRepoHost implements RepoHost {
     }
     this.alreadyLabelled(repo, name);
     this.labelsCreated.push({ repo, name, description });
+  }
+
+  readonly #latestReleases = new Map<RepoSlug, ReleaseTag>();
+
+  /** Sets what `readLatestRelease` answers for `repo`. None, unless a test says otherwise. */
+  setLatestRelease(repo: RepoSlug, tag: ReleaseTag): void {
+    this.#latestReleases.set(repo, tag);
+  }
+
+  async readLatestRelease(repo: RepoSlug): Promise<ReleaseTag | undefined> {
+    return this.#latestReleases.get(repo);
+  }
+
+  readonly #files = new Map<string, string>();
+
+  /** Sets what `readFile` answers for `path` in `repo`. No file, unless a test says otherwise. */
+  setFile(repo: RepoSlug, path: string, text: string): void {
+    this.#files.set(`${repo}:${path}`, text);
+  }
+
+  async readFile(repo: RepoSlug, path: string): Promise<string | undefined> {
+    return this.#files.get(`${repo}:${path}`);
   }
 
   /** Every repo `enablePages` was asked to enable, in order. */

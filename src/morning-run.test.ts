@@ -38,6 +38,8 @@ import {
   nits as toNits,
   processId,
   pullRequestUrl,
+  releaseTag,
+  repoSlug,
   reserveFraction,
   reviewTitle,
   ticketGist,
@@ -11407,5 +11409,40 @@ describe("morningLoop", () => {
       assert.equal(report.outcome, "work-selected");
       assert.equal(ports.sandbox.runs.length, 1);
     });
+  });
+});
+
+describe("morningLoop package bump sweep", () => {
+  const UI = repoSlug("nadav-alon/household-ui");
+  const manifest = JSON.stringify({
+    dependencies: { "household-ui": "github:nadav-alon/household-ui#v0.1.0" },
+  });
+
+  it("files a bump ticket in a project pinning an older release, and says so in the summary", async () => {
+    const ports = fakePorts();
+    ports.store.register(UI);
+    ports.store.register(PILOT);
+    ports.repoHost.setLatestRelease(UI, releaseTag("v0.5.1"));
+    ports.repoHost.setFile(PILOT, "package.json", manifest);
+
+    const report = await morningLoop(ports);
+
+    assert.deepEqual(
+      ports.tracker.bumpTickets.map((bump) => [bump.ticket.repo, bump.ticket.title]),
+      [[PILOT, "Bump household-ui to v0.5.1"]],
+    );
+    assert.match(report.message, /Package bumps: .*pilot \(opened .*to bump household-ui\)/);
+  });
+
+  it("files nothing in a paused project", async () => {
+    const ports = fakePorts();
+    ports.store.register(UI);
+    ports.store.register(PILOT, { paused: true });
+    ports.repoHost.setLatestRelease(UI, releaseTag("v0.5.1"));
+    ports.repoHost.setFile(PILOT, "package.json", manifest);
+
+    await morningLoop(ports);
+
+    assert.deepEqual(ports.tracker.bumpTickets, []);
   });
 });

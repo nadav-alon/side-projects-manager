@@ -73,6 +73,10 @@ export {
   carriesSupertaskLabel,
   declaredSize,
   discoveredBody,
+  BUMP_TICKET_LABELS,
+  bumpTicketText,
+  bumpTicketTitle,
+  isBumpTicketFor,
   discoveredTicketLabels,
   isApplyReviewTicket,
   isBlocked,
@@ -104,6 +108,7 @@ export {
 export type {
   ApplyReviewTicket,
   Backlog,
+  BumpTicketText,
   DiscoveredTicketRequest,
   DiscoveredTicketSummary,
   HandBackOutcome,
@@ -231,8 +236,10 @@ export type {
   ReviewFinding,
   Visibility,
 } from "./repo-host.ts";
-export { isRepoSlug, repoName, repoSlug, sameRepo } from "./repo-slug.ts";
-export type { RepoSlug } from "./repo-slug.ts";
+export { isRepoSlug, repoName, repoOwner, repoSlug, sameRepo } from "./repo-slug.ts";
+export type { RepoOwner, RepoSlug } from "./repo-slug.ts";
+export { isOlderTag, isReleaseTag, releaseTag } from "./release-tag.ts";
+export type { ReleaseTag } from "./release-tag.ts";
 export { isReserveFraction, reserveFraction } from "./reserve-fraction.ts";
 export type { ReserveFraction } from "./reserve-fraction.ts";
 export { isSize, largerSize, SIZES } from "./size.ts";

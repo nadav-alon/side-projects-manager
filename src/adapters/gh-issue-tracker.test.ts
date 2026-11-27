@@ -3072,3 +3072,45 @@ describe("ghIssueTracker.createApplyReviewTicket", () => {
     assert.ok(link?.includes("repos/nadav-alon/pilot/issues/7/sub_issues"));
   });
 });
+
+describe("ghIssueTracker.createBumpTicket", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const CREATED_URL = "https://github.com/nadav-alon/pilot/issues/43";
+
+  it("opens the issue in the repo carrying ready-for-agent, turboable and enhancement", async (t) => {
+    const gh = await recordingGh(t, `[ "$1 $2" = "issue create" ] && echo ${CREATED_URL}`);
+
+    const ticket = await ghIssueTracker().createBumpTicket(PILOT, { title: "Bump ui to v2.0.0", body: "Please." });
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create, "the ticket should be created with `gh issue create`");
+    assert.equal(valueOf(create, "--repo"), PILOT);
+    assert.equal(valueOf(create, "--title"), "Bump ui to v2.0.0");
+    assert.equal(valueOf(create, "--body"), "Please.");
+    assert.ok(create.includes(READY_FOR_AGENT_LABEL));
+    assert.ok(create.includes(TURBOABLE_LABEL));
+    assert.ok(create.includes("enhancement"));
+    assert.deepEqual(ticket, { repo: PILOT, number: issueNumber(43), title: "Bump ui to v2.0.0" });
+  });
+});
+
+describe("ghIssueTracker.rewriteTicket", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  it("edits only the title and body of the issue", async (t) => {
+    const gh = await recordingGh(t, "");
+
+    await ghIssueTracker().rewriteTicket(
+      { repo: PILOT, number: issueNumber(7) },
+      { title: "Bump ui to v3.0.0", body: "Newer." },
+    );
+
+    const edit = callWith(await gh.calls(), "issue", "edit");
+    assert.ok(edit, "the ticket should be edited");
+    assert.ok(edit.includes("7"));
+    assert.equal(valueOf(edit, "--repo"), PILOT);
+    assert.equal(valueOf(edit, "--title"), "Bump ui to v3.0.0");
+    assert.equal(valueOf(edit, "--body"), "Newer.");
+    assert.ok(!edit.includes("--add-label") && !edit.includes("--remove-label"));
+  });
+});

@@ -30,6 +30,7 @@ import type {
   RepoHost,
   RepoSlug,
   ReviewFinding,
+  ReleaseTag,
   Ticket,
   TicketGist,
   Visibility,
@@ -46,6 +47,7 @@ import {
   isMarkedReply,
   isPullRequestLabel,
   isPullRequestUrl,
+  isReleaseTag,
   isRepoSlug,
   NEEDS_REBASE_LABEL,
   NIT_SECTION_HEADING,
@@ -122,6 +124,26 @@ export function githubRepoHost(
           throw error;
         }
       }
+    },
+
+    async readLatestRelease(repo: RepoSlug): Promise<ReleaseTag | undefined> {
+      return undefinedIfNotFound(async () => {
+        const { stdout } = await run("gh", ["api", `repos/${repo}/releases/latest`, "--jq", ".tag_name"]);
+        const tag = stdout.trim();
+        return isReleaseTag(tag) ? tag : undefined;
+      });
+    },
+
+    async readFile(repo: RepoSlug, filePath: string): Promise<string | undefined> {
+      return undefinedIfNotFound(async () => {
+        const { stdout } = await run("gh", [
+          "api",
+          "-H",
+          "Accept: application/vnd.github.raw+json",
+          `repos/${repo}/contents/${filePath}`,
+        ]);
+        return stdout;
+      });
     },
 
     async clone(repo: RepoSlug): Promise<Checkout> {
@@ -2074,6 +2096,23 @@ async function createLabelUnlessPresent(
 function isAlreadyExists(error: unknown): boolean {
   const stderr = stderrOf(error);
   return /already exists/i.test(stderr);
+}
+
+/** Whether `gh api` failed because what it asked for is not there: HTTP 404. */
+/** What `read` answers, or `undefined` where GitHub answers that what it reads is not there; any other failure still throws. */
+async function undefinedIfNotFound<T>(read: () => Promise<T | undefined>): Promise<T | undefined> {
+  try {
+    return await read();
+  } catch (error) {
+    if (isNotFound(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function isNotFound(error: unknown): boolean {
+  return /HTTP 404/i.test(stderrOf(error));
 }
 
 /** Whether `gh api` failed because the repo's Pages site is already there. */

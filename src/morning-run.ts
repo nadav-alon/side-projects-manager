@@ -192,6 +192,7 @@ import { postFailingCheckThreads } from "./failing-check-threads.ts";
 import { settledChecks } from "./settled-checks.ts";
 import { grantSweep } from "./grant-sweep.ts";
 import { recordedDiscoverySweep } from "./recorded-discovery-sweep.ts";
+import { packageBumpSweep, type PackageBumpOutcome } from "./package-bump-sweep.ts";
 import { uniformSyncSweep, type UniformSyncSweepOutcome } from "./uniform-sync-sweep.ts";
 import { SANDBOX_DIRECTORY } from "./sandbox-directory.ts";
 
@@ -358,6 +359,9 @@ export async function morningLoop(
   // are stale says nothing about ticket selection, and a clone is too heavy a
   // thing to repeat on every scan an invocation makes.
   let uniformSyncSweepOutcomes: UniformSyncSweepOutcome[] = [];
+  // Populated from `packageBumpSweepAll` below, once per invocation: whether a
+  // project pins an older release of another says nothing about ticket selection.
+  let packageBumpOutcomes: PackageBumpOutcome[] = [];
   // Populated from `failingWorkflowsAll` below, once per invocation: whether a
   // project's workflow is failing says nothing about ticket selection.
   let failingWorkflows: ProjectFailingWorkflow[] = [];
@@ -426,6 +430,7 @@ export async function morningLoop(
     // files are either stale or they are not, regardless of which ticket, if
     // any, this invocation goes on to select.
     uniformSyncSweepOutcomes = await uniformSyncSweepAll(ports);
+    packageBumpOutcomes = await packageBumpSweepAll(ports);
     failingWorkflows = await failingWorkflowsAll(ports);
     // Pruned on the same once-per-invocation footing: a closed ticket's grant
     // record says nothing about which ticket is selected next.
@@ -673,6 +678,7 @@ export async function morningLoop(
     conflictSweeps: sweepOutcomes,
     specReviewSweeps: specReviewSweepOutcomes,
     uniformSyncSweeps: uniformSyncSweepOutcomes,
+    packageBumpSweeps: packageBumpOutcomes,
     settledMerges,
     settledReadies,
     freedFromDeadInvocation: freedTickets,
@@ -1303,6 +1309,18 @@ async function uniformSyncSweepAll(
     );
   }
   return outcomes;
+}
+
+/**
+ * A package bump sweep over every non-paused registered project, the manager's
+ * own included: paused means never considered, as for every other sweep, and
+ * the manager's own repo may pin a registered package like any other.
+ */
+async function packageBumpSweepAll(ports: MorningLoopPorts): Promise<PackageBumpOutcome[]> {
+  const projects = (await ports.store.loadRegistry())
+    .filter((project) => !project.paused)
+    .map((project) => project.repo);
+  return packageBumpSweep(ports, projects);
 }
 
 /**

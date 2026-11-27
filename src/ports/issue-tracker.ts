@@ -1,5 +1,6 @@
 import { isIssueNumber, type IssueNumber } from "./issue-number.ts";
 import { isModelName, type ModelName } from "./model-name.ts";
+import { isReleaseTag, type ReleaseTag } from "./release-tag.ts";
 import { pullRequestNumber, type PullRequestUrl } from "./pull-request-url.ts";
 import { isRepoSlug, type RepoSlug } from "./repo-slug.ts";
 import { isSize, largerSize, type Size } from "./size.ts";
@@ -1142,6 +1143,20 @@ export interface IssueTracker {
   ): Promise<Ticket>;
 
   /**
+   * Opens an issue in `repo` asking an agent to bump a pinned package, and
+   * answers with it. Born carrying ready-for-agent, turboable and enhancement
+   * (see {@link BUMP_TICKET_LABELS}): the ticket is bounded by one named
+   * release, and a bump nobody labelled never runs on a morning nobody is
+   * around.
+   */
+  createBumpTicket(repo: RepoSlug, text: BumpTicketText): Promise<Ticket>;
+  /**
+   * Replaces `ticket`'s title and body, leaving its labels, comments and
+   * state exactly as they are.
+   */
+  rewriteTicket(ticket: IssueReference, text: BumpTicketText): Promise<void>;
+
+  /**
    * Gives `ticket` back to the developer once the loop has stopped working on
    * it — whether the run failed or finished: comments `comment` on it, and
    * moves it from ready-for-agent to ready-for-human.
@@ -1343,6 +1358,51 @@ export function discoveredTicketLabels(
   return ready
     ? [READY_FOR_AGENT_LABEL, SIZE_S_LABEL, ENHANCEMENT_LABEL, READY_DISCOVERY_LABEL]
     : [NEEDS_TRIAGE_LABEL, ENHANCEMENT_LABEL];
+}
+
+/**
+ * The labels `IssueTracker.createBumpTicket` opens a ticket with. Beside the
+ * port so the real tracker and the fake open a ticket carrying the very same
+ * set.
+ */
+export const BUMP_TICKET_LABELS = [
+  READY_FOR_AGENT_LABEL,
+  TURBOABLE_LABEL,
+  ENHANCEMENT_LABEL,
+] as const;
+
+/** The title a bump ticket for `pkg` carries while it asks for `tag`. */
+export function bumpTicketTitle(pkg: string, tag: ReleaseTag): string {
+  return `${bumpTicketTitlePrefix(pkg)}${tag}`;
+}
+
+function bumpTicketTitlePrefix(pkg: string): string {
+  return `Bump ${pkg} to `;
+}
+
+/**
+ * Whether `ticket` is a bump ticket for `pkg`, whatever release it asks for
+ * now: what tells an open one from every other ticket in the backlog.
+ */
+export function isBumpTicketFor(ticket: Pick<Ticket, "title">, pkg: string): boolean {
+  const prefix = bumpTicketTitlePrefix(pkg);
+  return ticket.title.startsWith(prefix) && isReleaseTag(ticket.title.slice(prefix.length));
+}
+
+/** The title and body a bump ticket carries together. */
+export interface BumpTicketText {
+  title: string;
+  body: string;
+}
+
+/** What a bump ticket for `pkg`, pinned at `pinned`, is titled and asks of the agent that works it, for the `tag` release. */
+export function bumpTicketText(pkg: string, tag: ReleaseTag, pinned: ReleaseTag): BumpTicketText {
+  const body = [
+    `This project pins ${pkg} at ${pinned}; its latest release is ${tag}.`,
+    "",
+    `Bump the pin to \`${tag}\`, refresh the lockfile, and fix whatever the bump breaks.`,
+  ].join("\n");
+  return { title: bumpTicketTitle(pkg, tag), body };
 }
 
 /**

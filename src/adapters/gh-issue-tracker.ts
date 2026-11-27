@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 
 import type {
   ApplyReviewTicket,
+  BumpTicketText,
   DiscoveredTicketRequest,
   DiscoveredTicketSummary,
   HandBackOutcome,
@@ -27,6 +28,7 @@ import type {
 } from "../ports/index.ts";
 import { LABEL_DESCRIPTIONS } from "../project-labels.ts";
 import {
+  BUMP_TICKET_LABELS,
   isDiscoveredWhileWorking,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
@@ -449,6 +451,36 @@ export function ghIssueTracker(
     async labelGranted(ticket: IssueReference, label: GrantLabel): Promise<void> {
       await ensureLabel(ticket.repo, label);
       await execFileAsync("gh", ["issue", "edit", ...issueArgs(ticket), "--add-label", label]);
+    },
+
+    async createBumpTicket(repo: RepoSlug, { title, body }: BumpTicketText): Promise<Ticket> {
+      for (const label of BUMP_TICKET_LABELS) {
+        await ensureLabel(repo, label);
+      }
+      const { stdout } = await execFileAsync("gh", [
+        "issue",
+        "create",
+        "--repo",
+        repo,
+        "--title",
+        title,
+        ...BUMP_TICKET_LABELS.flatMap((label) => ["--label", label]),
+        "--body",
+        body,
+      ]);
+      return { repo, number: issueNumberIn(stdout, repo), title };
+    },
+
+    async rewriteTicket(ticket: IssueReference, { title, body }: BumpTicketText): Promise<void> {
+      await execFileAsync("gh", [
+        "issue",
+        "edit",
+        ...issueArgs(ticket),
+        "--title",
+        title,
+        "--body",
+        body,
+      ]);
     },
 
     async createDiscoveredTicket(

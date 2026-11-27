@@ -7,6 +7,7 @@ import type {
   ConflictSweepRefusal,
 } from "./conflict-sweep.ts";
 import { isBlockingDiscoveryKind } from "./discovery-routing.ts";
+import type { PackageBumpOutcome } from "./package-bump-sweep.ts";
 import type { DiscoveryReport, DiscoveryRouting } from "./discovery-routing.ts";
 import { errorMessage } from "./error-message.ts";
 import { uniformFilesTouchedPhrase } from "./failure-reason.ts";
@@ -90,6 +91,7 @@ import {
   isReviewTicket,
   localDay,
   localTimeOfMinute,
+  repoName,
   ticketReference,
 } from "./ports/index.ts";
 
@@ -460,6 +462,8 @@ export interface SummaryFacts {
   conflictSweeps: ConflictSweepOutcome[];
   specReviewSweeps: SpecReviewSweepOutcome[];
   uniformSyncSweeps: UniformSyncSweepOutcome[];
+  /** Every bump ticket the package bump sweep opened or rewrote, and every refusal it met. */
+  packageBumpSweeps: PackageBumpOutcome[];
   /** Every merge an earlier iteration left pending on checks that this invocation settled. */
   settledMerges: SettledMerge[];
   /** Every draft pull request left waiting on running checks that this invocation settled. */
@@ -498,7 +502,8 @@ export function summaryLine(facts: SummaryFacts): string {
   const sweeps = conflictSweepAside(facts.conflictSweeps);
   const specReviews = specReviewSweepAside(facts.specReviewSweeps);
   const uniformSync = uniformSyncSweepAside(facts.uniformSyncSweeps);
-  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}${sweeps}${specReviews}${uniformSync}`;
+  const packageBumps = packageBumpAside(facts.packageBumpSweeps);
+  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}${sweeps}${specReviews}${uniformSync}${packageBumps}`;
 
   if (iterations.length > 0) {
     // A stand-down after the morning had already done some good is said after
@@ -518,7 +523,7 @@ export function summaryLine(facts: SummaryFacts): string {
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
-  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}${sweeps}${specReviews}${uniformSync}`;
+  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}${sweeps}${specReviews}${uniformSync}${packageBumps}`;
 }
 
 /**
@@ -599,6 +604,7 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
     conflictSweepSection(facts.conflictSweeps),
     specReviewSweepSection(facts.specReviewSweeps),
     uniformSyncSweepSection(facts.uniformSyncSweeps),
+    packageBumpSection(facts.packageBumpSweeps),
     settledMergesSection(facts.settledMerges),
     settledReadiesSection(facts.settledReadies),
     freedFromDeadInvocationSection(facts.freedFromDeadInvocation),
@@ -1246,6 +1252,39 @@ function uniformSyncSweepSection(
     (sweep) => `- ${sweep.repo}: ${uniformSyncSweepPhrase(sweep.result)}`,
   );
   return ["## Uniform sync sweep", ...lines].join("\n");
+}
+
+/** What one package bump outcome says happened, worded for either the aside or the body. */
+function packageBumpPhrase(outcome: PackageBumpOutcome): string {
+  const { result } = outcome;
+  const pkg = repoName(outcome.publisher);
+  switch (result.kind) {
+    case "opened":
+      return `opened ${ticketReference(result.ticket)} to bump ${pkg}`;
+    case "updated":
+      return `rewrote ${ticketReference(result.ticket)} to bump ${pkg} to the latest release`;
+    case "refused":
+      return `could not bump ${pkg}: ${withoutTrailingStop(result.error)}`;
+  }
+}
+
+/** The summary line's own short aside on the package bump sweep: present only when it opened, rewrote or was refused something. */
+function packageBumpAside(packageBumpSweeps: PackageBumpOutcome[]): string {
+  const phrases = packageBumpSweeps.map(
+    (outcome) => `${outcome.project} (${packageBumpPhrase(outcome)})`,
+  );
+  return phrases.length > 0 ? ` Package bumps: ${phrases.join(", ")}.` : "";
+}
+
+/** One bullet per bump ticket the package bump sweep opened or rewrote, or refusal it met. */
+function packageBumpSection(packageBumpSweeps: PackageBumpOutcome[]): string | undefined {
+  if (packageBumpSweeps.length === 0) {
+    return undefined;
+  }
+  return [
+    "## Package bumps",
+    ...packageBumpSweeps.map((outcome) => `- ${outcome.project}: ${packageBumpPhrase(outcome)}`),
+  ].join("\n");
 }
 
 /** One bullet per merge left pending on checks that this invocation settled, naming what came of it. */
