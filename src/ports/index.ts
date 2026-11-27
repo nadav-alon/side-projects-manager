@@ -273,6 +273,8 @@ export type {
   SpecReviewOutcome,
   SpecReviewRequest,
   UxReviewOutcome,
+  DesignReviewOutcome,
+  DesignReviewRequest,
   UxReviewRequest,
   UniformFilesReverted,
 } from "./sandbox.ts";

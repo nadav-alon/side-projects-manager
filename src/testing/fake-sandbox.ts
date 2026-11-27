@@ -25,6 +25,9 @@ import type {
   UxReviewOutcome,
   UxReviewRequest,
   UxReviewTicket,
+  DesignReviewOutcome,
+  DesignReviewRequest,
+  DesignReviewTicket,
   Ticket,
 } from "../ports/index.ts";
 import { errorMessage } from "../error-message.ts";
@@ -124,6 +127,16 @@ export class FakeSandbox implements Sandbox {
 
   /** What the next ux review run comes to. A costless, finished one unless set. */
   uxReviewResult: (ticket: UxReviewTicket) => UxReviewOutcome = () => ({
+    kind: "finished",
+    output: "",
+    tokensUsed: tokenCount(0),
+  });
+
+  /** Every design review run asked for, in order. */
+  readonly designReviews: DesignReviewRequest[] = [];
+
+  /** What the next design review run comes to. A costless, finished one unless set. */
+  designReviewResult: (ticket: DesignReviewTicket) => DesignReviewOutcome = () => ({
     kind: "finished",
     output: "",
     tokensUsed: tokenCount(0),
@@ -293,6 +306,25 @@ export class FakeSandbox implements Sandbox {
     this.uxReviews.push(request);
     return this.#inProgress(request.ticket, onStarted, () =>
       this.uxReviewResult(request.ticket),
+      () => this.#reportProgress(request),
+    );
+  }
+
+  designReview(
+    request: DesignReviewRequest & { model: ModelName },
+    onStarted?: OnRunStarted,
+  ): Promise<DesignReviewOutcome>;
+  designReview(
+    request: DesignReviewRequest & { model?: undefined },
+    onStarted?: OnRunStarted,
+  ): Promise<Exclude<DesignReviewOutcome, ReviewModelRefused>>;
+  async designReview(
+    request: DesignReviewRequest,
+    onStarted?: OnRunStarted,
+  ): Promise<DesignReviewOutcome> {
+    this.designReviews.push(request);
+    return this.#inProgress(request.ticket, onStarted, () =>
+      this.designReviewResult(request.ticket),
       () => this.#reportProgress(request),
     );
   }

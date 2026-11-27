@@ -10,6 +10,7 @@ import type {
   ReviewTicket,
   SpecReviewTicket,
   UxReviewTicket,
+  DesignReviewTicket,
   Ticket,
   TicketKind,
 } from "./issue-tracker.ts";
@@ -214,6 +215,9 @@ export type SpecReviewRequest = ReviewRequestFor<SpecReviewTicket>;
 
 /** One ux review ticket, and the project checkout it is to be worked against. */
 export type UxReviewRequest = ReviewRequestFor<UxReviewTicket>;
+
+/** One design review ticket, and the project checkout it is to be worked against. */
+export type DesignReviewRequest = ReviewRequestFor<DesignReviewTicket>;
 
 /** One rebase ticket, and the project checkout it is to be worked against. */
 export interface RebaseRequest {
@@ -545,6 +549,9 @@ export type SpecReviewOutcome = ReviewOutcome;
  */
 export type UxReviewOutcome = ReviewOutcome;
 
+/** As `UxReviewOutcome`, for a design review run. */
+export type DesignReviewOutcome = ReviewOutcome;
+
 /** A rebase run that ran to completion: a review's shape, named for what ran. */
 export type RebaseFinished = ReviewFinished;
 
@@ -685,6 +692,22 @@ export interface Sandbox {
     request: UxReviewRequest & { model?: undefined },
     onStarted?: OnRunStarted,
   ): Promise<Exclude<UxReviewOutcome, ReviewModelRefused>>;
+
+  /**
+   * Runs the `design-review` skill against `request.ticket`, exactly as
+   * `uxReview` runs its skill: a writable throwaway clone credentialled with the
+   * review token, a browser through Playwright MCP, nothing committed or fetched
+   * back, and the findings in the outcome's own output for the caller to hand back
+   * as the ticket's comment.
+   */
+  designReview(
+    request: DesignReviewRequest & { model: ModelName },
+    onStarted?: OnRunStarted,
+  ): Promise<DesignReviewOutcome>;
+  designReview(
+    request: DesignReviewRequest & { model?: undefined },
+    onStarted?: OnRunStarted,
+  ): Promise<Exclude<DesignReviewOutcome, ReviewModelRefused>>;
 
   /**
    * Runs the `apply-pr-review` skill against `request.ticket.pullRequest`, on

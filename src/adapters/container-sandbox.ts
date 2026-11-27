@@ -37,6 +37,9 @@ import type {
   SpecReviewRequest,
   SpecReviewTicket,
   UxReviewOutcome,
+  DesignReviewOutcome,
+  DesignReviewRequest,
+  DesignReviewTicket,
   UxReviewRequest,
   UxReviewTicket,
   Ticket,
@@ -687,11 +690,28 @@ export function containerSandbox(
     );
   }
 
+  function designReview(
+    request: DesignReviewRequest & { model: ModelName },
+    onStarted?: OnRunStarted,
+  ): Promise<DesignReviewOutcome>;
+  function designReview(
+    request: DesignReviewRequest & { model?: undefined },
+    onStarted?: OnRunStarted,
+  ): Promise<Exclude<DesignReviewOutcome, ReviewModelRefused>>;
+  function designReview(
+    request: DesignReviewRequest,
+    onStarted?: OnRunStarted,
+  ): Promise<DesignReviewOutcome> {
+    return inProjectImage(request, (inImage) =>
+      designReviewOnClone(inImage, request, roots, onStarted),
+    );
+  }
+
   async function prepare(checkout: Checkout): Promise<ImageTag> {
     return imageFor(checkout);
   }
 
-  return { prepare, run, review, applyReview, rebase, specReview, uxReview };
+  return { prepare, run, review, applyReview, rebase, specReview, uxReview, designReview };
 }
 
 /**
@@ -1773,8 +1793,8 @@ function reviewOutcomeOf(
  */
 async function reviewOnClone(
   container: ContainerInImage,
-  kind: "review" | "spec-review" | "ux-review",
-  request: ReviewRequest | SpecReviewRequest | UxReviewRequest,
+  kind: "review" | "spec-review" | "ux-review" | "design-review",
+  request: ReviewRequest | SpecReviewRequest | UxReviewRequest | DesignReviewRequest,
   prompt: string,
   access: Pick<RunOptions, "mount" | "playwrightMcp">,
   roots: SandboxRoots,
@@ -1806,7 +1826,7 @@ async function reviewOnClone(
       onStarted,
     );
 
-    return reviewOutcomeOf(agent, model, kind === "spec-review" || kind === "ux-review");
+    return reviewOutcomeOf(agent, model, kind !== "review");
   });
 }
 
@@ -1855,6 +1875,23 @@ async function uxReviewOnClone(
     "ux-review",
     request,
     uxReviewPromptFor(request.ticket, request.discovered),
+    { mount: "rw", playwrightMcp: true },
+    roots,
+    onStarted,
+  );
+}
+
+async function designReviewOnClone(
+  container: ContainerInImage,
+  request: DesignReviewRequest,
+  roots: SandboxRoots,
+  onStarted?: OnRunStarted,
+): Promise<DesignReviewOutcome> {
+  return reviewOnClone(
+    container,
+    "design-review",
+    request,
+    designReviewPromptFor(request.ticket, request.discovered),
     { mount: "rw", playwrightMcp: true },
     roots,
     onStarted,
@@ -2009,6 +2046,32 @@ function uxReviewPromptFor(
 ): string {
   return [
     `/ux-review https://github.com/${ticket.repo}/issues/${ticket.number}`,
+    "",
+    "Name the repo explicitly wherever gh needs one, since this clone's origin is a local path and",
+    "gh cannot infer it. This is a review, not an implementation: do not commit or push",
+    "anything, and whatever you write into this clone is thrown away with it. Report what you find.",
+    "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
+    "finish and report without asking for confirmation.",
+    ...REPORT_IN_ANSWER_INSTRUCTIONS,
+    "",
+    discoveryInstructionsFor(discovered),
+    "",
+    answerInstructionsFor("reporting your review"),
+  ].join("\n");
+}
+
+/**
+ * What the design-reviewing agent is asked to do: invoke the `design-review` skill
+ * on the ticket, as `uxReviewPromptFor` does for `ux-review` — the same clone,
+ * the same ban on committing, the same unattended run, the findings in the
+ * structured answer's `report`.
+ */
+function designReviewPromptFor(
+  ticket: DesignReviewTicket,
+  discovered: readonly DiscoveredTicketSummary[] | undefined,
+): string {
+  return [
+    `/design-review https://github.com/${ticket.repo}/issues/${ticket.number}`,
     "",
     "Name the repo explicitly wherever gh needs one, since this clone's origin is a local path and",
     "gh cannot infer it. This is a review, not an implementation: do not commit or push",
