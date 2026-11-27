@@ -3129,3 +3129,61 @@ describe("enabling Pages", () => {
     await assert.rejects(githubRepoHost().enablePages(PILOT), /HTTP 403/);
   });
 });
+
+describe("githubRepoHost.readLatestRelease", () => {
+  it("answers the latest release's tag", async (t) => {
+    const gh = await recordingGh(t, "echo v0.5.1");
+
+    assert.equal(await githubRepoHost().readLatestRelease(PILOT), "v0.5.1");
+    assert.deepEqual(callWith(await gh.calls(), "api"), [
+      "api",
+      `repos/${PILOT}/releases/latest`,
+      "--jq",
+      ".tag_name",
+    ]);
+  });
+
+  it("answers undefined for a repo with no release", async (t) => {
+    await recordingGh(t, [`echo 'Not Found (HTTP 404)' >&2`, `exit 1`].join("\n"));
+
+    assert.equal(await githubRepoHost().readLatestRelease(PILOT), undefined);
+  });
+
+  it("answers undefined for a latest tag that is not a release tag", async (t) => {
+    await recordingGh(t, "echo nightly");
+
+    assert.equal(await githubRepoHost().readLatestRelease(PILOT), undefined);
+  });
+
+  it("rejects with gh's own error when it is refused for any other reason", async (t) => {
+    await recordingGh(t, [`echo 'HTTP 403: forbidden' >&2`, `exit 1`].join("\n"));
+
+    await assert.rejects(githubRepoHost().readLatestRelease(PILOT), /HTTP 403/);
+  });
+});
+
+describe("githubRepoHost.readFile", () => {
+  it("answers the file's raw text from the repo's contents", async (t) => {
+    const gh = await recordingGh(t, `echo '{"name":"pilot"}'`);
+
+    assert.equal(await githubRepoHost().readFile(PILOT, "package.json"), '{"name":"pilot"}\n');
+    assert.deepEqual(callWith(await gh.calls(), "api"), [
+      "api",
+      "-H",
+      "Accept: application/vnd.github.raw+json",
+      `repos/${PILOT}/contents/package.json`,
+    ]);
+  });
+
+  it("answers undefined where there is no such file", async (t) => {
+    await recordingGh(t, [`echo 'Not Found (HTTP 404)' >&2`, `exit 1`].join("\n"));
+
+    assert.equal(await githubRepoHost().readFile(PILOT, "package.json"), undefined);
+  });
+
+  it("rejects with gh's own error when it is refused for any other reason", async (t) => {
+    await recordingGh(t, [`echo 'HTTP 403: forbidden' >&2`, `exit 1`].join("\n"));
+
+    await assert.rejects(githubRepoHost().readFile(PILOT, "package.json"), /HTTP 403/);
+  });
+});

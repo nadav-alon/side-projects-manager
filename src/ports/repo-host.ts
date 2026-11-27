@@ -9,6 +9,7 @@ import { milliseconds, type Milliseconds } from "./milliseconds.ts";
 import type { Nits } from "./nits.ts";
 import { pullRequestLabel, type PullRequestLabel } from "./pull-request-label.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
+import type { ReleaseTag } from "./release-tag.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { TicketGist } from "./ticket-gist.ts";
 
@@ -590,6 +591,18 @@ export interface RepoHost {
    * included. Rejects on any other failure.
    */
   enablePages(repo: RepoSlug): Promise<void>;
+  /**
+   * The tag of `repo`'s latest published release, or `undefined` where it has
+   * published none or its latest tag is not a {@link ReleaseTag}. Rejects on
+   * any other failure.
+   */
+  readLatestRelease(repo: RepoSlug): Promise<ReleaseTag | undefined>;
+  /**
+   * The text of `path` on `repo`'s default branch, read from the host rather
+   * than a checkout, or `undefined` where there is no such file. Rejects on
+   * any other failure.
+   */
+  readFile(repo: RepoSlug, path: string): Promise<string | undefined>;
   /**
    * Ensures a checkout of `repo` in the managed location, and returns it.
    * A clone already sitting there is reused rather than replaced, which is
