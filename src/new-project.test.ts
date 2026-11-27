@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { newProject } from "./new-project.ts";
-import { checkout, priority, repoSlug, standardsPreset } from "./ports/index.ts";
+import { PAGES_FILE, checkout, priority, repoSlug, standardsPreset } from "./ports/index.ts";
 import { PROJECT_LABELS } from "./project-labels.ts";
 import { FakeRepoHost, fakeNewProjectPorts } from "./testing/index.ts";
 
@@ -500,7 +500,7 @@ describe("starting a project with --pages", () => {
     const report = await newProject(ports, { ...IDEA, pages: true });
 
     assert.equal(ports.harness.installs[0]?.options.pages, true);
-    assert.ok(report.scaffolded.includes(".github/workflows/pages.yml"));
+    assert.ok(report.scaffolded.includes(PAGES_FILE));
     assert.deepEqual(ports.host.pagesEnabled, [PILOT]);
   });
 
@@ -519,7 +519,7 @@ describe("starting a project with --pages", () => {
     const report = await newProject(ports, IDEA);
 
     assert.equal(ports.harness.installs[0]?.options.pages, false);
-    assert.ok(!report.scaffolded.includes(".github/workflows/pages.yml"));
+    assert.ok(!report.scaffolded.includes(PAGES_FILE));
     assert.deepEqual(ports.host.pagesEnabled, []);
   });
 });

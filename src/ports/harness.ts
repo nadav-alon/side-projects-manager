@@ -70,12 +70,13 @@ export function uniformFilesAmong(changed: Iterable<string>): string[] {
  */
 export type UniformComparison = "current" | "earlier" | "different";
 
-/** What one scaffolding put into a checkout. */
+/** What one scaffolding is asked to put into a checkout. */
 export interface InstallOptions {
   /** Give the project a GitHub Pages deploy workflow. */
   pages?: boolean;
 }
 
+/** What one scaffolding put into a checkout. */
 export interface Scaffold {
   /** Every path written, relative to the checkout, in the order written. */
   paths: string[];

@@ -68,8 +68,13 @@ jobs:
 
 /**
  * What a project that deploys to GitHub Pages starts with: build with
- * `npm run build`, upload `dist/`, deploy on every push to main. Pages itself
- * is enabled on the repo separately; `configure-pages` finds no site until it is.
+ * `npm run build`, upload `dist/`, deploy on every push to main. Only `main`
+ * is supported: a repo whose default branch is named otherwise gets Pages
+ * enabled but never deploys until the trigger is edited. Every step after
+ * checkout is guarded on a `package.json`, like the CI workflow's, so the
+ * scaffold push, which carries no code yet, does not fail the build. Pages
+ * itself is enabled on the repo separately; `configure-pages` finds no site
+ * until it is.
  */
 const PAGES_WORKFLOW = `name: Pages
 
@@ -96,21 +101,27 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - if: hashFiles('package.json') != ''
+        uses: actions/setup-node@v4
         with:
           node-version: 22.x
 
-      - run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - if: hashFiles('package.json') != ''
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-      - run: npm run build
+      - if: hashFiles('package.json') != ''
+        run: npm run build
 
-      - uses: actions/configure-pages@v5
+      - if: hashFiles('package.json') != ''
+        uses: actions/configure-pages@v5
 
-      - uses: actions/upload-pages-artifact@v3
+      - if: hashFiles('package.json') != ''
+        uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
-      - id: deployment
+      - if: hashFiles('package.json') != ''
+        id: deployment
         uses: actions/deploy-pages@v4
 `;
 
@@ -135,6 +146,16 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
       standards: string,
       options: InstallOptions = {},
     ): Promise<Scaffold> {
+      if (
+        options.pages === true &&
+        (await exists(path.join(directory, PAGES_FILE))) &&
+        !(await deploysToPages(directory))
+      ) {
+        throw new Error(
+          `${PAGES_FILE} already exists and does not deploy with actions/deploy-pages, so --pages cannot write its workflow. Rename or remove it, or deploy Pages from it and enable Pages yourself.`,
+        );
+      }
+
       const paths: string[] = [];
       const overwritten: string[] = [];
 

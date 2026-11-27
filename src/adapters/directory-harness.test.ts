@@ -394,6 +394,31 @@ describe("scaffolding a Pages deploy workflow", () => {
     assert.equal(await directoryHarness().deploysToPages(directory), true);
   });
 
+  it("guards every step after checkout on a package.json, so a push of the bare scaffold stays green", async () => {
+    const directory = await emptyCheckout();
+
+    await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS, { pages: true });
+
+    const workflow = await contentsOf(directory, PAGES_FILE);
+    const steps = workflow.split("\n      - ").slice(1);
+    assert.equal(steps.length, 7);
+    assert.match(steps[0] ?? "", /^uses: actions\/checkout@/);
+    for (const step of steps.slice(1)) {
+      assert.match(step, /^if: hashFiles\('package\.json'\) != ''/);
+    }
+  });
+
+  it("refuses, rather than skipping silently, a pages.yml that does not deploy", async () => {
+    const directory = await emptyCheckout();
+    await mkdir(path.join(directory, ".github", "workflows"), { recursive: true });
+    await writeFile(path.join(directory, PAGES_FILE), "name: mine\n");
+
+    await assert.rejects(
+      directoryHarness().install(directory, INSTRUCTIONS, STANDARDS, { pages: true }),
+      /already exists/,
+    );
+  });
+
   it("writes none without pages", async () => {
     const directory = await emptyCheckout();
 
