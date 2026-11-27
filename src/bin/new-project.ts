@@ -31,7 +31,8 @@ const USAGE = `Usage: new-project <owner/repo> [description] [--existing] [--pub
               main deploys. Works with --existing too.
 
   --ui        The project has a UI: register it with ui: true, and do what
-              --pages does.
+              --pages does. It registers only on first registration: an entry
+              already in the registry is left as it is.
 
   --standards Start the project's docs/project-standards.md as the named
               preset from the manager (typescript, for one) rather than as a

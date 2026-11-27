@@ -518,6 +518,20 @@ describe("starting a project with --ui", () => {
   });
 });
 
+describe("starting a project with --ui on a registered repo", () => {
+  it("leaves the existing entry without ui", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.store.register(PILOT, { paused: true });
+    ports.host.alreadyExists(PILOT);
+
+    await newProject(ports, { ...IDEA, existing: true, ui: true });
+
+    assert.deepEqual(await ports.store.loadRegistry(), [
+      { repo: PILOT, paused: true, turbo: false },
+    ]);
+  });
+});
+
 describe("starting a project with --pages", () => {
   it("asks the harness for a Pages workflow and enables Pages on the new repo", async () => {
     const ports = fakeNewProjectPorts();

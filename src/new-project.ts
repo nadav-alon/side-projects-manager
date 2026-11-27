@@ -181,7 +181,10 @@ export async function newProject(
   // project whose conventions are still in an unmerged branch would be worked
   // without them. A proposal that changed nothing means they are already there.
   const paused = proposal !== undefined && proposal.kind !== "unchanged";
-  const registered = await register(ports.store, repo, paused, ui);
+  const registered = await register(ports.store, repo, {
+    paused,
+    ...(ui && { ui: true as const }),
+  });
   // Published also when this run wrote nothing but the file is still dirty: an
   // earlier run whose push failed left its entry there, and this is the retry.
   const registryFailure =
@@ -321,20 +324,28 @@ async function startGrilling(
  *
  * The registry is the developer's document, so an entry that already exists is
  * left exactly as they wrote it — a project they paused stays paused, even if
- * they point the command at it again.
+ * they point the command at it again. That holds for `--ui` too: it takes
+ * effect only when the project is first registered.
  */
 async function register(
   store: Store,
   repo: RepoSlug,
-  paused: boolean,
-  ui: boolean,
+  entry: Pick<RegisteredProject, "paused" | "ui">,
 ): Promise<boolean> {
   const projects: RegisteredProject[] = await store.loadRegistry();
   if (projects.some((project) => project.repo === repo)) {
     return false;
   }
 
-  await store.saveRegistry([...projects, { repo, paused, turbo: true, ...(ui && { ui: true as const }) }]);
+  await store.saveRegistry([
+    ...projects,
+    {
+      repo,
+      paused: entry.paused,
+      turbo: true,
+      ...(entry.ui && { ui: true as const }),
+    },
+  ]);
   return true;
 }
 

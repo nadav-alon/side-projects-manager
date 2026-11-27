@@ -417,8 +417,8 @@ function isNotFound(error: unknown): boolean {
  *
  * `paused`, `turbo`, `priority`, `manager` and `ui` are optional: a project is
  * registered active, without standing consent to apply its own reviews,
- * without an explicit priority, and not the manager's own repo, unless the
- * developer says otherwise.
+ * without an explicit priority, not the manager's own repo and without a UI,
+ * unless the developer says otherwise.
  */
 function parseRegistry(
   document: unknown,

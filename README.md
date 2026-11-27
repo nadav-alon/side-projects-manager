@@ -147,7 +147,8 @@ deploys), it also enables GitHub Pages with build type `workflow`, so that workf
 deploy to; a repo whose Pages is already enabled is left as it is. Pass `--pages` to have the
 command write that workflow first (it runs `npm run build` and deploys `dist/`, and is skipped when
 the checkout already has a deploying workflow), so a new project's first push to main deploys. `--ui` marks a project as having a UI: it registers
-it with `ui: true` and implies `--pages`.
+it with `ui: true` (only on first registration; an existing entry is left as it is) and implies
+`--pages`.
 
 Pass `--standards typescript` to start the project's own rules from a preset:
 

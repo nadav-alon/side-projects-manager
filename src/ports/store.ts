@@ -51,7 +51,7 @@ export interface RegisteredProject {
   manager?: true;
   /**
    * The project has a UI, so it deploys to GitHub Pages. Absent reads as no
-   * UI; `new-project --ui` is what sets it.
+   * UI; `new-project --ui` writes it; it may also be set by hand.
    */
   ui?: true;
   /**
