@@ -10,7 +10,7 @@ import { newProject, type NewProjectRequest } from "../new-project.ts";
 import { parseRequest } from "./new-project-request.ts";
 
 const USAGE = `Usage: new-project <owner/repo> [description] [--existing] [--public]
-                   [--pages] [--standards <preset>]
+                   [--pages] [--ui] [--standards <preset>]
 
   Creates the repo, clones it to the managed location, scaffolds the harness
   into it, registers it, and hands you an interactive session that turns the
@@ -29,6 +29,9 @@ const USAGE = `Usage: new-project <owner/repo> [description] [--existing] [--pub
   --pages     Write a GitHub Pages deploy workflow (npm run build, uploads dist/)
               and enable Pages with build type workflow, so the first push to
               main deploys. Works with --existing too.
+
+  --ui        The project has a UI: register it with ui: true, and do what
+              --pages does.
 
   --standards Start the project's docs/project-standards.md as the named
               preset from the manager (typescript, for one) rather than as a

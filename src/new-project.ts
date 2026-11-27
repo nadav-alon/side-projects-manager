@@ -60,6 +60,11 @@ export interface NewProjectRequest {
    * too, where the workflow is proposed with the rest of the harness.
    */
   pages?: boolean;
+  /**
+   * The project has a UI: its registry entry carries `ui: true`, and it is
+   * given a Pages deploy as with `pages`, which it implies.
+   */
+  ui?: boolean;
 }
 
 export type NewProjectOutcome =
@@ -121,6 +126,7 @@ export async function newProject(
 ): Promise<NewProjectReport> {
   const { repo, description } = request;
   const existing = request.existing ?? false;
+  const ui = request.ui ?? false;
   const visibility: Visibility =
     (request.public ?? false) ? "public" : "private";
   // Before the host is touched: a preset that does not exist must cost nothing.
@@ -150,7 +156,7 @@ export async function newProject(
     directory,
     agentInstructions({ repo, description }),
     standards,
-    { pages: request.pages ?? false },
+    { pages: (request.pages ?? false) || ui },
   );
   // After the install, so a workflow it just wrote counts as one the checkout has.
   await enablePagesIfDeployed(ports, repo, directory);
@@ -175,7 +181,7 @@ export async function newProject(
   // project whose conventions are still in an unmerged branch would be worked
   // without them. A proposal that changed nothing means they are already there.
   const paused = proposal !== undefined && proposal.kind !== "unchanged";
-  const registered = await register(ports.store, repo, paused);
+  const registered = await register(ports.store, repo, paused, ui);
   // Published also when this run wrote nothing but the file is still dirty: an
   // earlier run whose push failed left its entry there, and this is the retry.
   const registryFailure =
@@ -321,13 +327,14 @@ async function register(
   store: Store,
   repo: RepoSlug,
   paused: boolean,
+  ui: boolean,
 ): Promise<boolean> {
   const projects: RegisteredProject[] = await store.loadRegistry();
   if (projects.some((project) => project.repo === repo)) {
     return false;
   }
 
-  await store.saveRegistry([...projects, { repo, paused, turbo: true }]);
+  await store.saveRegistry([...projects, { repo, paused, turbo: true, ...(ui && { ui: true as const }) }]);
   return true;
 }
 
