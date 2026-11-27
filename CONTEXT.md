@@ -271,6 +271,17 @@ propose again. A sync pull request labelled `ready-for-human` is left alone and 
 summary each run. See ADR 0011.
 _Avoid_: uniform sync, sync sweep
 
+**Package bump sweep**:
+Once per invocation, ahead of the first iteration, every non-paused registered project that has
+published a release is compared with every other non-paused registered project's `package.json`.
+A project pinning it as `github:<owner>/<package>#v…` at an earlier tag gets a bump ticket asking to
+move to the latest release and fix what the bump breaks, born ready-for-agent and turboable. A
+project already on the release, or not pinning the package, gets none. While a project's bump ticket
+for a package is open, a later release retitles and rewrites it rather than opening a second. A read
+or a write the host or tracker refuses is carried into the summary rather than failing the
+invocation.
+_Avoid_: dependency bump, release sweep
+
 **Agent instructions**:
 The per-project part of the harness: one file per project, generated for that project, saying what
 the project is and pointing at its own uniform files and at its own **Project standards**. Never

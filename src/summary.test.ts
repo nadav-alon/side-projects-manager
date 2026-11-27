@@ -679,6 +679,7 @@ function facts(iterations: IterationOutcome[]): SummaryFacts {
     conflictSweeps: [],
     specReviewSweeps: [],
     uniformSyncSweeps: [],
+    packageBumpSweeps: [],
     failingWorkflows: [],
     settledMerges: [],
     settledReadies: [],
@@ -1992,6 +1993,7 @@ describe("summaryLine", () => {
         conflictSweeps: [],
         specReviewSweeps: [],
         uniformSyncSweeps: [],
+    packageBumpSweeps: [],
         failingWorkflows: [],
         settledMerges: [],
         settledReadies: [],
@@ -2141,6 +2143,7 @@ describe("summaryLine", () => {
       conflictSweeps: [],
       specReviewSweeps: [],
       uniformSyncSweeps: [],
+    packageBumpSweeps: [],
       failingWorkflows: [],
       settledMerges: [],
       settledReadies: [],
@@ -2207,6 +2210,7 @@ describe("summaryLine", () => {
       conflictSweeps: [],
       specReviewSweeps: [],
       uniformSyncSweeps: [],
+    packageBumpSweeps: [],
       failingWorkflows: [],
       settledMerges: [],
       settledReadies: [],
@@ -3663,5 +3667,33 @@ describe("composeInvocationReport", () => {
 
       assert.equal(report.needsAttention, false);
     });
+  });
+});
+
+describe("the package bump sweep in the summary", () => {
+  const UI = repoSlug("nadav-alon/household-ui");
+  const ticket = { repo: REPO, number: issueNumber(5), title: "Bump household-ui to v0.5.1" };
+
+  it("names each bump ticket opened or rewritten, and each refusal", () => {
+    const body = summaryBody(
+      {
+        ...facts([]),
+        packageBumpSweeps: [
+          { package: UI, project: REPO, result: { kind: "opened", ticket } },
+          { package: UI, project: REPO, result: { kind: "updated", ticket } },
+          { package: UI, project: REPO, result: { kind: "refused", error: "HTTP 403." } },
+        ],
+      },
+      "line",
+    );
+
+    assert.match(body, /## Package bumps/);
+    assert.match(body, /opened .*#5 to bump household-ui/);
+    assert.match(body, /rewrote .*#5 to bump household-ui to the latest release/);
+    assert.match(body, /could not bump household-ui: HTTP 403$/m);
+  });
+
+  it("has no section when the sweep did nothing", () => {
+    assert.doesNotMatch(summaryBody(facts([]), "line"), /Package bumps/);
   });
 });
