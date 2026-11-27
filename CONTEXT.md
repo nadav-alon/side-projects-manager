@@ -715,7 +715,7 @@ skill. It reports; it never commits, and a discovery is the one way it opens or 
 of its own — filed against the ticket itself, since it names no supertask. It ends in hand-back like
 a spec review ticket: its findings are the hand-back comment, and the ticket moves to
 ready-for-human. It takes its estimate from its own size label, charges the unsized default where it
-carries none, and is never turboable. Its default model in `models.json` is `fable`.
+carries none, and may carry `turboable`, which standup grants it on a turbo project. Its default model in `models.json` is `fable`.
 _Avoid_: usability ticket, UI audit
 
 **Design review ticket**:
@@ -731,7 +731,7 @@ a hand-back when the project has none. Each finding names the screen, repro, wha
 rule or value it breaks (or flags a judgement call M3 does not settle), a suggested fix, and the repo
 the fix belongs in. It reports; it never commits, and the findings stay in the hand-back comment for
 the developer to triage into tickets. It ends in hand-back like a UX review ticket, takes its estimate
-from its own size label, and is never turboable. Its default model in `models.json` is `fable`.
+from its own size label, and may carry `turboable`, which standup grants it on a turbo project. Its default model in `models.json` is `fable`.
 _Avoid_: UX review ticket (that judges how the app feels), visual QA ticket
 
 **Spec review sweep**:
@@ -782,7 +782,7 @@ expected, not a conflict: labels are only added, never removed.
 _Avoid_: apply-review tag, done label
 
 **Turboable**:
-Per-ticket consent, the `turboable` label set by a human on an implementation ticket, letting the
+Per-ticket consent, the `turboable` label set by a human on an implementation ticket (or granted by standup on a `ux-review` or `design-review` ticket it files), letting the
 manager merge its pull request once its apply-review ticket finishes — whether that ticket followed
 from turbo or from the developer typing `/apply-review` by hand. Only on a turbo project (see
 **Turbo**); on any other project the label grants nothing: the manager never checks for it there.
