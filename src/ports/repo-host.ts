@@ -250,6 +250,16 @@ export interface FailingCheck {
 }
 
 /**
+ * A workflow whose latest completed run on its repo's default branch
+ * concluded `failure`: the workflow's `name` and `url`, the failing run's page.
+ * What {@link RepoHost.listFailingWorkflows} reads.
+ */
+export interface FailingWorkflow {
+  name: string;
+  url: CheckRunUrl;
+}
+
+/**
  * Whether a pull request is still open, merged, or closed without merging —
  * settled the instant it is asked, unlike {@link MergeStatus}, which GitHub
  * computes lazily.
@@ -914,6 +924,13 @@ export interface RepoHost {
    * the ones a closed sub-issue's own pull request now is.
    */
   listPullRequestsClosingIssues(repo: RepoSlug): Promise<ClosingPullRequest[]>;
+  /**
+   * The workflows of `repo` whose latest completed run on the default branch
+   * concluded `failure`, one per workflow, in the host's listing order. A
+   * workflow whose latest run succeeded after earlier failures is not among
+   * them, nor is one still running or never run; empty when nothing is failing.
+   */
+  listFailingWorkflows(repo: RepoSlug): Promise<FailingWorkflow[]>;
   /**
    * Merges `pullRequest` with a merge commit, and deletes its branch.
    *

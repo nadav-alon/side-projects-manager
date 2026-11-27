@@ -7,6 +7,7 @@ import type {
   CommitSha,
   ChecksStatus,
   FailingCheck,
+  FailingWorkflow,
   ClosingPullRequest,
   DraftPullRequestOpening,
   MergeStatus,
@@ -604,6 +605,17 @@ export class FakeRepoHost implements RepoHost {
     repo: RepoSlug,
   ): Promise<ClosingPullRequest[]> {
     return this.#closingPullRequests.get(repo) ?? [];
+  }
+
+  readonly #failingWorkflows = new Map<RepoSlug, FailingWorkflow[]>();
+
+  /** Sets what `listFailingWorkflows` answers for `repo`. None, unless a test says otherwise. */
+  setFailingWorkflows(repo: RepoSlug, workflows: FailingWorkflow[]): void {
+    this.#failingWorkflows.set(repo, workflows);
+  }
+
+  async listFailingWorkflows(repo: RepoSlug): Promise<FailingWorkflow[]> {
+    return this.#failingWorkflows.get(repo) ?? [];
   }
 
   /** Every pull request `mergePullRequest` was called on, in order. */

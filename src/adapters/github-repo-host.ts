@@ -13,6 +13,7 @@ import type {
   ChecksStatus,
   CheckRunUrl,
   FailingCheck,
+  FailingWorkflow,
   ClosingIssue,
   ClosingPullRequest,
   DraftPullRequestOpening,
@@ -817,6 +818,31 @@ export function githubRepoHost(
         String(CLOSING_PULL_REQUEST_LIMIT),
       ]);
       return closingPullRequestsFrom(stdout, repo);
+    },
+
+    async listFailingWorkflows(repo: RepoSlug): Promise<FailingWorkflow[]> {
+      const { stdout: defaultBranch } = await run("gh", [
+        "repo",
+        "view",
+        repo,
+        "--json",
+        "defaultBranchRef",
+        "--jq",
+        ".defaultBranchRef.name",
+      ]);
+      const { stdout } = await run("gh", [
+        "run",
+        "list",
+        "--repo",
+        repo,
+        "--branch",
+        defaultBranch.trim(),
+        "--limit",
+        String(WORKFLOW_RUN_LIMIT),
+        "--json",
+        "workflowName,workflowDatabaseId,event,conclusion,url",
+      ]);
+      return failingWorkflowsFrom(stdout, repo);
     },
 
     async mergePullRequest(pullRequest: PullRequestUrl, head?: string): Promise<void> {
@@ -1704,6 +1730,62 @@ function closingPullRequestsFrom(
       closesIssues: closingIssuesIn(closingIssuesReferences, at),
     };
   });
+}
+
+/**
+ * How many of a repo's latest default-branch runs `listFailingWorkflows`
+ * reads. A workflow whose latest run is older than this many runs is not seen.
+ */
+const WORKFLOW_RUN_LIMIT = 100;
+
+declare const workflowIdBrand: unique symbol;
+
+/** GitHub's database id of a workflow, which tells workflow files apart where their display names may not. */
+type WorkflowId = number & { readonly [workflowIdBrand]: true };
+
+/** Run events that belong to a pull request's head branch, not to the default branch itself. */
+const PULL_REQUEST_EVENTS: ReadonlySet<string> = new Set(["pull_request", "pull_request_target"]);
+
+/**
+ * The failing workflows in `gh run list`'s JSON, which lists newest first:
+ * each workflow is judged by its first run that has concluded, and named
+ * once when that conclusion is `failure`. Workflows are told apart by id, not
+ * display name, and pull-request runs are skipped: `--branch` matches a run's
+ * head branch, so a fork's `main` would otherwise pass for the default branch.
+ * Only `failure` counts: `timed_out`, `startup_failure` and `action_required`
+ * are left out, as the ticket names `failure` alone.
+ */
+function failingWorkflowsFrom(stdout: string, repo: RepoSlug): FailingWorkflow[] {
+  const where = `gh run list for ${repo}`;
+  const payload = jsonIn(stdout, where);
+  if (!Array.isArray(payload)) {
+    throw new Error(`${where}: expected an array.`);
+  }
+  const judged = new Set<WorkflowId>();
+  const failing: FailingWorkflow[] = [];
+  payload.forEach((raw, index) => {
+    const at = `${where}: run ${index + 1}`;
+    const { workflowName, workflowDatabaseId, event, conclusion, url } = objectAt(raw, at);
+    const name = expectField(workflowName, "string", "workflowName", at);
+    const id = expectField(workflowDatabaseId, "number", "workflowDatabaseId", at) as WorkflowId;
+    const concluded = expectField(conclusion, "string", "conclusion", at);
+    if (PULL_REQUEST_EVENTS.has(expectField(event, "string", "event", at))) {
+      return;
+    }
+    if (concluded === "" || judged.has(id)) {
+      return;
+    }
+    judged.add(id);
+    if (concluded !== "failure") {
+      return;
+    }
+    const link = expectField(url, "string", "url", at);
+    if (!isCheckRunUrl(link)) {
+      throw new Error(`${at}: "url" is not an http(s) URL: ${link}`);
+    }
+    failing.push({ name, url: link });
+  });
+  return failing;
 }
 
 /** `value`, as the issue number `field` names it at `at`: a positive integer. */

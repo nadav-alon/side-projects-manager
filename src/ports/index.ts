@@ -213,6 +213,7 @@ export type {
   ApplyReviewThread,
   ChecksStatus,
   FailingCheck,
+  FailingWorkflow,
   ClosingIssue,
   ClosingPullRequest,
   DraftPullRequestOpening,

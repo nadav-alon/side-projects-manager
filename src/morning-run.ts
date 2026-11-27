@@ -179,6 +179,7 @@ import {
   discoveryReportOf,
   type InvocationReport,
   type InvocationStandDown,
+  type ProjectFailingWorkflow,
   type SummaryFacts,
   type SummaryTracker,
 } from "./summary.ts";
@@ -354,6 +355,9 @@ export async function morningLoop(
   // are stale says nothing about ticket selection, and a clone is too heavy a
   // thing to repeat on every scan an invocation makes.
   let uniformSyncSweepOutcomes: UniformSyncSweepOutcome[] = [];
+  // Populated from `failingWorkflowsAll` below, once per invocation: whether a
+  // project's workflow is failing says nothing about ticket selection.
+  let failingWorkflows: ProjectFailingWorkflow[] = [];
   // What the pending-merge sweep settled, in the order it did.
   const settledMerges: SettledMerge[] = [];
   // What the pending-ready sweep settled, in the order it did.
@@ -419,6 +423,7 @@ export async function morningLoop(
     // files are either stale or they are not, regardless of which ticket, if
     // any, this invocation goes on to select.
     uniformSyncSweepOutcomes = await uniformSyncSweepAll(ports);
+    failingWorkflows = await failingWorkflowsAll(ports);
     // Pruned on the same once-per-invocation footing: a closed ticket's grant
     // record says nothing about which ticket is selected next.
     await grantSweep(ports.tracker, state);
@@ -668,6 +673,7 @@ export async function morningLoop(
     settledMerges,
     settledReadies,
     freedFromDeadInvocation: freedTickets,
+    failingWorkflows,
     selfUpdateFailure,
   };
 
@@ -1236,6 +1242,28 @@ async function touchedUniformFiles(
   branch: Branch,
 ): Promise<string[]> {
   return uniformFilesAmong(await repoHost.readChangedPaths(checkout, branch));
+}
+
+/**
+ * The failing workflows of every non-paused registered project, in registry
+ * order. A project whose workflows could not be read is warned about and
+ * contributes none: a host that will not answer is not a failing workflow.
+ */
+async function failingWorkflowsAll(ports: MorningLoopPorts): Promise<ProjectFailingWorkflow[]> {
+  const failing: ProjectFailingWorkflow[] = [];
+  for (const project of await ports.store.loadRegistry()) {
+    if (project.paused) {
+      continue;
+    }
+    try {
+      for (const workflow of await ports.repoHost.listFailingWorkflows(project.repo)) {
+        failing.push({ repo: project.repo, ...workflow });
+      }
+    } catch (error: unknown) {
+      console.warn(`Could not read ${project.repo}'s workflow runs: ${errorMessage(error)}`);
+    }
+  }
+  return failing;
 }
 
 /**
