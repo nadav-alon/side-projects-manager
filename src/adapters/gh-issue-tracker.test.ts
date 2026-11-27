@@ -12,6 +12,7 @@ import {
   READY_FOR_HUMAN_LABEL,
   SIZE_S_LABEL,
   TURBOABLE_LABEL,
+  UX_SCRIPT_TICKET_TITLE,
   isSpecReviewTicket,
   isSupertask,
   issueNumber,
@@ -3112,5 +3113,35 @@ describe("ghIssueTracker.rewriteTicket", () => {
     assert.equal(valueOf(edit, "--title"), "Bump ui to v3.0.0");
     assert.equal(valueOf(edit, "--body"), "Newer.");
     assert.ok(!edit.includes("--add-label") && !edit.includes("--remove-label"));
+  });
+});
+
+describe("ghIssueTracker.createUxScriptTicket", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  it("opens the fixed-title ticket carrying ready-for-agent, turboable, size:M and enhancement, its body naming the scenario and the emulators", async (t) => {
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue create") echo https://github.com/nadav-alon/pilot/issues/43 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    const ticket = await ghIssueTracker().createUxScriptTicket(PILOT);
+
+    assert.deepEqual(ticket, { repo: PILOT, number: issueNumber(43), title: UX_SCRIPT_TICKET_TITLE });
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create, "the ticket should be created with `gh issue create`");
+    assert.equal(valueOf(create, "--repo"), PILOT);
+    assert.equal(valueOf(create, "--title"), UX_SCRIPT_TICKET_TITLE);
+    for (const label of [READY_FOR_AGENT_LABEL, TURBOABLE_LABEL, "size:M", ENHANCEMENT_LABEL]) {
+      assert.ok(create.includes(label), `the ticket should carry ${label}`);
+    }
+    const body = valueOf(create, "--body") ?? "";
+    assert.match(body, /owner-with-items/);
+    assert.match(body, /emulators/);
   });
 });

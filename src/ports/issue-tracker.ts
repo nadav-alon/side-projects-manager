@@ -1435,7 +1435,7 @@ export const uxScriptTicketLabels = [
   TURBOABLE_LABEL,
 ] as const;
 
-/** The body of the ux-script ticket, following nadav-alon/recipes#99. */
+/** The brief an agent needs to write the `ux` script a UX review launches the app with. */
 export const UX_SCRIPT_TICKET_BODY = `## Current behavior
 A UX review (the ux-review skill) launches the app with \`npm run ux -- --scenario <name>\` (default scenario \`owner-with-items\`); this project's default branch has no \`ux\` script in \`package.json\`, so a review stops at once.
 

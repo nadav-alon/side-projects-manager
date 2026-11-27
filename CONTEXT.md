@@ -285,8 +285,10 @@ _Avoid_: dependency bump, release sweep
 **Ux-script sweep**:
 Once per invocation, ahead of selection, every non-paused registered project with `ui: true` whose
 default branch's `package.json` has no `ux` script is given one ticket asking for it — a UX review
-(`ux-review`, `design-review`) stops at once without the script. Filed ready-for-agent, turboable
-and `size:M`, with a fixed title; while a ticket with that title is open, none is filed again. A
+(`ux-review`, `design-review`) stops at once without the script. Filed ready-for-agent, turboable,
+`enhancement` and `size:M`, with a fixed title; while a ticket with that title is open, none is
+filed again (a closed one does not count, and a hand-filed ticket under another title is not seen),
+and none is filed when the open issues read was truncated. A
 refused read or write is warned about rather than failing the invocation.
 _Avoid_: ux script ticket sweep
 

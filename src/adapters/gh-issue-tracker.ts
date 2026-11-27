@@ -233,22 +233,13 @@ export function ghIssueTracker(
     },
 
     async createUxScriptTicket(repo: RepoSlug): Promise<Ticket> {
-      const labels = uxScriptTicketLabels as unknown as Array<keyof typeof LABEL_DESCRIPTIONS>;
-      for (const label of labels) {
-        await ensureLabel(repo, label);
-      }
-      const { stdout } = await execFileAsync("gh", [
-        "issue",
-        "create",
-        "--repo",
+      const number = await createLabelledIssue(
         repo,
-        "--title",
         UX_SCRIPT_TICKET_TITLE,
-        ...labels.flatMap((label) => ["--label", label]),
-        "--body",
+        uxScriptTicketLabels,
         UX_SCRIPT_TICKET_BODY,
-      ]);
-      return { repo, number: issueNumberIn(stdout, repo), title: UX_SCRIPT_TICKET_TITLE };
+      );
+      return { repo, number, title: UX_SCRIPT_TICKET_TITLE };
     },
 
     async createSpecReviewTicket(ticket: Ticket, body: string): Promise<Ticket> {
@@ -510,31 +501,16 @@ export function ghIssueTracker(
       discovery: DiscoveredTicketRequest,
     ): Promise<Ticket> {
       const ready = discovery.ready === true;
-      // Every label `discoveredTicketLabels` names is already a key of
-      // `LABEL_DESCRIPTIONS` below; the cast trades that for one place both
-      // this tracker and the fake build the set from.
-      const labels = discoveredTicketLabels(ready) as unknown as Array<
-        keyof typeof LABEL_DESCRIPTIONS
-      >;
-      for (const label of labels) {
-        await ensureLabel(ticket.repo, label);
-      }
-
-      const { stdout } = await execFileAsync("gh", [
-        "issue",
-        "create",
-        "--repo",
+      const number = await createLabelledIssue(
         ticket.repo,
-        "--title",
         discovery.title,
-        ...labels.flatMap((label) => ["--label", label]),
-        "--body",
+        discoveredTicketLabels(ready),
         discoveredBody(ticket, discovery.body),
-      ]);
+      );
 
       const discovered: Ticket = {
         repo: ticket.repo,
-        number: issueNumberIn(stdout, ticket.repo),
+        number,
         title: discovery.title,
         ...(ready && { readyDiscovery: true }),
       };
@@ -762,6 +738,36 @@ async function issueIsOpen(reference: IssueReference): Promise<boolean> {
  * for any other reason surfaces a moment later, from the call that actually
  * needs the label.
  */
+/**
+ * Opens an issue in `repo` carrying `labels`, each ensured to exist first,
+ * and answers its number. Every label a caller names is already a key of
+ * `LABEL_DESCRIPTIONS`; the cast trades that for one place both this tracker
+ * and the fake build the set from.
+ */
+async function createLabelledIssue(
+  repo: RepoSlug,
+  title: string,
+  labelNames: readonly string[],
+  body: string,
+): Promise<IssueNumber> {
+  const labels = labelNames as unknown as Array<keyof typeof LABEL_DESCRIPTIONS>;
+  for (const label of labels) {
+    await ensureLabel(repo, label);
+  }
+  const { stdout } = await execFileAsync("gh", [
+    "issue",
+    "create",
+    "--repo",
+    repo,
+    "--title",
+    title,
+    ...labels.flatMap((label) => ["--label", label]),
+    "--body",
+    body,
+  ]);
+  return issueNumberIn(stdout, repo);
+}
+
 async function ensureLabel(
   repo: RepoSlug,
   label: keyof typeof LABEL_DESCRIPTIONS,

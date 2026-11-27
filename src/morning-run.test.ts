@@ -519,9 +519,11 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT, { ui: true });
 
-      await morningLoop(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(ports.tracker.uxScriptTickets.length, 1);
+      assert.equal(report.outcome, "work-selected");
+      assert.deepEqual(verdicts(report.projects), [[PILOT, "selected"]]);
     });
 
     it("is not asked for twice across two mornings", async () => {

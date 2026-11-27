@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { issueNumber, repoSlug, uxScriptTicketLabels, UX_SCRIPT_TICKET_TITLE } from "./ports/index.ts";
+import { issueNumber, repoSlug, UX_SCRIPT_TICKET_TITLE } from "./ports/index.ts";
 import { FakeIssueTracker } from "./testing/fake-issue-tracker.ts";
 import { FakeRepoHost } from "./testing/fake-repo-host.ts";
 import { uxScriptSweep } from "./ux-script-sweep.ts";
@@ -22,13 +22,28 @@ describe("uxScriptSweep", () => {
     const { issues } = await tracker.listOpenIssues(APP);
     assert.equal(issues.length, 1);
     assert.deepEqual(issues[0]?.ticket.sizeLabel, { kind: "declared", size: "M" });
-    assert.deepEqual([...uxScriptTicketLabels], ["ready-for-agent", "size:M", "enhancement", "turboable"]);
+    const filed = outcome.result.kind === "filed" ? outcome.result.ticket : undefined;
+    assert.ok(filed);
+    for (const label of ["ready-for-agent", "size:M", "turboable"]) {
+      assert.ok(tracker.carriesLabel(filed, label), `the ticket should carry ${label}`);
+    }
   });
 
   it("files none while one is open", async () => {
     const tracker = new FakeIssueTracker();
     const repoHost = new FakeRepoHost();
     tracker.addEligibleTicket(APP, { number: issueNumber(4), title: UX_SCRIPT_TICKET_TITLE });
+
+    const outcome = await uxScriptSweep({ tracker, repoHost }, APP);
+
+    assert.deepEqual(outcome.result, { kind: "unchanged" });
+    assert.deepEqual(tracker.uxScriptTickets, []);
+  });
+
+  it("files none when the open issues read was truncated", async () => {
+    const tracker = new FakeIssueTracker();
+    const repoHost = new FakeRepoHost();
+    tracker.truncateBacklog(APP);
 
     const outcome = await uxScriptSweep({ tracker, repoHost }, APP);
 

@@ -111,8 +111,10 @@ export function githubRepoHost(
         }
         throw error;
       }
-      const scripts: unknown = (jsonIn(stdout, `package.json of ${repo}`) as { scripts?: unknown })
-        .scripts;
+      const scripts: unknown = objectAt(
+        jsonIn(stdout, `package.json of ${repo}`),
+        `package.json of ${repo}`,
+      ).scripts;
       return (
         typeof scripts === "object" && scripts !== null && Object.hasOwn(scripts, script)
       );
