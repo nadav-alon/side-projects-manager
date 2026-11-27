@@ -50,6 +50,11 @@ export interface RegisteredProject {
    */
   manager?: true;
   /**
+   * The project has a UI, so it deploys to GitHub Pages. Absent reads as no
+   * UI; `new-project --ui` writes it; it may also be set by hand.
+   */
+  ui?: true;
+  /**
    * Host directories every run, review and apply-review in this project sees,
    * read-only, at their container paths. Absent for a project that declares
    * none, which is most of them.

@@ -493,6 +493,45 @@ describe("enabling GitHub Pages", () => {
   });
 });
 
+describe("starting a project with --ui", () => {
+  it("registers it with ui: true and behaves as --pages", async () => {
+    const ports = fakeNewProjectPorts();
+
+    const report = await newProject(ports, { ...IDEA, ui: true });
+
+    assert.deepEqual(await ports.store.loadRegistry(), [
+      { repo: PILOT, paused: false, turbo: true, ui: true },
+    ]);
+    assert.equal(ports.harness.installs[0]?.options.pages, true);
+    assert.ok(report.scaffolded.includes(PAGES_FILE));
+    assert.deepEqual(ports.host.pagesEnabled, [PILOT]);
+  });
+
+  it("registers no ui flag without it", async () => {
+    const ports = fakeNewProjectPorts();
+
+    await newProject(ports, IDEA);
+
+    assert.deepEqual(await ports.store.loadRegistry(), [
+      { repo: PILOT, paused: false, turbo: true },
+    ]);
+  });
+});
+
+describe("starting a project with --ui on a registered repo", () => {
+  it("leaves the existing entry without ui", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.store.register(PILOT, { paused: true });
+    ports.host.alreadyExists(PILOT);
+
+    await newProject(ports, { ...IDEA, existing: true, ui: true });
+
+    assert.deepEqual(await ports.store.loadRegistry(), [
+      { repo: PILOT, paused: true, turbo: false },
+    ]);
+  });
+});
+
 describe("starting a project with --pages", () => {
   it("asks the harness for a Pages workflow and enables Pages on the new repo", async () => {
     const ports = fakeNewProjectPorts();

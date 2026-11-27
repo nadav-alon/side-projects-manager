@@ -25,6 +25,11 @@ describe("parsing a new-project request", () => {
     assert.equal(parseRequest(["nadav-alon/pilot"]).pages, false);
   });
 
+  it("carries --ui through as ui: true, and defaults it to false", () => {
+    assert.equal(parseRequest(["nadav-alon/pilot", "--ui"]).ui, true);
+    assert.equal(parseRequest(["nadav-alon/pilot"]).ui, false);
+  });
+
   it("carries --standards through as the preset's name", () => {
     const request = parseRequest(["nadav-alon/pilot", "--standards", "typescript"]);
 

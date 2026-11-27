@@ -146,7 +146,9 @@ When the checkout already has a workflow using `actions/deploy-pages` (an `--exi
 deploys), it also enables GitHub Pages with build type `workflow`, so that workflow has a site to
 deploy to; a repo whose Pages is already enabled is left as it is. Pass `--pages` to have the
 command write that workflow first (it runs `npm run build` and deploys `dist/`, and is skipped when
-the checkout already has a deploying workflow), so a new project's first push to main deploys.
+the checkout already has a deploying workflow), so a new project's first push to main deploys. `--ui` marks a project as having a UI: it registers
+it with `ui: true` (only on first registration; an existing entry is left as it is) and implies
+`--pages`.
 
 Pass `--standards typescript` to start the project's own rules from a preset:
 
@@ -197,7 +199,7 @@ else's clone stops the command rather than being scaffolded into. The clones you
 elsewhere are never touched.
 
 `new-project` rewrites `registry.json` in full when it appends, from the fields it models (`repo`,
-`paused`, `turbo`, `priority`, `manager`, `mounts`). Anything else you put in that file does not
+`paused`, `turbo`, `priority`, `manager`, `ui`, `mounts`). Anything else you put in that file does not
 survive the write.
 
 ## Registering a project
@@ -221,7 +223,8 @@ A project is named by its repo slug, `owner/repo`. `paused` keeps it registered 
 considered; `turbo` is standing consent to post `/apply-review` on a pull request itself once its
 review ticket closes, in place of you typing it; `priority` is a whole number from 1 upwards, the
 smaller worked first, and a project without one is worked least-recently-first. All three are
-optional, and a paused project is never selected however high its priority.
+optional, and a paused project is never selected however high its priority. `ui: true` marks a
+project that has a UI, and so deploys to GitHub Pages; `new-project --ui` writes it.
 
 A project may also declare `mounts`, host directories its runs read but the clone does not hold —
 live state that is gitignored, say:

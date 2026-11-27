@@ -11,7 +11,8 @@
     },
     {
       "repo": "nadav-alon/home-catalogue",
-      "turbo": true
+      "turbo": true,
+      "ui": true
     },
     {
       "repo": "nadav-alon/ltlf-external-knowledge",
@@ -37,7 +38,8 @@
     },
     {
       "repo": "nadav-alon/recipes",
-      "turbo": true
+      "turbo": true,
+      "ui": true
     },
     {
       "repo": "nadav-alon/household-ui",
@@ -45,7 +47,8 @@
     },
     {
       "repo": "nadav-alon/nutrition",
-      "turbo": true
+      "turbo": true,
+      "ui": true
     }
   ]
 }

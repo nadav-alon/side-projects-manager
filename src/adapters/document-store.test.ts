@@ -216,6 +216,45 @@ describe("the registry document", () => {
     await assert.rejects(store.loadRegistry(), /"manager"/);
   });
 
+  it("reads ui, absent unless the entry says otherwise", async () => {
+    const store = documentStore(
+      await home({
+        registry: JSON.stringify({
+          projects: [{ repo: MANAGER, ui: true }, { repo: PILOT }],
+        }),
+      }),
+    );
+
+    assert.deepEqual(await store.loadRegistry(), [
+      { repo: MANAGER, paused: false, turbo: false, ui: true },
+      { repo: PILOT, paused: false, turbo: false },
+    ]);
+  });
+
+  it("rejects a ui that is not true, naming the field", async () => {
+    const store = documentStore(
+      await home({
+        registry: JSON.stringify({ projects: [{ repo: PILOT, ui: false }] }),
+      }),
+    );
+
+    await assert.rejects(store.loadRegistry(), /"ui"/);
+  });
+
+  it("keeps the ui flag through a full rewrite", async () => {
+    const directory = await home();
+
+    await documentStore(directory).saveRegistry([
+      { repo: PILOT, paused: false, turbo: true, ui: true },
+    ]);
+
+    const written = await readFile(path.join(directory, "registry.json"), "utf8");
+    assert.equal(
+      written,
+      `${JSON.stringify({ projects: [{ repo: PILOT, turbo: true, ui: true }] }, undefined, 2)}\n`,
+    );
+  });
+
   it("registers nothing when the document does not exist", async () => {
     const store = documentStore(await home());
 
