@@ -840,7 +840,7 @@ export function githubRepoHost(
         "--limit",
         String(WORKFLOW_RUN_LIMIT),
         "--json",
-        "workflowName,conclusion,url",
+        "workflowName,workflowDatabaseId,event,conclusion,url",
       ]);
       return failingWorkflowsFrom(stdout, repo);
     },
@@ -1738,10 +1738,22 @@ function closingPullRequestsFrom(
  */
 const WORKFLOW_RUN_LIMIT = 100;
 
+declare const workflowIdBrand: unique symbol;
+
+/** GitHub's database id of a workflow, which tells workflow files apart where their display names may not. */
+type WorkflowId = number & { readonly [workflowIdBrand]: true };
+
+/** Run events that belong to a pull request's head branch, not to the default branch itself. */
+const PULL_REQUEST_EVENTS: ReadonlySet<string> = new Set(["pull_request", "pull_request_target"]);
+
 /**
  * The failing workflows in `gh run list`'s JSON, which lists newest first:
  * each workflow is judged by its first run that has concluded, and named
- * once when that conclusion is `failure`.
+ * once when that conclusion is `failure`. Workflows are told apart by id, not
+ * display name, and pull-request runs are skipped: `--branch` matches a run's
+ * head branch, so a fork's `main` would otherwise pass for the default branch.
+ * Only `failure` counts: `timed_out`, `startup_failure` and `action_required`
+ * are left out, as the ticket names `failure` alone.
  */
 function failingWorkflowsFrom(stdout: string, repo: RepoSlug): FailingWorkflow[] {
   const where = `gh run list for ${repo}`;
@@ -1749,17 +1761,21 @@ function failingWorkflowsFrom(stdout: string, repo: RepoSlug): FailingWorkflow[]
   if (!Array.isArray(payload)) {
     throw new Error(`${where}: expected an array.`);
   }
-  const judged = new Set<string>();
+  const judged = new Set<WorkflowId>();
   const failing: FailingWorkflow[] = [];
   payload.forEach((raw, index) => {
     const at = `${where}: run ${index + 1}`;
-    const { workflowName, conclusion, url } = objectAt(raw, at);
+    const { workflowName, workflowDatabaseId, event, conclusion, url } = objectAt(raw, at);
     const name = expectField(workflowName, "string", "workflowName", at);
+    const id = expectField(workflowDatabaseId, "number", "workflowDatabaseId", at) as WorkflowId;
     const concluded = expectField(conclusion, "string", "conclusion", at);
-    if (concluded === "" || judged.has(name)) {
+    if (PULL_REQUEST_EVENTS.has(expectField(event, "string", "event", at))) {
       return;
     }
-    judged.add(name);
+    if (concluded === "" || judged.has(id)) {
+      return;
+    }
+    judged.add(id);
     if (concluded !== "failure") {
       return;
     }

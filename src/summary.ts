@@ -64,7 +64,7 @@ import type {
   PullRequestTicket,
   PullRequestUrl,
   RebaseTicket,
-  CheckRunUrl,
+  FailingWorkflow,
   RepoSlug,
   ReviewTicket,
   RunFinished,
@@ -441,11 +441,7 @@ export type InvocationStandDown =
   | DeveloperStandDown;
 
 /** A workflow of `repo` whose latest run on the default branch failed, and the run's page. */
-export interface ProjectFailingWorkflow {
-  repo: RepoSlug;
-  name: string;
-  url: CheckRunUrl;
-}
+export type ProjectFailingWorkflow = FailingWorkflow & { repo: RepoSlug };
 
 /**
  * Everything the summary is built from: the outcome of every registered

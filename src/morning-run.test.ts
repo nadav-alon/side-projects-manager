@@ -495,7 +495,7 @@ describe("morningLoop", () => {
     });
 
     it("leaves the summary intact when the workflows cannot be read", async (t) => {
-      t.mock.method(console, "warn", () => {});
+      const warn = t.mock.method(console, "warn", () => {});
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.repoHost.listFailingWorkflows = async () => {
@@ -506,6 +506,8 @@ describe("morningLoop", () => {
 
       assert.equal(report.outcome, "dry-queue");
       assert.doesNotMatch(ports.tracker.summaries[0]?.body ?? "", /Waiting on you/);
+      const warned = warn.mock.calls.map((call) => String(call.arguments[0]));
+      assert.equal(warned.filter((message) => message.includes(PILOT)).length, 1);
     });
   });
 

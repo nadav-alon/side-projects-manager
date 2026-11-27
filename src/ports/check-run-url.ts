@@ -1,9 +1,9 @@
 declare const checkRunUrlBrand: unique symbol;
 
 /**
- * The web address of a failing check's run, as GitHub's `statusCheckRollup`
- * reports it: an Actions job or run page, or a legacy status context's
- * `targetUrl` on whatever service ran it.
+ * The web address of a failing check's or workflow's run, as GitHub's
+ * `statusCheckRollup` or `gh run list` reports it: an Actions job or run page,
+ * or a legacy status context's `targetUrl` on whatever service ran it.
  *
  * Branded, so the pull request's own address, a different kind of URL, cannot
  * stand in for a link to the run. Values enter through `checkRunUrl` or
