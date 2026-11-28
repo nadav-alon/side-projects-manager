@@ -74,6 +74,7 @@ export {
   declaredSize,
   discoveredBody,
   BUMP_TICKET_LABELS,
+  bumpClosedComment,
   bumpTicketText,
   bumpTicketTitle,
   isBumpTicketFor,

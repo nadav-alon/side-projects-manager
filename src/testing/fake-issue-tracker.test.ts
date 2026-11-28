@@ -1174,6 +1174,16 @@ describe("FakeIssueTracker bump tickets", () => {
     assert.equal(issues[0]?.eligible, true);
   });
 
+  it("closes a bump ticket, keeping the comment and dropping it from the open issues", async () => {
+    const tracker = new FakeIssueTracker();
+    const bump = await tracker.createBumpTicket(PILOT, { title: "Bump ui to v2.0.0", body: "Body" });
+
+    await tracker.closeBumpTicket(bump, "Already at v2.0.0.");
+
+    assert.deepEqual(tracker.closedBumpTickets, [{ ticket: bump, comment: "Already at v2.0.0." }]);
+    assert.deepEqual((await tracker.listOpenIssues(PILOT)).issues, []);
+  });
+
   it("refuses to rewrite a ticket it does not hold", async () => {
     await assert.rejects(
       new FakeIssueTracker().rewriteTicket({ repo: PILOT, number: issueNumber(1) }, { title: "t", body: "b" }),

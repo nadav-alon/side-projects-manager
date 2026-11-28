@@ -462,7 +462,7 @@ export interface SummaryFacts {
   conflictSweeps: ConflictSweepOutcome[];
   specReviewSweeps: SpecReviewSweepOutcome[];
   uniformSyncSweeps: UniformSyncSweepOutcome[];
-  /** Every bump ticket the package bump sweep opened or rewrote, and every refusal it met. */
+  /** Every bump ticket the package bump sweep opened, rewrote or closed, and every refusal it met. */
   packageBumpSweeps: PackageBumpOutcome[];
   /** Every merge an earlier iteration left pending on checks that this invocation settled. */
   settledMerges: SettledMerge[];
@@ -1263,12 +1263,14 @@ function packageBumpPhrase(outcome: PackageBumpOutcome): string {
       return `opened ${ticketReference(result.ticket)} to bump ${pkg}`;
     case "updated":
       return `rewrote ${ticketReference(result.ticket)} to bump ${pkg} to the latest release`;
+    case "closed":
+      return `closed ${ticketReference(result.ticket)}, since ${pkg} is pinned at ${result.pinned}, which reaches the latest release ${result.latest}`;
     case "refused":
       return `could not bump ${pkg}: ${withoutTrailingStop(result.error)}`;
   }
 }
 
-/** The summary line's own short aside on the package bump sweep: present only when it opened, rewrote or was refused something. */
+/** The summary line's own short aside on the package bump sweep: present only when it opened, rewrote, closed or was refused something. */
 function packageBumpAside(packageBumpSweeps: PackageBumpOutcome[]): string {
   const phrases = packageBumpSweeps.map(
     (outcome) => `${outcome.project} (${packageBumpPhrase(outcome)})`,
@@ -1276,7 +1278,7 @@ function packageBumpAside(packageBumpSweeps: PackageBumpOutcome[]): string {
   return phrases.length > 0 ? ` Package bumps: ${phrases.join(", ")}.` : "";
 }
 
-/** One bullet per bump ticket the package bump sweep opened or rewrote, or refusal it met. */
+/** One bullet per bump ticket the package bump sweep opened, rewrote or closed, or refusal it met. */
 function packageBumpSection(packageBumpSweeps: PackageBumpOutcome[]): string | undefined {
   if (packageBumpSweeps.length === 0) {
     return undefined;

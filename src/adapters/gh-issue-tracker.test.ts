@@ -2221,6 +2221,25 @@ describe("ghIssueTracker.closeRebaseTicket", () => {
   });
 });
 
+describe("ghIssueTracker.closeBumpTicket", () => {
+  it("closes the bump ticket in its own repo, with the comment", async (t) => {
+    const PILOT = repoSlug("nadav-alon/pilot");
+    const gh = await recordingGh(t, ": ");
+
+    await ghIssueTracker().closeBumpTicket(
+      { repo: PILOT, number: issueNumber(44), title: "Bump ui to v2.0.0" },
+      "Pinned at v2.0.0.",
+    );
+
+    const close = callWith(await gh.calls(), "issue", "close");
+    assert.ok(close, "the ticket should be closed with `gh issue close`");
+    assert.equal(valueOf(close, "--repo"), PILOT);
+    assert.ok(close.includes("44"));
+    assert.equal(valueOf(close, "--reason"), "completed");
+    assert.equal(valueOf(close, "--comment"), "Pinned at v2.0.0.");
+  });
+});
+
 describe("ghIssueTracker.createSpecReviewTicket", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
