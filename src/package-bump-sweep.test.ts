@@ -114,6 +114,35 @@ describe("packageBumpSweep", () => {
     assert.match(tracker.rewrittenTickets[0]?.body ?? "", /v0\.6\.0/);
   });
 
+  it("closes the open bump ticket, with a comment, once the pin reaches the latest release", async () => {
+    const { repoHost, tracker, ports } = arrange();
+    repoHost.setFile(CATALOGUE, "package.json", manifest({ "household-ui": "github:nadav-alon/household-ui#v0.1.0" }));
+    await packageBumpSweep(ports, [UI, CATALOGUE]);
+    const ticket = tracker.bumpTickets[0]?.ticket;
+
+    repoHost.setFile(CATALOGUE, "package.json", manifest({ "household-ui": "github:nadav-alon/household-ui#v0.5.1" }));
+    const outcomes = await packageBumpSweep(ports, [UI, CATALOGUE]);
+
+    assert.deepEqual(outcomes.map((o) => [o.project, o.result.kind]), [[CATALOGUE, "closed"]]);
+    assert.equal(tracker.closedBumpTickets.length, 1);
+    assert.deepEqual(tracker.closedBumpTickets[0]?.ticket, ticket);
+    assert.match(tracker.closedBumpTickets[0]?.comment ?? "", /v0\.5\.1/);
+    assert.deepEqual(await packageBumpSweep(ports, [UI, CATALOGUE]), []);
+  });
+
+  it("closes the open bump ticket for a pin past the latest release, and none where no bump ticket is open", async () => {
+    const { repoHost, tracker, ports } = arrange();
+    repoHost.setFile(CATALOGUE, "package.json", manifest({ "household-ui": "github:nadav-alon/household-ui#v0.1.0" }));
+    await packageBumpSweep(ports, [UI, CATALOGUE]);
+    repoHost.setFile(CATALOGUE, "package.json", manifest({ "household-ui": "github:nadav-alon/household-ui#v0.9.0" }));
+    repoHost.setFile(RECIPES, "package.json", manifest({ "household-ui": "github:nadav-alon/household-ui#v0.5.1" }));
+
+    const outcomes = await packageBumpSweep(ports, [UI, CATALOGUE, RECIPES]);
+
+    assert.deepEqual(outcomes.map((o) => [o.project, o.result.kind]), [[CATALOGUE, "closed"]]);
+    assert.equal(tracker.closedBumpTickets.length, 1);
+  });
+
   it("opens a fresh ticket once the earlier one is no longer open", async () => {
     const { repoHost, tracker, ports } = arrange();
     repoHost.setFile(CATALOGUE, "package.json", manifest({ "household-ui": "github:nadav-alon/household-ui#v0.1.0" }));

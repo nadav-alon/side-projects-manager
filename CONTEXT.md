@@ -276,7 +276,9 @@ Once per invocation, ahead of the first iteration, every non-paused registered p
 published a release is compared with every other non-paused registered project's `package.json`.
 A project pinning it as `github:<owner>/<package>#v…` at an earlier tag gets a bump ticket asking to
 move to the latest release and fix what the bump breaks, born ready-for-agent and turboable. A
-project already on the release, or not pinning the package, gets none. While a project's bump ticket
+project already on the release, or not pinning the package, gets none, and one whose pin reaches
+the release while its bump ticket is open has that ticket closed as completed, with a comment
+naming the pin and the release, and the closure listed in the summary. While a project's bump ticket
 for a package is open, a later release retitles and rewrites it rather than opening a second. A read
 or a write the host or tracker refuses is carried into the summary rather than failing the
 invocation.

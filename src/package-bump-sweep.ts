@@ -12,7 +12,10 @@ import {
 /** The verbs a package bump sweep calls. */
 export interface PackageBumpSweepPorts {
   repoHost: Pick<RepoHost, "readLatestRelease" | "readFile">;
-  tracker: Pick<IssueTracker, "listOpenIssues" | "createBumpTicket" | "rewriteTicket">;
+  tracker: Pick<
+    IssueTracker,
+    "listOpenIssues" | "createBumpTicket" | "rewriteTicket" | "closeBumpTicket"
+  >;
 }
 
 /** The bump ticket the sweep opened in a project pinning an older release. */
@@ -31,6 +34,18 @@ export interface PackageBumpUpdated {
   ticket: Ticket;
 }
 
+/**
+ * The project's pin already reached the package's latest release while its
+ * bump ticket was open, so the sweep closed the ticket with a comment naming
+ * the pinned and the latest release.
+ */
+export interface PackageBumpClosed {
+  kind: "closed";
+  ticket: Ticket;
+  pinned: ReleaseTag;
+  latest: ReleaseTag;
+}
+
 /** A read or a write the host or tracker refused the sweep for this package and project. */
 export interface PackageBumpRefusal {
   kind: "refused";
@@ -38,7 +53,7 @@ export interface PackageBumpRefusal {
 }
 
 /** What one package's release came to for one project pinning an older one. */
-export type PackageBumpResult = PackageBumpOpened | PackageBumpUpdated | PackageBumpRefusal;
+export type PackageBumpResult = PackageBumpOpened | PackageBumpUpdated | PackageBumpClosed | PackageBumpRefusal;
 
 /**
  * One package's release, one project's pin of it, and what the sweep did.
@@ -68,11 +83,13 @@ const MANIFEST = "package.json";
  * the tracker lists, so where it truncated the backlog and none was found, one
  * may be hidden: that is a `refused` outcome, never a second ticket.
  *
- * Two limits remain. An open bump ticket is recognised by its title
- * (`isBumpTicketFor`), so one a developer retitled is not found and a second
- * is opened. And a project that already pins the latest release (bumped by
- * hand) yields no outcome, so its open bump ticket is left open, asking for a
- * bump already made.
+ * A project that pins the latest release or later (bumped by hand) and still
+ * has an open bump ticket for the package has it closed with a comment naming
+ * the pin and the release: a `closed` outcome.
+ *
+ * One limit remains. An open bump ticket is recognised by its title
+ * (`isBumpTicketFor`), so one a developer retitled is not found: a second is
+ * opened, or a stale one is left open.
  *
  * Never throws: a read or a write refused for one package and project is a
  * `refused` outcome, and the sweep carries on, so one project's trouble never
@@ -136,13 +153,24 @@ async function bumpIn(
   }
   const pkg = repoName(published);
   const pinned = packagePins(manifest, repoOwner(published)).find((pin) => pin.package === pkg)?.tag;
-  if (pinned === undefined || !isOlderTag(pinned, latest)) {
+  if (pinned === undefined) {
     return undefined;
   }
 
-  const text = bumpTicketText(pkg, latest, pinned);
   const { issues, truncated } = await ports.tracker.listOpenIssues(project);
   const open = issues.find((issue) => isBumpTicketFor(issue.ticket, pkg))?.ticket;
+  if (!isOlderTag(pinned, latest)) {
+    if (open === undefined) {
+      return undefined;
+    }
+    await ports.tracker.closeBumpTicket(
+      open,
+      `The pin of \`${pkg}\` is already \`${pinned}\`, which reaches the latest release, \`${latest}\`. Closing as completed.`,
+    );
+    return { kind: "closed", ticket: open, pinned, latest };
+  }
+
+  const text = bumpTicketText(pkg, latest, pinned);
   if (open === undefined) {
     if (truncated) {
       return {

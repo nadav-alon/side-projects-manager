@@ -30,6 +30,7 @@ import {
   modelName,
   processId,
   pullRequestUrl,
+  releaseTag,
   repoSlug,
   tokenCount,
   transcriptPath,
@@ -3682,10 +3683,16 @@ describe("the package bump sweep in the summary", () => {
           { publisher: UI, project: REPO, result: { kind: "opened", ticket } },
           { publisher: UI, project: REPO, result: { kind: "updated", ticket } },
           { publisher: UI, project: REPO, result: { kind: "refused", error: "HTTP 403." } },
+          {
+            publisher: UI,
+            project: REPO,
+            result: { kind: "closed", ticket, pinned: releaseTag("v0.5.1"), latest: releaseTag("v0.5.1") },
+          },
         ],
       },
       "line",
     );
+    assert.match(body, /closed .*#5, since household-ui is pinned at v0\.5\.1, which reaches the latest release v0\.5\.1/);
 
     assert.match(body, /## Package bumps/);
     assert.match(body, /opened .*#5 to bump household-ui/);
