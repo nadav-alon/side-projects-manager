@@ -2235,6 +2235,7 @@ describe("ghIssueTracker.closeBumpTicket", () => {
     assert.ok(close, "the ticket should be closed with `gh issue close`");
     assert.equal(valueOf(close, "--repo"), PILOT);
     assert.ok(close.includes("44"));
+    assert.equal(valueOf(close, "--reason"), "completed");
     assert.equal(valueOf(close, "--comment"), "Pinned at v2.0.0.");
   });
 });

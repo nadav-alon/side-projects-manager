@@ -141,6 +141,19 @@ describe("packageBumpSweep", () => {
 
     assert.deepEqual(outcomes.map((o) => [o.project, o.result.kind]), [[CATALOGUE, "closed"]]);
     assert.equal(tracker.closedBumpTickets.length, 1);
+    assert.match(tracker.closedBumpTickets[0]?.comment ?? "", /v0\.9\.0/);
+    assert.match(tracker.closedBumpTickets[0]?.comment ?? "", /v0\.5\.1/);
+  });
+
+  it("refuses where a truncated backlog may hide the open bump ticket of a project already on the latest release", async () => {
+    const { repoHost, tracker, ports } = arrange();
+    repoHost.setFile(CATALOGUE, "package.json", manifest({ "household-ui": "github:nadav-alon/household-ui#v0.5.1" }));
+    tracker.truncateBacklog(CATALOGUE);
+
+    const outcomes = await packageBumpSweep(ports, [UI, CATALOGUE]);
+
+    assert.deepEqual(outcomes.map((o) => [o.project, o.result.kind]), [[CATALOGUE, "refused"]]);
+    assert.deepEqual(tracker.closedBumpTickets, []);
   });
 
   it("opens a fresh ticket once the earlier one is no longer open", async () => {

@@ -2,6 +2,7 @@ import { errorMessage } from "./error-message.ts";
 import { packagePins } from "./package-pins.ts";
 import type { IssueTracker, ReleaseTag, RepoHost, RepoSlug, Ticket } from "./ports/index.ts";
 import {
+  bumpClosedComment,
   bumpTicketText,
   isBumpTicketFor,
   isOlderTag,
@@ -35,8 +36,8 @@ export interface PackageBumpUpdated {
 }
 
 /**
- * The project's pin already reached the package's latest release while its
- * bump ticket was open, so the sweep closed the ticket with a comment naming
+ * The project's pin already reached the package's latest release, or passed it,
+ * while its bump ticket was open, so the sweep closed the ticket with a comment naming
  * the pinned and the latest release.
  */
 export interface PackageBumpClosed {
@@ -52,7 +53,7 @@ export interface PackageBumpRefusal {
   error: string;
 }
 
-/** What one package's release came to for one project pinning an older one. */
+/** What one package's release came to for one project pinning it. */
 export type PackageBumpResult = PackageBumpOpened | PackageBumpUpdated | PackageBumpClosed | PackageBumpRefusal;
 
 /**
@@ -75,8 +76,8 @@ const MANIFEST = "package.json";
  * `package.json` pins `github:<owner>/<package>#v…` at an earlier tag gets a
  * bump ticket asking to move to the latest release.
  *
- * Only a bump is reported: a project already on the latest release, one not
- * pinning the package, and one whose open bump ticket already asks for the
+ * Only a bump is reported: a project already on the latest release with no
+ * open bump ticket, one not pinning the package, and one whose open bump ticket already asks for the
  * latest release yield no outcome. A project with an open bump ticket for the
  * package that names an earlier release has that ticket rewritten instead of
  * a second one opened. The open ticket is found among the newest open issues
@@ -161,12 +162,15 @@ async function bumpIn(
   const open = issues.find((issue) => isBumpTicketFor(issue.ticket, pkg))?.ticket;
   if (!isOlderTag(pinned, latest)) {
     if (open === undefined) {
+      if (truncated) {
+        return {
+          kind: "refused",
+          error: `${project}'s open issues were truncated, so an open bump ticket for ${pkg} may be hidden; could not check whether to close it`,
+        };
+      }
       return undefined;
     }
-    await ports.tracker.closeBumpTicket(
-      open,
-      `The pin of \`${pkg}\` is already \`${pinned}\`, which reaches the latest release, \`${latest}\`. Closing as completed.`,
-    );
+    await ports.tracker.closeBumpTicket(open, bumpClosedComment(pkg, pinned, latest));
     return { kind: "closed", ticket: open, pinned, latest };
   }
 

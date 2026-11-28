@@ -1164,8 +1164,10 @@ export interface IssueTracker {
   rewriteTicket(ticket: IssueReference, text: BumpTicketText): Promise<void>;
   /**
    * Closes the open bump `ticket` as completed, with `comment` saying why: its
-   * project's pin already reaches the release it asked for. Labels are left as
-   * they are.
+   * project's pin already reaches, or passes, the package's latest release,
+   * which may be later than the one the ticket asked for. Labels are left as
+   * they are. A method of its own, not `closeRebaseTicket` or the like, since
+   * those take their own ticket kinds.
    */
   closeBumpTicket(ticket: Ticket, comment: string): Promise<void>;
 
@@ -1400,6 +1402,11 @@ function bumpTicketTitlePrefix(pkg: string): string {
 export function isBumpTicketFor(ticket: Pick<Ticket, "title">, pkg: string): boolean {
   const prefix = bumpTicketTitlePrefix(pkg);
   return ticket.title.startsWith(prefix) && isReleaseTag(ticket.title.slice(prefix.length));
+}
+
+/** The comment the sweep closes a bump ticket with once `pinned` reaches `latest`, naming both releases. */
+export function bumpClosedComment(pkg: string, pinned: ReleaseTag, latest: ReleaseTag): string {
+  return `The pin of \`${pkg}\` is already \`${pinned}\`, which reaches the latest release, \`${latest}\`. Closing as completed.`;
 }
 
 /** The title and body a bump ticket carries together. */

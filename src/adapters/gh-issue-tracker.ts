@@ -612,10 +612,10 @@ async function blockOn(ticket: Ticket, blocker: IssueReference): Promise<void> {
 }
 
 /**
- * Closes an issue with a comment, the shape `closeApplyReviewTicket` and
- * `closeRebaseTicket` share — the ticket kind is theirs to keep apart, since
- * each answers to its own port method, but the `gh` call underneath is
- * identical.
+ * Closes an issue as completed with a comment, the shape `closeApplyReviewTicket`,
+ * `closeRebaseTicket` and `closeBumpTicket` share — the ticket kind is theirs
+ * to keep apart, since each answers to its own port method, but the `gh` call
+ * underneath is identical.
  */
 async function closeWithComment(
   ticket: Ticket,
@@ -627,6 +627,8 @@ async function closeWithComment(
     "--repo",
     ticket.repo,
     String(ticket.number),
+    "--reason",
+    "completed",
     "--comment",
     comment,
   ]);

@@ -3675,26 +3675,27 @@ describe("the package bump sweep in the summary", () => {
   const UI = repoSlug("nadav-alon/household-ui");
   const ticket = { repo: REPO, number: issueNumber(5), title: "Bump household-ui to v0.5.1" };
 
-  it("names each bump ticket opened or rewritten, and each refusal", () => {
-    const body = summaryBody(
-      {
-        ...facts([]),
-        packageBumpSweeps: [
-          { publisher: UI, project: REPO, result: { kind: "opened", ticket } },
-          { publisher: UI, project: REPO, result: { kind: "updated", ticket } },
-          { publisher: UI, project: REPO, result: { kind: "refused", error: "HTTP 403." } },
-          {
-            publisher: UI,
-            project: REPO,
-            result: { kind: "closed", ticket, pinned: releaseTag("v0.5.1"), latest: releaseTag("v0.5.1") },
-          },
-        ],
-      },
-      "line",
-    );
-    assert.match(body, /closed .*#5, since household-ui is pinned at v0\.5\.1, which reaches the latest release v0\.5\.1/);
+  it("names each bump ticket opened, rewritten or closed, and each refusal", () => {
+    const sweepFacts = {
+      ...facts([reviewedCleanly(210)]),
+      packageBumpSweeps: [
+        { publisher: UI, project: REPO, result: { kind: "opened" as const, ticket } },
+        { publisher: UI, project: REPO, result: { kind: "updated" as const, ticket } },
+        { publisher: UI, project: REPO, result: { kind: "refused" as const, error: "HTTP 403." } },
+        {
+          publisher: UI,
+          project: REPO,
+          result: { kind: "closed" as const, ticket, pinned: releaseTag("v0.5.1"), latest: releaseTag("v0.5.1") },
+        },
+      ],
+    };
+    const closure = /closed .*#5, since household-ui is pinned at v0\.5\.1, which reaches the latest release v0\.5\.1/;
+    assert.match(summaryLine(sweepFacts), closure);
 
+    const body = summaryBody(sweepFacts, "line");
     assert.match(body, /## Package bumps/);
+    assert.match(body.split("## Package bumps")[1] ?? "", closure);
+
     assert.match(body, /opened .*#5 to bump household-ui/);
     assert.match(body, /rewrote .*#5 to bump household-ui to the latest release/);
     assert.match(body, /could not bump household-ui: HTTP 403$/m);
