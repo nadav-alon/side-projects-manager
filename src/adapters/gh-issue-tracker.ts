@@ -496,6 +496,10 @@ export function ghIssueTracker(
       ]);
     },
 
+    async closeBumpTicket(ticket: Ticket, comment: string): Promise<void> {
+      await closeWithComment(ticket, comment);
+    },
+
     async createDiscoveredTicket(
       ticket: Ticket,
       discovery: DiscoveredTicketRequest,

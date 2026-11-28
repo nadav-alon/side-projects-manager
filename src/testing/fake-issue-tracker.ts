@@ -214,6 +214,8 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   readonly bumpTickets: FakeBumpTicket[] = [];
   /** Tickets rewritten, in rewrite order, with the title and body each now carries. */
   readonly rewrittenTickets: ({ ticket: IssueReference } & BumpTicketText)[] = [];
+  /** The bump tickets closed, in the order closed, with what each was told. */
+  readonly closedBumpTickets: { ticket: Ticket; comment: string }[] = [];
   /** The ux-script tickets opened, in the order they were opened. */
   readonly uxScriptTickets: Ticket[] = [];
 
@@ -785,6 +787,12 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     }
     entry.issue.title = title;
     this.rewrittenTickets.push({ ticket, title, body });
+  }
+
+  /** Closes the ticket, keeping the comment it closed with. */
+  async closeBumpTicket(ticket: Ticket, comment: string): Promise<void> {
+    this.closedBumpTickets.push({ ticket, comment });
+    this.#close(ticket);
   }
 
   async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {

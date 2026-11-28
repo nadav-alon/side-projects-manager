@@ -1162,6 +1162,12 @@ export interface IssueTracker {
    * state exactly as they are.
    */
   rewriteTicket(ticket: IssueReference, text: BumpTicketText): Promise<void>;
+  /**
+   * Closes the open bump `ticket` as completed, with `comment` saying why: its
+   * project's pin already reaches the release it asked for. Labels are left as
+   * they are.
+   */
+  closeBumpTicket(ticket: Ticket, comment: string): Promise<void>;
 
   /**
    * Gives `ticket` back to the developer once the loop has stopped working on
